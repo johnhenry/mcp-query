@@ -15,6 +15,7 @@ with `npx tsx examples/<file>`. The `.tsx` files are **illustrative** (compile u
 | 06 | [`06-alongside-another-client.ts`](./06-alongside-another-client.ts) | **mcp-query beside a separate MCP client on shared state** | `npx tsx examples/06-alongside-another-client.ts` |
 | — | [`node-everything.ts`](./node-everything.ts) | guided tour against the **real** `server-everything` (+ codegen) | `npm run example:node` |
 | 07 | [`07-hybrid-agent-ui.tsx`](./07-hybrid-agent-ui.tsx) | *illustrative*: LLM agent + live mcp-query UI + broker, one app | bundler |
+| 08 | [`08-webmcp-bridge.tsx`](./08-webmcp-bridge.tsx) | *illustrative · experimental*: WebMCP bridge both directions | browser |
 | — | [`react-app.tsx`](./react-app.tsx) | *illustrative*: every React surface wired together | bundler |
 
 ## Working alongside other clients

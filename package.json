@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./react": "./src/react/index.ts",
     "./devtools": "./src/devtools/index.ts",
-    "./testing": "./src/testing/mockServer.ts"
+    "./testing": "./src/testing/mockServer.ts",
+    "./webmcp": "./src/webmcp/index.ts"
   },
   "bin": {
     "mcp-query-codegen": "./src/codegen/cli.ts",

@@ -75,6 +75,8 @@ The conceptual analysis behind every choice lives in [`docs/`](./docs):
 - [**docs/inspector.md**](./docs/inspector.md) — Inspector-style debugging on mcp-query: raw
   JSON-RPC message log, manual (human-as-model) sampling, OAuth-debug recorder, and the
   `mcp-query-inspect` CLI + per-request timeouts.
+- [**docs/webmcp.md**](./docs/webmcp.md) — *experimental* WebMCP bridge: expose backend tools
+  to an in-browser agent (`bridgeToWebMCP`), and consume page tools (`webMcpToolServer`).
 
 ## The thesis
 
