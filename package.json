@@ -1,0 +1,39 @@
+{
+  "name": "mcp-query",
+  "version": "0.0.1",
+  "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react/index.ts",
+    "./devtools": "./src/devtools/index.ts",
+    "./testing": "./src/testing/mockServer.ts"
+  },
+  "bin": {
+    "mcp-query-codegen": "./src/codegen/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "codegen": "tsx src/codegen/cli.ts"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "react": "^19.2.7"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.17",
+    "happy-dom": "^20.10.6",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}
