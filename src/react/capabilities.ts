@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useMCPClient } from "./provider.js";
 import type { CacheKey } from "../core/keys.js";
-import type { Prompt, Resource, Tool } from "../core/types.js";
+import type { Prompt, Resource, ResourceTemplate, Tool } from "../core/types.js";
 
 function useCapsList<T>(server: string, kind: "tools" | "resources" | "prompts", read: () => T[]): T[] {
   const client = useMCPClient();
@@ -38,6 +38,18 @@ export function useResourceList(opts: { server: string }): { resources: Resource
 export function usePromptList(opts: { server: string }): { prompts: Prompt[] } {
   const client = useMCPClient();
   return { prompts: useCapsList(opts.server, "prompts", () => client.listPrompts(opts.server)) };
+}
+
+/** Resource templates (URI Templates) — the "parameterized query" catalog. */
+export function useResourceTemplates(opts: { server: string }): { templates: ResourceTemplate[] } {
+  const client = useMCPClient();
+  const key: CacheKey = { kind: "templateList", server: opts.server };
+  useSyncExternalStore(
+    useCallback((cb) => client.cache.subscribe(key, cb), [client, opts.server]),
+    () => client.cache.getVersion(key),
+    () => client.cache.getVersion(key),
+  );
+  return { templates: client.listResourceTemplates(opts.server) };
 }
 
 /** Fetch + render a server-provided prompt template (no Apollo analog). */

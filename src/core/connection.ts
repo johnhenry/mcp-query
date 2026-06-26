@@ -10,6 +10,7 @@ import {
   ResourceListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
   PromptListChangedNotificationSchema,
+  LoggingMessageNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import type { MCPCache } from "./cache.js";
@@ -41,6 +42,8 @@ export interface ConnectionDeps {
   handlers: HostHandlers;
   onStateChange?: (server: string, state: ServerState, caps?: ServerCapabilities) => void;
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
+  /** Server-emitted log messages (notifications/message). */
+  onLog?: (server: string, entry: { level: string; logger?: string; data: unknown }) => void;
 }
 
 export class ServerConnection {
@@ -155,6 +158,10 @@ export class ServerConnection {
     this.client.setNotificationHandler(ResourceUpdatedNotificationSchema, (n) => {
       this.cache.onResourceUpdated(this.name, n.params.uri);
     });
+    // Server-side logging stream.
+    this.client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => {
+      this.deps.onLog?.(this.name, { level: n.params.level, logger: n.params.logger, data: n.params.data });
+    });
   }
 
   async relist(kind: "tools" | "resources" | "prompts"): Promise<void> {
@@ -186,10 +193,19 @@ export class ServerConnection {
       this.capabilities.resources && this.relist("resources"),
       this.capabilities.prompts && this.relist("prompts"),
     ]);
-    if (this.capabilities.resources?.listChanged !== undefined) {
+    if (this.capabilities.resources) {
       this.templates = (await this.client.listResourceTemplates().catch(() => ({ resourceTemplates: [] })))
         .resourceTemplates as ResourceTemplate[];
+      // Cache templates (tagged with the resources catalog) so useResourceTemplates re-renders.
+      this.cache.write({ kind: "templateList", server: this.name }, this.templates, {
+        tags: [capsTag(this.name, "resources")],
+      });
     }
+  }
+
+  /** Set the server-side logging verbosity (logging/setLevel). */
+  async setLogLevel(level: string): Promise<void> {
+    if (this.capabilities.logging) await this.client.setLoggingLevel(level as never).catch(() => {});
   }
 
   // ── reconnection reconciliation ───────────────────────────────────────────

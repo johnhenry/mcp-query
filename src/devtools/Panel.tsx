@@ -86,10 +86,49 @@ export function MCPDevtools({ hub }: { hub: DevtoolsHub }) {
             <li key={i}>
               <code>{ev.type}</code> {"server" in ev ? ev.server : ""}{" "}
               {ev.type === "invalidate" ? ev.keys.length + " keys" : ""}
+              {ev.type === "log" ? `${ev.level}: ${JSON.stringify(ev.data)}` : ""}
+              {ev.type === "host-call" ? ev.kind : ""}
             </li>
           ))}
         </ol>
       </section>
+
+      {/* ── Pane 4: human-in-the-loop (broker) ────────────────────────── */}
+      <InteractionsPane />
     </div>
+  );
+}
+
+/** Pending approval queue + audit trail from the InteractionBroker, if configured. */
+function InteractionsPane() {
+  const client = useMCPClient();
+  const broker = client.interactions;
+  useSyncExternalStore(
+    useCallback((cb) => (broker ? broker.subscribe(cb) : () => {}), [broker]),
+    () => broker?.getVersion() ?? 0,
+    () => 0,
+  );
+  if (!broker) return null;
+  return (
+    <section>
+      <h3>Pending interactions</h3>
+      {broker.list().length === 0 && <em>none</em>}
+      {broker.list().map((i) => (
+        <div key={i.id}>
+          <strong>{i.server}</strong> <code>{i.type}</code> ({i.phase})
+          <button onClick={() => broker.resolve(i.id, { action: "approve" })}>approve</button>
+          <button onClick={() => broker.resolve(i.id, { action: "deny" })}>deny</button>
+        </div>
+      ))}
+      <h3>Audit</h3>
+      <ol reversed>
+        {broker.auditLog().slice(-50).reverse().map((e) => (
+          <li key={e.id}>
+            <strong>{e.server}</strong> <code>{e.type}</code> → {e.outcome}
+            {e.reason ? ` (${e.reason})` : ""}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

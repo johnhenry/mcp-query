@@ -45,6 +45,8 @@ export class MCPClient {
   private router: Router;
   private handlers: HostHandlers;
   private devtools?: DevtoolsSink;
+  private stateListeners = new Set<() => void>();
+  private stateVersion = 0;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -79,10 +81,13 @@ export class MCPClient {
           cache: this.cache,
           handlers,
           onStateChange: (s, state, caps) => {
+            this.bumpServerState();
             this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
           },
           onCapabilitiesChanged: (s, kind) =>
             this.devtools?.emit({ type: "capabilities", server: s, kind }),
+          onLog: (s, entry) =>
+            this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
         }),
       );
     }
@@ -176,10 +181,49 @@ export class MCPClient {
   listResources(server: string) {
     return [...(this.conns.get(server)?.resources.values() ?? [])];
   }
+  listResourceTemplates(server: string) {
+    return this.conns.get(server)?.templates ?? [];
+  }
   listPrompts(server: string) {
     return [...(this.conns.get(server)?.prompts.values() ?? [])];
   }
   capsTagFor = capsTag;
+
+  // ── server-state reactive store (useServerState) ─────────────────────────
+  subscribeServerState = (fn: () => void): (() => void) => {
+    this.stateListeners.add(fn);
+    return () => this.stateListeners.delete(fn);
+  };
+  serverStateVersion = (): number => this.stateVersion;
+  private bumpServerState(): void {
+    this.stateVersion++;
+    for (const fn of this.stateListeners) fn();
+  }
+
+  /** Set a server's logging verbosity (logging/setLevel). */
+  setLogLevel(server: string, level: string): Promise<void> {
+    return this.req(server).setLogLevel(level);
+  }
+
+  // ── readOnly tool as a cached query (useToolResult) ──────────────────────
+  async queryTool<A extends Record<string, unknown>, R = unknown>(
+    name: string,
+    args: A,
+    opts: { server?: string } = {},
+  ): Promise<R> {
+    const { server, def } = this.router.resolveTool(name, opts.server);
+    const conn = this.req(server);
+    const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args) } as const;
+    this.cache.setFetching(key);
+    try {
+      const result = (await conn.sdk.callTool({ name: def.name, arguments: args })) as R;
+      this.cache.write(key, result, { tags: [serverTag(server)] });
+      return result;
+    } catch (err) {
+      this.cache.setError(key, this.toError(err, server, "protocol"));
+      throw err;
+    }
+  }
 
   async getPrompt(name: string, args: Record<string, unknown>, server?: string) {
     const { server: s } = this.router.resolveTool(name, server); // prompts share the resolve policy

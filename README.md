@@ -20,10 +20,19 @@ official `@modelcontextprotocol/sdk`.
 
 ```bash
 npm install
-npm run typecheck     # tsc --noEmit
-npm test              # vitest run — 49 tests
+npm run typecheck     # tsc --noEmit (covers src + examples)
+npm test              # vitest run — 77 tests
+npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
 ```
+
+### Examples
+
+- [`examples/node-everything.ts`](./examples/node-everything.ts) — **runnable** (`npm run example:node`):
+  connect, list capabilities, call a tool, read a resource, codegen — no React/agent/LLM.
+- [`examples/react-app.tsx`](./examples/react-app.tsx) — illustrative: every React surface wired
+  together (reads, mutations, `useToolResult`, `useServerState`, `useResourceTemplates`,
+  `useInteractions`, devtools).
 
 ### What the tests cover
 

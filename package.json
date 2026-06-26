@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "codegen": "tsx src/codegen/cli.ts"
+    "codegen": "tsx src/codegen/cli.ts",
+    "example:node": "tsx examples/node-everything.ts"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

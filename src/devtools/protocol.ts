@@ -11,7 +11,8 @@ export type DevtoolsEvent =
   | { type: "request"; server: string; method: string; id: string; params?: unknown }
   | { type: "response"; server: string; id: string; ok: boolean; ms: number }
   | { type: "notification"; server: string; method: string; params?: unknown }
-  | { type: "host-call"; server: string; kind: "sampling" | "elicitation" | "roots" };
+  | { type: "host-call"; server: string; kind: "sampling" | "elicitation" | "roots" }
+  | { type: "log"; server: string; level: string; data: unknown };
 
 export interface DevtoolsSink {
   emit(e: DevtoolsEvent): void;

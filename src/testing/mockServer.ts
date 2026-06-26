@@ -60,6 +60,8 @@ export interface MockSpec {
   resources?: MockResource[];
   templates?: Array<{ uriTemplate: string; name: string }>;
   prompts?: MockPrompt[];
+  /** Advertise the logging capability (enables notifyLog). */
+  logging?: boolean;
   /** Override advertised capabilities; defaults are derived from which arrays are present. */
   capabilities?: ServerCapabilities;
   /** If set, list responses are chunked to exercise cursor pagination. */
@@ -104,6 +106,9 @@ export class MockMCPServer {
   async notifyPromptListChanged(): Promise<void> {
     await this.active?.notification({ method: "notifications/prompts/list_changed" });
   }
+  async notifyLog(level: string, data: unknown, logger?: string): Promise<void> {
+    await this.active?.notification({ method: "notifications/message", params: { level, data, logger } });
+  }
 
   // ── server construction ───────────────────────────────────────────────────
   private capabilities(): ServerCapabilities {
@@ -112,6 +117,7 @@ export class MockMCPServer {
     if (this.spec.tools) caps.tools = { listChanged: true };
     if (this.spec.resources || this.spec.templates) caps.resources = { subscribe: true, listChanged: true };
     if (this.spec.prompts) caps.prompts = { listChanged: true };
+    if (this.spec.logging) caps.logging = {};
     return caps;
   }
 
