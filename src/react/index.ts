@@ -4,3 +4,4 @@ export type { UseResourceOptions, UseResourceResult } from "./useResource.js";
 export { useTool } from "./useTool.js";
 export type { UseToolState } from "./useTool.js";
 export { useTools, useResourceList, usePromptList, usePrompt } from "./capabilities.js";
+export { useInteractions, useAuditLog } from "./interactions.js";

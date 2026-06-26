@@ -6,6 +6,17 @@ export type { CacheEntry, CachePatch, CacheWriteOpts } from "./core/cache.js";
 export { ServerConnection } from "./core/connection.js";
 export type { ConnectionConfig } from "./core/connection.js";
 export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.js";
+export { InteractionBroker } from "./core/interactions.js";
+export type {
+  Interaction,
+  InteractionDecision,
+  InteractionType,
+  InteractionPhase,
+  InteractionBrokerOptions,
+  PolicyContext,
+  PolicyVerdict,
+  AuditEntry,
+} from "./core/interactions.js";
 export { resourceTag, capsTag, serverTag, entityTag } from "./core/tags.js";
 export type { Tag } from "./core/tags.js";
 export type { CacheKey } from "./core/keys.js";

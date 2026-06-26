@@ -4,6 +4,7 @@
 
 import { MCPCache, type CachePatch } from "./cache.js";
 import { ServerConnection, type ConnectionConfig } from "./connection.js";
+import { InteractionBroker } from "./interactions.js";
 import { Router } from "./router.js";
 import { argsHash, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
@@ -13,6 +14,8 @@ import type { HostHandlers, MCPError, ServerState } from "./types.js";
 export interface MCPClientConfig {
   servers: Record<string, ConnectionConfig>;
   handlers?: HostHandlers;
+  /** Human-in-the-loop broker; routes sampling + elicitation through one approval queue. */
+  interactions?: InteractionBroker;
   /** scheme -> server for resource routing, e.g. { file: "fs", github: "github" }. */
   schemeMap?: Record<string, string>;
   cache?: MCPCache;
@@ -36,6 +39,8 @@ export interface CallToolOpts<A, R> {
 
 export class MCPClient {
   readonly cache: MCPCache;
+  /** The human-in-the-loop broker, if one was configured (read by useInteractions). */
+  readonly interactions?: InteractionBroker;
   private conns = new Map<string, ServerConnection>();
   private router: Router;
   private handlers: HostHandlers;
@@ -44,6 +49,13 @@ export class MCPClient {
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
     this.devtools = cfg.devtools;
+    this.interactions = cfg.interactions;
+    // Mirror the broker's audit trail into devtools as host-call events.
+    if (this.interactions && this.devtools) {
+      this.interactions.addAuditSink((e) =>
+        this.devtools?.emit({ type: "host-call", server: e.server, kind: e.type as "sampling" | "elicitation" }),
+      );
+    }
     this.cache =
       cfg.cache ??
       new MCPCache({
@@ -56,11 +68,16 @@ export class MCPClient {
       });
 
     for (const [name, conf] of Object.entries(cfg.servers)) {
+      // When a broker is present, sampling + elicitation are routed through it with
+      // server context; other handlers (roots) pass through.
+      const handlers = this.interactions
+        ? this.interactions.handlersFor(name, this.handlers)
+        : this.handlers;
       this.conns.set(
         name,
         new ServerConnection(name, conf, {
           cache: this.cache,
-          handlers: this.handlers,
+          handlers,
           onStateChange: (s, state, caps) => {
             this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
           },

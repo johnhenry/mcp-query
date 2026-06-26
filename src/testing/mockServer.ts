@@ -25,10 +25,12 @@ import {
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
-/** Context a tool handler can use to call back into the client (e.g. request sampling). */
+/** Context a tool handler can use to call back into the client (sampling/elicitation). */
 export interface MockToolContext {
   /** Issue a sampling/createMessage request to the connected client. */
   sample: (params: Record<string, unknown>) => Promise<{ content: { type: string; text?: string } }>;
+  /** Issue an elicitation/create request to the connected client. */
+  elicit: (params: Record<string, unknown>) => Promise<{ action: string; content?: unknown }>;
 }
 
 export interface MockTool {
@@ -155,6 +157,7 @@ export class MockMCPServer {
       if (!tool) throw new Error(`unknown tool ${req.params.name}`);
       const ctx: MockToolContext = {
         sample: (params) => server.createMessage(params as never) as never,
+        elicit: (params) => server.elicitInput(params as never) as never,
       };
       const out = await tool.handler?.(req.params.arguments ?? {}, ctx);
       if (out && typeof out === "object" && "content" in out) return out as Record<string, unknown>;
