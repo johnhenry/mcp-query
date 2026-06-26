@@ -39,6 +39,17 @@ npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everyth
 The in-memory mock server (`src/testing/mockServer.ts`, exported as `mcp-query/testing`)
 is reusable for testing your own integrations.
 
+## Design & background
+
+The conceptual analysis behind every choice here lives in [`docs/`](./docs):
+
+- [**docs/design.md**](./docs/design.md) — the Apollo reframe, the GraphQL↔MCP mapping, what's
+  similar/different/new/harder/impossible, and the MCP server conventions a client must respect.
+- [**docs/prior-art.md**](./docs/prior-art.md) — does this already exist? Lessons from TanStack
+  Query, RTK Query, urql, Relay, gRPC, tRPC, Connect, and LSP.
+- [**docs/sampling-and-non-agentic.md**](./docs/sampling-and-non-agentic.md) — why "non-agentic"
+  ≠ "no LLM," and how to plug Chrome's built-in AI into the `sampling` handler.
+
 ## The thesis
 
 The right prior art for an MCP client is **not Apollo** — Apollo's defining feature
