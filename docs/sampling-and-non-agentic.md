@@ -81,7 +81,27 @@ const client = new MCPClient({
 
 ## Status in this repo
 
-The `HostHandlers.sampling` slot exists in `src/core/handlers.ts` and is wired so that
-registering it advertises the `sampling` capability. A worked `chromeBuiltinAISampling()`
-factory + a round-trip test against the mock server is a natural next addition (not yet
-implemented).
+Implemented. `chromeBuiltinAISampling()` lives in
+[`src/handlers/chromeAI.ts`](../src/handlers/chromeAI.ts) (exported from the package root)
+with an injectable `LanguageModel` (so it's testable without a browser), an availability
+gate, a `maxTokensCeiling` decline, and an `approve` human-in-the-loop hook. Registering
+it advertises the `sampling` capability.
+
+```ts
+import { MCPClient, chromeBuiltinAISampling } from "mcp-query";
+
+const client = new MCPClient({
+  servers: { /* … */ },
+  handlers: {
+    sampling: chromeBuiltinAISampling({
+      approve: (req) => confirmSamplingUI(req.messages), // human-in-the-loop
+      maxTokensCeiling: 1024,                             // decline oversized requests
+    }),
+  },
+});
+```
+
+`test/sampling.test.ts` covers it both as a unit (mapping, availability, decline, token
+ceiling, session cleanup) and as a full **round-trip through the client** — a mock server
+calls `sampling/createMessage`, the handler fulfills it via a fake `LanguageModel`, and the
+sampled text flows back as the tool result.

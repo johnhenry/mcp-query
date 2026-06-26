@@ -25,12 +25,21 @@ import {
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
+/** Context a tool handler can use to call back into the client (e.g. request sampling). */
+export interface MockToolContext {
+  /** Issue a sampling/createMessage request to the connected client. */
+  sample: (params: Record<string, unknown>) => Promise<{ content: { type: string; text?: string } }>;
+}
+
 export interface MockTool {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
-  handler?: (args: Record<string, unknown>) => { content: unknown[]; isError?: boolean } | unknown;
+  handler?: (
+    args: Record<string, unknown>,
+    ctx: MockToolContext,
+  ) => { content: unknown[]; isError?: boolean } | unknown | Promise<unknown>;
 }
 export interface MockResource {
   uri: string;
@@ -140,11 +149,14 @@ export class MockMCPServer {
       };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, (req) => {
+    server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const tool = (s().tools ?? []).find((t) => t.name === req.params.name);
       this.callLog.push({ name: req.params.name, args: req.params.arguments });
       if (!tool) throw new Error(`unknown tool ${req.params.name}`);
-      const out = tool.handler?.(req.params.arguments ?? {});
+      const ctx: MockToolContext = {
+        sample: (params) => server.createMessage(params as never) as never,
+      };
+      const out = await tool.handler?.(req.params.arguments ?? {}, ctx);
       if (out && typeof out === "object" && "content" in out) return out as Record<string, unknown>;
       return { content: [{ type: "text", text: JSON.stringify(out ?? { ok: true }) }] };
     });

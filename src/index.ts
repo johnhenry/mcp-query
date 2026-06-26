@@ -11,3 +11,15 @@ export type { Tag } from "./core/tags.js";
 export type { CacheKey } from "./core/keys.js";
 export { argsHash, serializeKey } from "./core/keys.js";
 export type { ServerState, MCPError, HostHandlers, Tool, Resource, Prompt } from "./core/types.js";
+export {
+  chromeBuiltinAISampling,
+  ModelUnavailableError,
+  SamplingDeclinedError,
+} from "./handlers/chromeAI.js";
+export type {
+  ChromeSamplingOptions,
+  LanguageModelLike,
+  PromptSession,
+  SamplingRequest,
+  SamplingResult,
+} from "./handlers/chromeAI.js";
