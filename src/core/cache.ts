@@ -29,6 +29,8 @@ export interface CacheEntry<T = unknown> {
   protocolSubscribed: boolean;
   /** In-flight request, for de-duping concurrent reads of the same key. */
   inflight?: Promise<unknown>;
+  /** Aborts the in-flight fetch when the last observer unsubscribes. */
+  abort?: AbortController;
   gcTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -119,7 +121,11 @@ export class MCPCache {
 
   write<T>(key: CacheKey, data: T, opts: CacheWriteOpts = {}): void {
     const e = this.ensure(key);
-    e.data = data;
+    // Structural sharing: if the new data deep-equals the old, keep the old reference
+    // and refresh staleness WITHOUT bumping the version — so observers don't re-render
+    // on a no-op update (e.g. a resources/updated whose bytes didn't actually change).
+    const unchanged = e.status === "success" && structuralEqual(e.data, data);
+    if (!unchanged) e.data = data;
     e.error = undefined;
     e.status = "success";
     e.isStale = false;
@@ -127,7 +133,23 @@ export class MCPCache {
     if (opts.staleTime != null) e.staleTime = opts.staleTime;
     if (opts.gcTime != null) e.gcTime = opts.gcTime;
     this.reindexTags(e, opts.tags);
-    this.emit(e.key);
+    if (!unchanged) this.emit(e.key);
+  }
+
+  // ── in-flight de-duplication + abort-when-unobserved ─────────────────────
+  /** The promise of an in-flight fetch for this key, if any (for request de-duping). */
+  inflight(key: CacheKey): Promise<unknown> | undefined {
+    return this.entries.get(serializeKey(key))?.inflight;
+  }
+  setInflight(key: CacheKey, promise: Promise<unknown> | undefined, abort?: AbortController): void {
+    const e = this.ensure(key);
+    e.inflight = promise;
+    e.abort = promise ? abort : undefined;
+  }
+  /** Abort an in-flight fetch (called when the last observer leaves). */
+  abortInflight(key: CacheKey): void {
+    const e = this.entries.get(serializeKey(key));
+    if (e?.subscribers === 0 && e.abort) e.abort.abort();
   }
 
   setError(key: CacheKey, error: MCPError): void {
@@ -248,4 +270,22 @@ export class MCPCache {
     if (e) e.version++;
     for (const fn of this.listeners.get(key) ?? []) fn();
   }
+}
+
+/** Deep structural equality for cache structural sharing. */
+export function structuralEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => structuralEqual(v, b[i]));
+  }
+  const ak = Object.keys(a as object);
+  const bk = Object.keys(b as object);
+  if (ak.length !== bk.length) return false;
+  return ak.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(b, k) &&
+      structuralEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+  );
 }

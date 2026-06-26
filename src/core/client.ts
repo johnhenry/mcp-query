@@ -64,7 +64,10 @@ export class MCPClient {
         events: {
           // Ref-counted resources/subscribe: first observer subscribes, last unsubscribes.
           onSubscribe: (e) => this.maybeProtocolSubscribe(e.cacheKey, true),
-          onUnsubscribe: (e) => this.maybeProtocolSubscribe(e.cacheKey, false),
+          onUnsubscribe: (e) => {
+            this.maybeProtocolSubscribe(e.cacheKey, false);
+            this.cache.abortInflight(e.cacheKey); // cancel a fetch nobody is watching anymore
+          },
           onInvalidate: (keys) => this.devtools?.emit({ type: "invalidate", keys }),
         },
       });
@@ -118,20 +121,32 @@ export class MCPClient {
     const { server } = this.router.resolveResource(uri, opts.server);
     const conn = this.req(server);
     const key = { kind: "resource", server, uri } as const;
+
+    // De-dupe: concurrent reads of the same key share one in-flight request.
+    const existing = this.cache.inflight(key);
+    if (existing) return existing;
+
     this.cache.setFetching(key);
-    try {
-      const res = await conn.sdk.readResource({ uri });
-      this.cache.write(key, res, {
-        staleTime: opts.staleTime,
-        // every resource auto-provides its URI tag (+ server tag for blunt invalidation)
-        tags: [resourceTag(server, uri), serverTag(server), ...(opts.providesTags ?? [])],
-      });
-      if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
-      return res;
-    } catch (err) {
-      this.cache.setError(key, this.toError(err, server, "protocol"));
-      throw err;
-    }
+    const abort = new AbortController();
+    const p = (async () => {
+      try {
+        const res = await conn.sdk.readResource({ uri }, { signal: abort.signal });
+        this.cache.write(key, res, {
+          staleTime: opts.staleTime,
+          // every resource auto-provides its URI tag (+ server tag for blunt invalidation)
+          tags: [resourceTag(server, uri), serverTag(server), ...(opts.providesTags ?? [])],
+        });
+        if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
+        return res;
+      } catch (err) {
+        this.cache.setError(key, this.toError(err, server, "protocol"));
+        throw err;
+      } finally {
+        this.cache.setInflight(key, undefined);
+      }
+    })();
+    this.cache.setInflight(key, p, abort);
+    return p;
   }
 
   // ── calls (useTool) ───────────────────────────────────────────────────
@@ -214,15 +229,28 @@ export class MCPClient {
     const { server, def } = this.router.resolveTool(name, opts.server);
     const conn = this.req(server);
     const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args) } as const;
+
+    const existing = this.cache.inflight(key);
+    if (existing) return existing as Promise<R>;
+
     this.cache.setFetching(key);
-    try {
-      const result = (await conn.sdk.callTool({ name: def.name, arguments: args })) as R;
-      this.cache.write(key, result, { tags: [serverTag(server)] });
-      return result;
-    } catch (err) {
-      this.cache.setError(key, this.toError(err, server, "protocol"));
-      throw err;
-    }
+    const abort = new AbortController();
+    const p = (async () => {
+      try {
+        const result = (await conn.sdk.callTool({ name: def.name, arguments: args }, undefined, {
+          signal: abort.signal,
+        })) as R;
+        this.cache.write(key, result, { tags: [serverTag(server)] });
+        return result;
+      } catch (err) {
+        this.cache.setError(key, this.toError(err, server, "protocol"));
+        throw err;
+      } finally {
+        this.cache.setInflight(key, undefined);
+      }
+    })();
+    this.cache.setInflight(key, p, abort);
+    return p;
   }
 
   async getPrompt(name: string, args: Record<string, unknown>, server?: string) {
