@@ -9,18 +9,40 @@
 import { writeFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { generateToolTypes, type ToolLike } from "./generate.js";
+import {
+  generateToolTypes,
+  generatePromptTypes,
+  generateTemplateTypes,
+  type ToolLike,
+  type PromptLike,
+  type TemplateLike,
+} from "./generate.js";
 
-/** Drain tools/list from a connected SDK Client (also used by tests). */
+/** Drain tools (and, when available, prompts + resource templates) and generate types. */
 export async function generateFromClient(client: Client): Promise<string> {
+  const caps = client.getServerCapabilities() ?? {};
   const tools: ToolLike[] = [];
   let cursor: string | undefined;
-  do {
-    const page = await client.listTools(cursor ? { cursor } : undefined);
-    tools.push(...(page.tools as ToolLike[]));
-    cursor = page.nextCursor;
-  } while (cursor);
-  return generateToolTypes(tools);
+  if (caps.tools) {
+    do {
+      const page = await client.listTools(cursor ? { cursor } : undefined);
+      tools.push(...(page.tools as ToolLike[]));
+      cursor = page.nextCursor;
+    } while (cursor);
+  }
+
+  let prompts: PromptLike[] = [];
+  if (caps.prompts) prompts = (await client.listPrompts().catch(() => ({ prompts: [] }))).prompts as PromptLike[];
+
+  let templates: TemplateLike[] = [];
+  if (caps.resources) {
+    templates = (await client.listResourceTemplates().catch(() => ({ resourceTemplates: [] })))
+      .resourceTemplates as TemplateLike[];
+  }
+
+  return [generateToolTypes(tools), generatePromptTypes(prompts), generateTemplateTypes(templates)]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function parseArgs(argv: string[]): Record<string, string> {

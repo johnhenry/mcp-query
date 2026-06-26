@@ -22,6 +22,7 @@ import {
   ReadResourceRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
+  CompleteRequestSchema,
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
@@ -62,6 +63,8 @@ export interface MockSpec {
   prompts?: MockPrompt[];
   /** Advertise the logging capability (enables notifyLog). */
   logging?: boolean;
+  /** Advertise completions; map of argument name → candidate values. */
+  completions?: Record<string, string[]>;
   /** Override advertised capabilities; defaults are derived from which arrays are present. */
   capabilities?: ServerCapabilities;
   /** If set, list responses are chunked to exercise cursor pagination. */
@@ -118,6 +121,7 @@ export class MockMCPServer {
     if (this.spec.resources || this.spec.templates) caps.resources = { subscribe: true, listChanged: true };
     if (this.spec.prompts) caps.prompts = { listChanged: true };
     if (this.spec.logging) caps.logging = {};
+    if (this.spec.completions) caps.completions = {};
     return caps;
   }
 
@@ -140,6 +144,11 @@ export class MockMCPServer {
     if (caps.tools) this.installTools(server, s);
     if (caps.resources) this.installResources(server, s);
     if (caps.prompts) this.installPrompts(server, s);
+    if (caps.completions) {
+      server.setRequestHandler(CompleteRequestSchema, (req) => ({
+        completion: { values: s().completions?.[req.params.argument.name] ?? [], hasMore: false },
+      }));
+    }
     return server;
   }
 

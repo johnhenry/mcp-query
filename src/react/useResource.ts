@@ -12,8 +12,12 @@ export interface UseResourceOptions<T> {
   fetchPolicy?: "cache-first" | "cache-and-network" | "network-only";
   staleTime?: number;
   subscribe?: boolean;
-  providesTags?: Tag[];
+  providesTags?: Tag[] | ((result: unknown) => Tag[]);
   select?: (raw: unknown) => T;
+  /** Re-fetch on an interval (ms) — the real-time fallback for servers without subscribe. */
+  refetchInterval?: number;
+  /** Throw the in-flight promise so a <Suspense> boundary can show a fallback. */
+  suspense?: boolean;
   /** Skip the read entirely (e.g. while a dependent value is undefined). */
   skip?: boolean;
 }
@@ -28,7 +32,7 @@ export interface UseResourceResult<T> {
 
 export function useResource<T = unknown>(uri: string, opts: UseResourceOptions<T> = {}): UseResourceResult<T> {
   const client = useMCPClient();
-  const { server, fetchPolicy = "cache-and-network", staleTime, subscribe, providesTags, select, skip } = opts;
+  const { server, fetchPolicy = "cache-and-network", staleTime, subscribe, providesTags, select, skip, refetchInterval } = opts;
   const key: CacheKey = { kind: "resource", server: server ?? routeServer(client, uri), uri };
 
   // Observe a per-entry version counter (entries are mutated in place, so their
@@ -54,6 +58,22 @@ export function useResource<T = unknown>(uri: string, opts: UseResourceOptions<T
     }
     // entry.isStale is the dependency that drives background refetch on invalidation.
   }, [skip, uri, server, fetchPolicy, entry?.isStale, refetch]);
+
+  // Polling — the real-time fallback for servers that don't support resources/subscribe.
+  useEffect(() => {
+    if (skip || !refetchInterval) return;
+    const id = setInterval(() => void refetch(), refetchInterval);
+    return () => clearInterval(id);
+  }, [skip, refetchInterval, refetch]);
+
+  // Suspense: throw the in-flight promise (or kick one off) so a boundary can catch it.
+  if (opts.suspense && !skip && entry?.status !== "success") {
+    if (entry?.status === "error" && entry.error) throw entry.error;
+    throw (
+      client.cache.inflight(key) ??
+      client.readResource(uri, { server, subscribe, staleTime, providesTags })
+    );
+  }
 
   const raw = entry?.data;
   return {

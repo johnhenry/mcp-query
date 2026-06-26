@@ -9,3 +9,5 @@ export type { UseToolResultOptions } from "./useToolResult.js";
 export { useServerState } from "./useServerState.js";
 export type { UseServerStateResult } from "./useServerState.js";
 export { useInteractions, useAuditLog } from "./interactions.js";
+export { createTypedHooks } from "./typed.js";
+export type { ToolMapShape } from "./typed.js";

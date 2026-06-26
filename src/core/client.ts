@@ -20,13 +20,22 @@ export interface MCPClientConfig {
   schemeMap?: Record<string, string>;
   cache?: MCPCache;
   devtools?: DevtoolsSink;
+  /** Retry count for *reads* (resource reads + tool queries are safe to retry). Default 0. */
+  retry?: number;
 }
 
 export interface ReadResourceOpts {
   server?: string;
   subscribe?: boolean;
   staleTime?: number;
-  providesTags?: Tag[];
+  /** Extra tags this entry provides — a list, or a function of the result (entity layer). */
+  providesTags?: Tag[] | ((result: unknown) => Tag[]);
+}
+
+export interface QueryToolOpts {
+  server?: string;
+  /** Extra tags this cached result provides — list or function of result (entity layer). */
+  providesTags?: Tag[] | ((result: unknown) => Tag[]);
 }
 
 export interface CallToolOpts<A, R> {
@@ -47,11 +56,13 @@ export class MCPClient {
   private devtools?: DevtoolsSink;
   private stateListeners = new Set<() => void>();
   private stateVersion = 0;
+  private retryCount = 0;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
     this.devtools = cfg.devtools;
     this.interactions = cfg.interactions;
+    this.retryCount = cfg.retry ?? 0;
     // Mirror the broker's audit trail into devtools as host-call events.
     if (this.interactions && this.devtools) {
       this.interactions.addAuditSink((e) =>
@@ -130,11 +141,12 @@ export class MCPClient {
     const abort = new AbortController();
     const p = (async () => {
       try {
-        const res = await conn.sdk.readResource({ uri }, { signal: abort.signal });
+        const res = await this.withRetry(() => conn.sdk.readResource({ uri }, { signal: abort.signal }));
+        const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         this.cache.write(key, res, {
           staleTime: opts.staleTime,
           // every resource auto-provides its URI tag (+ server tag for blunt invalidation)
-          tags: [resourceTag(server, uri), serverTag(server), ...(opts.providesTags ?? [])],
+          tags: [resourceTag(server, uri), serverTag(server), ...extra],
         });
         if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
         return res;
@@ -220,11 +232,62 @@ export class MCPClient {
     return this.req(server).setLogLevel(level);
   }
 
+  /** Liveness check — round-trips a ping to detect a silently-dead server. */
+  ping(server: string): Promise<unknown> {
+    return this.req(server).sdk.ping();
+  }
+
+  /** Argument autocompletion for a prompt or resource template (completion/complete). */
+  async complete(
+    ref: { type: "ref/prompt"; name: string } | { type: "ref/resource"; uri: string },
+    argument: { name: string; value: string },
+    server: string,
+  ): Promise<string[]> {
+    const res = (await this.req(server).sdk.complete({ ref, argument })) as {
+      completion?: { values?: string[] };
+    };
+    return res.completion?.values ?? [];
+  }
+
+  /** Notify every connected server that the client's roots changed (roots/list_changed). */
+  async notifyRootsChanged(): Promise<void> {
+    await Promise.allSettled(this.connections().map((c) => c.sdk.sendRootsListChanged()));
+  }
+
+  // ── dynamic topology ──────────────────────────────────────────────────────
+  /** Add and connect a server at runtime. */
+  async addServer(name: string, conf: ConnectionConfig): Promise<void> {
+    if (this.conns.has(name)) throw new Error(`server "${name}" already exists`);
+    const handlers = this.interactions ? this.interactions.handlersFor(name, this.handlers) : this.handlers;
+    const conn = new ServerConnection(name, conf, {
+      cache: this.cache,
+      handlers,
+      onStateChange: (s, state, caps) => {
+        this.bumpServerState();
+        this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
+      },
+      onCapabilitiesChanged: (s, kind) => this.devtools?.emit({ type: "capabilities", server: s, kind }),
+      onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
+    });
+    this.conns.set(name, conn);
+    await conn.connect();
+  }
+
+  /** Disconnect and remove a server at runtime. */
+  async removeServer(name: string): Promise<void> {
+    const conn = this.conns.get(name);
+    if (!conn) return;
+    await conn.close();
+    this.conns.delete(name);
+    this.cache.markStaleByServer(name);
+    this.bumpServerState();
+  }
+
   // ── readOnly tool as a cached query (useToolResult) ──────────────────────
   async queryTool<A extends Record<string, unknown>, R = unknown>(
     name: string,
     args: A,
-    opts: { server?: string } = {},
+    opts: QueryToolOpts = {},
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
     const conn = this.req(server);
@@ -237,10 +300,11 @@ export class MCPClient {
     const abort = new AbortController();
     const p = (async () => {
       try {
-        const result = (await conn.sdk.callTool({ name: def.name, arguments: args }, undefined, {
-          signal: abort.signal,
-        })) as R;
-        this.cache.write(key, result, { tags: [serverTag(server)] });
+        const result = (await this.withRetry(() =>
+          conn.sdk.callTool({ name: def.name, arguments: args }, undefined, { signal: abort.signal }),
+        )) as R;
+        const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
+        this.cache.write(key, result, { tags: [serverTag(server), ...extra] });
         return result;
       } catch (err) {
         this.cache.setError(key, this.toError(err, server, "protocol"));
@@ -280,6 +344,19 @@ export class MCPClient {
     const c = this.conns.get(server);
     if (!c) throw new Error(`Unknown server "${server}"`);
     return c;
+  }
+
+  /** Retry a read up to `retry` times (no backoff state needed — reads are idempotent). */
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= this.retryCount; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   }
 
   private toError(err: unknown, server: string, kind: MCPError["kind"]): MCPError {

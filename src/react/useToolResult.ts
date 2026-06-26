@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useMCPClient } from "./provider.js";
 import { argsHash, type CacheKey } from "../core/keys.js";
-import type { MCPError } from "../core/types.js";
+import type { MCPError, Tag } from "../core/types.js";
 
 export interface UseToolResultOptions<A, T> {
   server?: string;
@@ -13,6 +13,9 @@ export interface UseToolResultOptions<A, T> {
   skip?: boolean;
   fetchPolicy?: "cache-first" | "cache-and-network" | "network-only";
   select?: (raw: unknown) => T;
+  providesTags?: Tag[] | ((result: unknown) => Tag[]);
+  refetchInterval?: number;
+  suspense?: boolean;
 }
 
 export function useToolResult<A extends Record<string, unknown>, T = unknown>(
@@ -21,7 +24,7 @@ export function useToolResult<A extends Record<string, unknown>, T = unknown>(
   opts: UseToolResultOptions<A, T> = {},
 ): { data?: T; error?: MCPError; isLoading: boolean; isStale: boolean; refetch: () => Promise<void> } {
   const client = useMCPClient();
-  const { server, skip, fetchPolicy = "cache-and-network", select } = opts;
+  const { server, skip, fetchPolicy = "cache-and-network", select, providesTags, refetchInterval } = opts;
   // Resolve the server eagerly so the cache key is stable before the call resolves.
   const resolved = server ?? resolveServer(client, name);
   const key: CacheKey = { kind: "toolResult", server: resolved, tool: bare(name), argsHash: argsHash(args) };
@@ -34,7 +37,7 @@ export function useToolResult<A extends Record<string, unknown>, T = unknown>(
   const entry = client.cache.getSnapshot(key);
 
   const refetch = useCallback(
-    () => client.queryTool(name, args, { server }).then(() => {}),
+    () => client.queryTool(name, args, { server, providesTags }).then(() => {}),
     [client, name, server, argsHash(args)],
   );
 
@@ -50,6 +53,17 @@ export function useToolResult<A extends Record<string, unknown>, T = unknown>(
       void refetch();
     }
   }, [skip, name, resolved, fetchPolicy, entry?.isStale, refetch]);
+
+  useEffect(() => {
+    if (skip || !refetchInterval) return;
+    const id = setInterval(() => void refetch(), refetchInterval);
+    return () => clearInterval(id);
+  }, [skip, refetchInterval, refetch]);
+
+  if (opts.suspense && !skip && entry?.status !== "success") {
+    if (entry?.status === "error" && entry.error) throw entry.error;
+    throw client.cache.inflight(key) ?? client.queryTool(name, args, { server, providesTags });
+  }
 
   const raw = entry?.data;
   return {

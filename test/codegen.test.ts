@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
-import { jsonSchemaToTS, generateToolTypes } from "../src/codegen/generate.js";
+import { jsonSchemaToTS, generateToolTypes, generatePromptTypes, generateTemplateTypes } from "../src/codegen/generate.js";
 import { generateFromClient } from "../src/codegen/cli.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
@@ -77,6 +77,24 @@ describe("generateToolTypes", () => {
     const diagnostics = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === file);
     const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     expect(messages).toEqual([]);
+  });
+});
+
+describe("generatePromptTypes", () => {
+  it("emits a prompt map with required/optional string args", () => {
+    const out = generatePromptTypes([
+      { name: "greet", arguments: [{ name: "name", required: true }, { name: "lang" }] },
+    ]);
+    expect(out).toContain("GeneratedPromptMap");
+    expect(out).toContain("name: string;");
+    expect(out).toContain("lang?: string;");
+    expect(out).toContain("export type PromptName =");
+  });
+});
+
+describe("generateTemplateTypes", () => {
+  it("emits a union of template URIs", () => {
+    expect(generateTemplateTypes([{ name: "t", uriTemplate: "db://{table}" }])).toContain('"db://{table}"');
   });
 });
 

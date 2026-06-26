@@ -1,8 +1,18 @@
 // Public, framework-agnostic surface.
 export { MCPClient } from "./core/client.js";
-export type { MCPClientConfig, ReadResourceOpts, CallToolOpts } from "./core/client.js";
-export { MCPCache } from "./core/cache.js";
+export type { MCPClientConfig, ReadResourceOpts, CallToolOpts, QueryToolOpts } from "./core/client.js";
+export {
+  isReadOnly,
+  isDestructive,
+  isIdempotent,
+  contentAnnotations,
+  structuredContent,
+  isToolError,
+} from "./core/annotations.js";
+export { MCPCache, structuralEqual } from "./core/cache.js";
 export type { CacheEntry, CachePatch, CacheWriteOpts } from "./core/cache.js";
+export { persistCache } from "./core/persist.js";
+export type { SyncStorage, PersistOptions } from "./core/persist.js";
 export { ServerConnection } from "./core/connection.js";
 export type { ConnectionConfig } from "./core/connection.js";
 export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.js";

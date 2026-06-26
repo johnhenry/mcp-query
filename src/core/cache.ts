@@ -61,6 +61,7 @@ export class MCPCache {
   private entries = new Map<string, CacheEntry>();
   private tagIndex = new Map<Tag, Set<string>>(); // tag -> entry keys
   private listeners = new Map<string, Set<Listener>>(); // entry key -> hook listeners
+  private globalListeners = new Set<() => void>();
   private now: () => number;
   private events: CacheEvents;
 
@@ -222,6 +223,30 @@ export class MCPCache {
     return [...this.entries.values()];
   }
 
+  /** Fires on any change to any entry — used by the persister. */
+  subscribeAll(fn: () => void): () => void {
+    this.globalListeners.add(fn);
+    return () => this.globalListeners.delete(fn);
+  }
+
+  // ── persistence (offline / SSR hydration) ─────────────────────────────────
+  /** A serializable snapshot of successful entries (data + tags + age). */
+  dehydrate(): { entries: Array<{ cacheKey: CacheKey; data: unknown; tags: Tag[]; updatedAt: number }> } {
+    return {
+      entries: [...this.entries.values()]
+        .filter((e) => e.status === "success")
+        .map((e) => ({ cacheKey: e.cacheKey, data: e.data, tags: [...e.tags], updatedAt: e.updatedAt })),
+    };
+  }
+  /** Restore a snapshot. Entries keep their original age, so staleTime still applies. */
+  hydrate(snapshot: { entries: Array<{ cacheKey: CacheKey; data: unknown; tags: Tag[]; updatedAt: number }> }): void {
+    for (const s of snapshot.entries) {
+      this.write(s.cacheKey, s.data, { tags: s.tags });
+      const e = this.entries.get(serializeKey(s.cacheKey));
+      if (e) e.updatedAt = s.updatedAt; // preserve age rather than "now"
+    }
+  }
+
   private ensure(key: CacheKey): CacheEntry {
     const k = serializeKey(key);
     let e = this.entries.get(k);
@@ -269,6 +294,7 @@ export class MCPCache {
     const e = this.entries.get(key);
     if (e) e.version++;
     for (const fn of this.listeners.get(key) ?? []) fn();
+    for (const fn of this.globalListeners) fn();
   }
 }
 

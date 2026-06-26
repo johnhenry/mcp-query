@@ -22,6 +22,17 @@ export interface ToolLike {
   inputSchema?: JSONSchema;
 }
 
+export interface PromptLike {
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; required?: boolean; description?: string }>;
+}
+
+export interface TemplateLike {
+  name: string;
+  uriTemplate: string;
+}
+
 /** Convert a single JSON Schema node to a TS type expression. */
 export function jsonSchemaToTS(schema: JSONSchema | undefined, indent = 0): string {
   if (!schema) return "unknown";
@@ -91,4 +102,28 @@ export function generateToolTypes(tools: ToolLike[], opts: { banner?: boolean } 
     `export type ToolArgs<N extends ToolName> = GeneratedToolMap[N]["args"];\n` +
     `export type ToolResult<N extends ToolName> = GeneratedToolMap[N]["result"];\n`
   );
+}
+
+/** Emit a PromptArgs map: each prompt → its (string-valued) argument record. */
+export function generatePromptTypes(prompts: PromptLike[]): string {
+  if (!prompts.length) return "";
+  const sorted = [...prompts].sort((a, b) => a.name.localeCompare(b.name));
+  const entries = sorted
+    .map((p) => {
+      const fields = (p.arguments ?? [])
+        .map((a) => `    ${/^[A-Za-z_$][\w$]*$/.test(a.name) ? a.name : JSON.stringify(a.name)}${a.required ? "" : "?"}: string;`)
+        .join("\n");
+      return `  ${JSON.stringify(p.name)}: {\n${fields || "    [k: string]: string;"}\n  };`;
+    })
+    .join("\n");
+  return `export interface GeneratedPromptMap {\n${entries}\n}\n\nexport type PromptName = ${sorted
+    .map((p) => JSON.stringify(p.name))
+    .join(" | ")};\n`;
+}
+
+/** Emit a union of resource-template URIs. */
+export function generateTemplateTypes(templates: TemplateLike[]): string {
+  if (!templates.length) return "";
+  const union = templates.map((t) => JSON.stringify(t.uriTemplate)).join(" | ");
+  return `export type ResourceTemplateUri = ${union};\n`;
 }
