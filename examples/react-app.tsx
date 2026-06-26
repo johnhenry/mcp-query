@@ -3,7 +3,8 @@
 // tool reads, capability + template lists, connection state, the human-in-the-loop
 // queue, and the devtools panel.
 
-import { MCPClient, InteractionBroker, chromeBuiltinAISampling } from "../src/index.js";
+import { Suspense } from "react";
+import { MCPClient, InteractionBroker, chromeBuiltinAISampling, persistCache } from "../src/index.js";
 import { MCPProvider } from "../src/react/provider.js";
 import { useResource } from "../src/react/useResource.js";
 import { useTool } from "../src/react/useTool.js";
@@ -11,6 +12,7 @@ import { useToolResult } from "../src/react/useToolResult.js";
 import { useTools, useResourceTemplates } from "../src/react/capabilities.js";
 import { useServerState } from "../src/react/useServerState.js";
 import { useInteractions } from "../src/react/interactions.js";
+import { createTypedHooks } from "../src/react/typed.js";
 import { MCPDevtools, DevtoolsHub } from "../src/devtools/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -23,11 +25,22 @@ const broker = new InteractionBroker({
 
 const client = new MCPClient({
   servers: {
-    github: { transport: () => new StreamableHTTPClientTransport(new URL("https://example.com/mcp")) },
+    github: {
+      // Auth is configured on the transport itself (OAuth 2.1 for Streamable HTTP).
+      transport: () => new StreamableHTTPClientTransport(new URL("https://example.com/mcp")),
+    },
   },
   interactions: broker,
   devtools: hub,
+  retry: 2,
 });
+
+// Offline / restore: hydrate the cache from localStorage and keep it saved.
+if (typeof localStorage !== "undefined") persistCache(client.cache, localStorage, { key: "demo" });
+
+// Typed hooks from codegen output: `import type { GeneratedToolMap } from "./mcp.gen"`.
+type GeneratedToolMap = { "github.create_issue": { args: { title: string }; result: { id: number } } };
+const typed = createTypedHooks<GeneratedToolMap>();
 
 export function App() {
   return (
@@ -36,10 +49,34 @@ export function App() {
       <Issues />
       <IssueSearch />
       <ToolPalette />
+      <TypedCreate />
       <Templates />
+      <Suspense fallback={<p>loading readme…</p>}>
+        <Readme />
+      </Suspense>
       <ApprovalCenter />
       <MCPDevtools hub={hub} />
     </MCPProvider>
+  );
+}
+
+// Suspense + polling: throws to the boundary above; re-fetches every 10s.
+function Readme() {
+  const { data } = useResource<{ contents?: { text?: string }[] }>("github://readme", {
+    server: "github",
+    suspense: true,
+    refetchInterval: 10_000,
+  });
+  return <pre>{data?.contents?.[0]?.text}</pre>;
+}
+
+// Fully-typed mutation from the generated tool map.
+function TypedCreate() {
+  const [create, { isPending, progress }] = typed.useTool("github.create_issue");
+  return (
+    <button disabled={isPending} onClick={() => void create({ title: "typed!" })}>
+      create {progress ? `(${progress.progress})` : ""}
+    </button>
   );
 }
 

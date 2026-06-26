@@ -21,7 +21,7 @@ official `@modelcontextprotocol/sdk`.
 ```bash
 npm install
 npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 77 tests
+npm test              # vitest run — 92 tests
 npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
 ```
@@ -50,7 +50,9 @@ is reusable for testing your own integrations.
 
 ## Design & background
 
-The conceptual analysis behind every choice here lives in [`docs/`](./docs):
+- [**docs/api.md**](./docs/api.md) — **the full API reference: every feature with an example.**
+
+The conceptual analysis behind every choice lives in [`docs/`](./docs):
 
 - [**docs/design.md**](./docs/design.md) — the Apollo reframe, the GraphQL↔MCP mapping, what's
   similar/different/new/harder/impossible, and the MCP server conventions a client must respect.
@@ -168,10 +170,20 @@ function Issues() {
 - **Normalized caching.** No global object identity in MCP results → impossible to do
   automatically. The opt-in entity layer is `providesTags` + `entityTag()` only.
 - **Static end-to-end types (tRPC-style).** MCP servers are polyglot/decoupled, so types
-  come from **codegen against `tools/list` JSON Schemas**, not TS inference. (A `codegen`
-  step would emit typed `useTool<"github.create_issue">` overloads — not yet built.)
-- **Sampling by default.** Non-agentic apps usually have no LLM; the handler is omitted,
-  so the capability isn't advertised.
+  come from **codegen against `tools/list` JSON Schemas** + `createTypedHooks()`, not TS
+  inference.
+Everything else discussed during design — codegen-typed hooks, sampling (incl. Chrome
+built-in AI), polling, persistence, Suspense, dynamic topology, completion, ping — is now
+implemented. See [docs/api.md](./docs/api.md) for every feature with an example.
+
+## Feature coverage
+
+Reads/queries (`useResource`, `useToolResult`, `queryTool`) · mutations (`useTool` with
+optimistic + invalidation + progress + cancel) · capability lists + templates + prompts ·
+`useServerState` · in-flight dedup · structural sharing · polling · Suspense · persistence ·
+entity tags · structured output + annotation helpers · human-in-the-loop broker (sampling +
+elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
+ping · completion · dynamic add/remove server · read retry · devtools. **92 tests, green.**
 
 ## File map
 
