@@ -29,6 +29,8 @@ export interface Interaction {
   server: string;
   /** sampling request params, elicitation {message, requestedSchema}, or {result}. */
   payload: unknown;
+  /** True when the human must *author* the result (manual sampling), not just approve. */
+  manual?: boolean;
   createdAt: number;
 }
 
@@ -55,6 +57,12 @@ export interface AuditEntry {
 export interface InteractionBrokerOptions {
   /** Runs the actual LLM for sampling, e.g. chromeBuiltinAISampling(). Omit ⇒ sampling not offered. */
   model?: NonNullable<HostHandlers["sampling"]>;
+  /**
+   * Human-as-model sampling (MCP Inspector style): instead of an LLM, a person authors
+   * the response in the approval UI. Sampling is still advertised; the request-phase
+   * decision must carry `editedResult`. Takes precedence over `model`.
+   */
+  manualSampling?: boolean;
   /** Per-request trust policy. Default: "ask" for everything. */
   policy?: (ctx: PolicyContext) => PolicyVerdict | Promise<PolicyVerdict>;
   /** When true, every human-approved sampling result also gets a response-review step. */
@@ -115,6 +123,21 @@ export class InteractionBroker {
       throw declined("sampling denied by policy");
     }
 
+    // Manual mode: a human authors the response in the UI (the Inspector pattern).
+    if (this.opts.manualSampling) {
+      const d = await this.enqueue("sampling", "request", server, params, true);
+      if (d.action === "deny") {
+        this.record(server, "sampling", "denied", d.reason);
+        throw declined(d.reason);
+      }
+      if (d.editedResult === undefined) {
+        this.record(server, "sampling", "error", "manual sampling produced no result");
+        throw declined("manual sampling requires an authored result");
+      }
+      this.record(server, "sampling", "approved");
+      return d.editedResult;
+    }
+
     const p = params as { messages?: unknown };
     let messages = p.messages;
     if (verdict === "ask") {
@@ -167,7 +190,7 @@ export class InteractionBroker {
   /** Build server-bound HostHandlers that route sampling/elicitation through the broker. */
   handlersFor(server: string, base: HostHandlers): HostHandlers {
     const h: HostHandlers = { roots: base.roots };
-    if (this.opts.model) h.sampling = (p) => this.handleSampling(server, p);
+    if (this.opts.model || this.opts.manualSampling) h.sampling = (p) => this.handleSampling(server, p);
     h.elicitation = (p) => this.handleElicitation(server, p) as ReturnType<NonNullable<HostHandlers["elicitation"]>>;
     return h;
   }
@@ -182,9 +205,10 @@ export class InteractionBroker {
     phase: InteractionPhase,
     server: string,
     payload: unknown,
+    manual = false,
   ): Promise<InteractionDecision> {
     const id = ++this.seq;
-    const interaction: Interaction = { id, type, phase, server, payload, createdAt: this.now() };
+    const interaction: Interaction = { id, type, phase, server, payload, manual, createdAt: this.now() };
     return new Promise<InteractionDecision>((resolve) => {
       this.pending.set(id, { interaction, resolve });
       this.bump();

@@ -15,6 +15,7 @@ import {
 
 import type { MCPCache } from "./cache.js";
 import { clientCapabilities, installHandlers } from "./handlers.js";
+import { instrumentTransport, type TrafficEvent } from "./instrument.js";
 import { listKeyFor } from "./keys.js";
 import { capsTag, serverTag } from "./tags.js";
 import type {
@@ -44,6 +45,8 @@ export interface ConnectionDeps {
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
   /** Server-emitted log messages (notifications/message). */
   onLog?: (server: string, entry: { level: string; logger?: string; data: unknown }) => void;
+  /** Every JSON-RPC message in/out (for the devtools message log). */
+  onMessage?: (server: string, ev: TrafficEvent) => void;
 }
 
 export class ServerConnection {
@@ -91,12 +94,18 @@ export class ServerConnection {
     return this.client;
   }
 
+  /** Build the transport, instrumented for the message log when a tap is present. */
+  private makeTransport(): Transport {
+    const t = this.cfg.transport();
+    return this.deps.onMessage ? instrumentTransport(t, (ev) => this.deps.onMessage!(this.name, ev)) : t;
+  }
+
   // ── lifecycle ────────────────────────────────────────────────────────────
   async connect(): Promise<void> {
     this.setState("connecting");
     try {
       this.wireNotifications();
-      await this.client.connect(this.cfg.transport());
+      await this.client.connect(this.makeTransport());
       this.setState("initializing");
       // The SDK performs `initialize` during connect(); capabilities are now available.
       this.capabilities = this.client.getServerCapabilities() ?? {};
@@ -120,7 +129,7 @@ export class ServerConnection {
       this.client.onclose = undefined; // stop the dying client from scheduling another reconnect
       this.client = this.makeClient();
       this.wireNotifications();
-      await this.client.connect(this.cfg.transport());
+      await this.client.connect(this.makeTransport());
       this.capabilities = this.client.getServerCapabilities() ?? {};
       this.reconcileCapabilities(before, this.capabilities);
       await this.refreshAll(); // re-list: surface may have changed

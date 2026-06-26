@@ -10,18 +10,20 @@ apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
 official `@modelcontextprotocol/sdk`.
 
 > Status: **working reference implementation.** `tsc --noEmit` is clean and the full
-> vitest suite (49 tests) passes, including end-to-end coverage of the cache,
-> multiplexing, protocol-driven invalidation, dynamic registration, and reconnect —
-> all driven against a *real* SDK server over an in-memory transport. The codegen CLI
-> is verified against the live `@modelcontextprotocol/server-everything`. It is a
-> reference/learning codebase, not a published package (no build/publish pipeline yet).
+> vitest suite (100 tests) passes, including end-to-end coverage of the cache,
+> multiplexing, protocol-driven invalidation, dynamic registration, reconnect, the
+> human-in-the-loop broker, and Inspector-style tooling (message log, manual sampling,
+> auth recorder, CLI) — all driven against a *real* SDK server over an in-memory
+> transport, with the codegen CLI verified against the live
+> `@modelcontextprotocol/server-everything`. It is a reference/learning codebase, not a
+> published package (no build/publish pipeline yet).
 
 ## Develop
 
 ```bash
 npm install
 npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 92 tests
+npm test              # vitest run — 100 tests
 npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
 ```
@@ -63,6 +65,9 @@ The conceptual analysis behind every choice lives in [`docs/`](./docs):
 - [**docs/human-in-the-loop.md**](./docs/human-in-the-loop.md) — the InteractionBroker: one
   approval queue for sampling + elicitation, with prompt-edit, response-redaction, trust
   policy, and an audit log.
+- [**docs/inspector.md**](./docs/inspector.md) — Inspector-style debugging on mcp-query: raw
+  JSON-RPC message log, manual (human-as-model) sampling, OAuth-debug recorder, and the
+  `mcp-query-inspect` CLI + per-request timeouts.
 
 ## The thesis
 
@@ -183,7 +188,9 @@ optimistic + invalidation + progress + cancel) · capability lists + templates +
 `useServerState` · in-flight dedup · structural sharing · polling · Suspense · persistence ·
 entity tags · structured output + annotation helpers · human-in-the-loop broker (sampling +
 elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
-ping · completion · dynamic add/remove server · read retry · devtools. **92 tests, green.**
+ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
+log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
+per-request timeouts. **100 tests, green.**
 
 ## File map
 

@@ -5,6 +5,7 @@
 import { MCPCache, type CachePatch } from "./cache.js";
 import { ServerConnection, type ConnectionConfig } from "./connection.js";
 import { InteractionBroker } from "./interactions.js";
+import type { TrafficEvent } from "./instrument.js";
 import { Router } from "./router.js";
 import { argsHash, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
@@ -24,18 +25,27 @@ export interface MCPClientConfig {
   retry?: number;
 }
 
+/** Per-request timeout knobs (mirrors the SDK's RequestOptions), exposed like Inspector. */
+export interface RequestTimeoutOpts {
+  timeout?: number;
+  resetTimeoutOnProgress?: boolean;
+  maxTotalTimeout?: number;
+}
+
 export interface ReadResourceOpts {
   server?: string;
   subscribe?: boolean;
   staleTime?: number;
   /** Extra tags this entry provides — a list, or a function of the result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
+  requestOptions?: RequestTimeoutOpts;
 }
 
 export interface QueryToolOpts {
   server?: string;
   /** Extra tags this cached result provides — list or function of result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
+  requestOptions?: RequestTimeoutOpts;
 }
 
 export interface CallToolOpts<A, R> {
@@ -44,6 +54,7 @@ export interface CallToolOpts<A, R> {
   optimistic?: (args: A) => CachePatch[];
   signal?: AbortSignal;
   onProgress?: (p: { progress: number; total?: number }) => void;
+  requestOptions?: RequestTimeoutOpts;
 }
 
 export class MCPClient {
@@ -102,6 +113,7 @@ export class MCPClient {
             this.devtools?.emit({ type: "capabilities", server: s, kind }),
           onLog: (s, entry) =>
             this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
+          onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
         }),
       );
     }
@@ -141,7 +153,9 @@ export class MCPClient {
     const abort = new AbortController();
     const p = (async () => {
       try {
-        const res = await this.withRetry(() => conn.sdk.readResource({ uri }, { signal: abort.signal }));
+        const res = await this.withRetry(() =>
+          conn.sdk.readResource({ uri }, { signal: abort.signal, ...(opts.requestOptions ?? {}) }),
+        );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         this.cache.write(key, res, {
           staleTime: opts.staleTime,
@@ -176,7 +190,7 @@ export class MCPClient {
       const result = (await conn.sdk.callTool(
         { name: def.name, arguments: args },
         undefined,
-        { signal: opts.signal, onprogress: opts.onProgress },
+        { signal: opts.signal, onprogress: opts.onProgress, ...(opts.requestOptions ?? {}) },
       )) as unknown as R & { isError?: boolean };
 
       // Tool-level error channel: surfaced as data, NOT thrown (mirrors GraphQL errors[]).
@@ -227,6 +241,22 @@ export class MCPClient {
     for (const fn of this.stateListeners) fn();
   }
 
+  // ── raw message log (devtools) ───────────────────────────────────────────
+  private msgStart = new Map<string | number, number>();
+  private onTraffic(server: string, ev: TrafficEvent): void {
+    const m = ev.message;
+    if (m.method != null && m.id != null) {
+      this.msgStart.set(m.id, Date.now());
+      this.devtools?.emit({ type: "request", server, method: m.method, id: String(m.id), params: m.params, dir: ev.dir });
+    } else if (m.method != null) {
+      this.devtools?.emit({ type: "notification", server, method: m.method, params: m.params, dir: ev.dir });
+    } else if (m.id != null) {
+      const start = this.msgStart.get(m.id);
+      this.msgStart.delete(m.id);
+      this.devtools?.emit({ type: "response", server, id: String(m.id), ok: m.error == null, ms: start ? Date.now() - start : 0, dir: ev.dir });
+    }
+  }
+
   /** Set a server's logging verbosity (logging/setLevel). */
   setLogLevel(server: string, level: string): Promise<void> {
     return this.req(server).setLogLevel(level);
@@ -268,6 +298,7 @@ export class MCPClient {
       },
       onCapabilitiesChanged: (s, kind) => this.devtools?.emit({ type: "capabilities", server: s, kind }),
       onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
+      onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
     });
     this.conns.set(name, conn);
     await conn.connect();
@@ -301,7 +332,10 @@ export class MCPClient {
     const p = (async () => {
       try {
         const result = (await this.withRetry(() =>
-          conn.sdk.callTool({ name: def.name, arguments: args }, undefined, { signal: abort.signal }),
+          conn.sdk.callTool({ name: def.name, arguments: args }, undefined, {
+            signal: abort.signal,
+            ...(opts.requestOptions ?? {}),
+          }),
         )) as R;
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
         this.cache.write(key, result, { tags: [serverTag(server), ...extra] });

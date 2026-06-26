@@ -10,13 +10,15 @@
     "./testing": "./src/testing/mockServer.ts"
   },
   "bin": {
-    "mcp-query-codegen": "./src/codegen/cli.ts"
+    "mcp-query-codegen": "./src/codegen/cli.ts",
+    "mcp-query-inspect": "./src/cli/inspect.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "codegen": "tsx src/codegen/cli.ts",
+    "inspect": "tsx src/cli/inspect.ts",
     "example:node": "tsx examples/node-everything.ts"
   },
   "peerDependencies": {

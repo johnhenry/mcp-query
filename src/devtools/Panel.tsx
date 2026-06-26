@@ -80,11 +80,17 @@ export function MCPDevtools({ hub }: { hub: DevtoolsHub }) {
           </tbody>
         </table>
 
-        <h3>Events</h3>
+        <h3>Messages & events</h3>
         <ol reversed>
-          {events.slice(-100).reverse().map((ev, i) => (
+          {events.slice(-150).reverse().map((ev, i) => (
             <li key={i}>
+              {(ev.type === "request" || ev.type === "notification" || ev.type === "response") && (
+                <span title={ev.type}>{ev.dir === "out" ? "→" : "←"} </span>
+              )}
               <code>{ev.type}</code> {"server" in ev ? ev.server : ""}{" "}
+              {ev.type === "request" ? `${ev.method} #${ev.id}` : ""}
+              {ev.type === "notification" ? ev.method : ""}
+              {ev.type === "response" ? `#${ev.id} ${ev.ok ? "ok" : "err"} ${ev.ms}ms` : ""}
               {ev.type === "invalidate" ? ev.keys.length + " keys" : ""}
               {ev.type === "log" ? `${ev.level}: ${JSON.stringify(ev.data)}` : ""}
               {ev.type === "host-call" ? ev.kind : ""}
@@ -115,8 +121,26 @@ function InteractionsPane() {
       {broker.list().length === 0 && <em>none</em>}
       {broker.list().map((i) => (
         <div key={i.id}>
-          <strong>{i.server}</strong> <code>{i.type}</code> ({i.phase})
-          <button onClick={() => broker.resolve(i.id, { action: "approve" })}>approve</button>
+          <strong>{i.server}</strong> <code>{i.type}</code> ({i.phase}){i.manual ? " ✍️ author a response" : ""}
+          {i.manual ? (
+            <button
+              onClick={() =>
+                broker.resolve(i.id, {
+                  action: "approve",
+                  editedResult: {
+                    role: "assistant",
+                    content: { type: "text", text: prompt("Sampling response:") ?? "" },
+                    model: "human",
+                    stopReason: "endTurn",
+                  },
+                })
+              }
+            >
+              send
+            </button>
+          ) : (
+            <button onClick={() => broker.resolve(i.id, { action: "approve" })}>approve</button>
+          )}
           <button onClick={() => broker.resolve(i.id, { action: "deny" })}>deny</button>
         </div>
       ))}

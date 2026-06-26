@@ -8,11 +8,12 @@ export type DevtoolsEvent =
   | { type: "server-state"; server: string; state: ServerState; capabilities?: ServerCapabilities }
   | { type: "capabilities"; server: string; kind: "tools" | "resources" | "prompts" }
   | { type: "invalidate"; keys: string[] }
-  | { type: "request"; server: string; method: string; id: string; params?: unknown }
-  | { type: "response"; server: string; id: string; ok: boolean; ms: number }
-  | { type: "notification"; server: string; method: string; params?: unknown }
+  | { type: "request"; server: string; method: string; id: string; params?: unknown; dir?: "in" | "out" }
+  | { type: "response"; server: string; id: string; ok: boolean; ms: number; dir?: "in" | "out" }
+  | { type: "notification"; server: string; method: string; params?: unknown; dir?: "in" | "out" }
   | { type: "host-call"; server: string; kind: "sampling" | "elicitation" | "roots" }
-  | { type: "log"; server: string; level: string; data: unknown };
+  | { type: "log"; server: string; level: string; data: unknown }
+  | { type: "auth"; member: string; phase: string; detail?: unknown };
 
 export interface DevtoolsSink {
   emit(e: DevtoolsEvent): void;
