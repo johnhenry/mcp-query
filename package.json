@@ -19,7 +19,13 @@
     "test:watch": "vitest",
     "codegen": "tsx src/codegen/cli.ts",
     "inspect": "tsx src/cli/inspect.ts",
-    "example:node": "tsx examples/node-everything.ts"
+    "example:node": "tsx examples/node-everything.ts",
+    "example:01": "tsx examples/01-minimal.ts",
+    "example:02": "tsx examples/02-cache-and-invalidation.ts",
+    "example:03": "tsx examples/03-live-subscriptions.ts",
+    "example:04": "tsx examples/04-multi-server.ts",
+    "example:05": "tsx examples/05-human-in-the-loop.ts",
+    "example:06": "tsx examples/06-alongside-another-client.ts"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

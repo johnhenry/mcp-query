@@ -30,11 +30,18 @@ npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everyth
 
 ### Examples
 
-- [`examples/node-everything.ts`](./examples/node-everything.ts) — **runnable** (`npm run example:node`):
-  connect, list capabilities, call a tool, read a resource, codegen — no React/agent/LLM.
-- [`examples/react-app.tsx`](./examples/react-app.tsx) — illustrative: every React surface wired
-  together (reads, mutations, `useToolResult`, `useServerState`, `useResourceTemplates`,
-  `useInteractions`, devtools).
+A graded series from one-liner to full app lives in [`examples/`](./examples) (see
+[examples/README.md](./examples/README.md)) — `01`→`06` are **runnable** with no network
+(`npm run example:01` … `example:06`):
+
+- **01** connect/list/call · **02** caching + invalidation · **03** live subscriptions ·
+  **04** multi-server routing · **05** human-in-the-loop · **06** *running alongside a
+  separate MCP client on shared state*.
+- [`examples/node-everything.ts`](./examples/node-everything.ts) — guided tour against the
+  real `server-everything` (`npm run example:node`).
+- [`examples/07-hybrid-agent-ui.tsx`](./examples/07-hybrid-agent-ui.tsx) /
+  [`react-app.tsx`](./examples/react-app.tsx) — illustrative React (agent + live UI + broker;
+  every React surface).
 
 ### What the tests cover
 
