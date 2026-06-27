@@ -17,7 +17,7 @@ export class CacheView extends Reactive {
         <table class="cache-table">
           <thead><tr><th>key</th><th>status</th><th>fresh</th><th>subs</th><th>live</th><th>tags</th></tr></thead>
           <tbody>
-            ${entries.length ? entries.map((e) => `<tr style="opacity:${e.isStale ? 0.55 : 1}">
+            ${entries.length ? entries.map((e) => `<tr class="${e.isStale ? "stale" : ""}">
               <td title="${esc(e.key)}"><code>${esc(e.key.slice(0, 48))}</code></td>
               <td>${esc(e.status)}</td>
               <td>${e.isStale ? "stale" : "fresh"}</td>

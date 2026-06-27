@@ -46,4 +46,19 @@ trusted local component.
   events surface in the message log; a dedicated OAuth *step-through* debugger needs direct
   (non-proxy) HTTP connections with an `instrumentAuthProvider`-wrapped provider — a
   documented follow-up.
-- **Phase 4:** neumorphic polish, PWA + service worker, strict CSP, a11y pass, app tests.
+- **Phase 4 (done):** PWA (web app manifest + app-shell service worker, registered in prod),
+  a11y pass (semantic HTML, roles, `aria-live`, skip link, focus-visible, reduced-motion),
+  CSP-friendly markup, and app tests (`npm test` — schema-form + reactive base).
+
+### Production CSP
+
+Serve the built app with a strict policy (the dev server needs Vite's inline HMR, so it's
+not set as a `<meta>`):
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; connect-src 'self' ws://localhost:* http: https:;
+worker-src 'self'; frame-ancestors 'none'
+```
+
+(`connect-src` must allow the proxy WebSocket and any HTTP/SSE MCP servers you inspect.)

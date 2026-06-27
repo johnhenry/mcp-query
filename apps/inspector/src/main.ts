@@ -17,3 +17,8 @@ if (!proxyToken) {
     printed <code>http://localhost:5173/?proxyToken=…</code> link.</div>`;
 }
 app.insertAdjacentHTML("beforeend", "<mcp-app></mcp-app>");
+
+// PWA: register the app-shell service worker in production builds only.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}

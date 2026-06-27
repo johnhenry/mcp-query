@@ -1,0 +1,11 @@
+{
+  "name": "MCP Inspector",
+  "short_name": "MCP Inspector",
+  "description": "A flagship MCP Inspector built on mcp-query.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#e9ecf3",
+  "theme_color": "#5b6cff",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -9,18 +9,21 @@
     "dev:web": "vite",
     "dev:proxy": "tsx server/proxy.ts",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "mcp-query": "*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "mcp-query": "*"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.13",
     "concurrently": "^9.1.0",
+    "happy-dom": "^20.10.6",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
-    "ws": "^8.18.0",
-    "@types/ws": "^8.5.13"
+    "vitest": "^4.1.9",
+    "ws": "^8.18.0"
   }
 }

@@ -33,7 +33,7 @@ export class AppShell extends HTMLElement {
       <nav class="tabs" role="tablist" aria-label="panels">
         ${TABS.map(([id, label]) => `<button role="tab" data-tab="${id}" aria-selected="false">${label}</button>`).join("")}
       </nav>
-      <main id="main" tabindex="-1"></main>`;
+      <main id="main" role="tabpanel" tabindex="-1"></main>`;
 
     this.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => (b.onclick = () => this.show(b.dataset.tab!)));
     this.show("tools");

@@ -127,6 +127,7 @@
   .cache-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   .cache-table th, .cache-table td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--lo); vertical-align: top; }
   .cache-table th { color: var(--muted); font-weight: 600; }
+  .cache-table tr.stale { opacity: 0.55; }
 
   /* a form that has a focused control gets a subtle accent (modern :has()) */
   .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
