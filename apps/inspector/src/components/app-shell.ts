@@ -8,6 +8,7 @@ const TABS = [
   ["messages", "Messages"],
   ["approvals", "Human-in-loop"],
   ["composer", "Composer"],
+  ["oauth", "OAuth"],
   ["cache", "Cache"],
 ] as const;
 
@@ -18,6 +19,7 @@ const TAG: Record<string, string> = {
   messages: "mcp-messages",
   approvals: "mcp-approvals",
   composer: "mcp-composer",
+  oauth: "mcp-oauth",
   cache: "mcp-cache",
 };
 

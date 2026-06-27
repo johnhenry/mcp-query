@@ -129,6 +129,11 @@
   .cache-table th { color: var(--muted); font-weight: 600; }
   .cache-table tr.stale { opacity: 0.55; }
 
+  .inline { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+  .inline input { width: auto; box-shadow: none; }
+  .oauth .row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
+  .timeline { display: flex; flex-direction: column; gap: 0.25rem; font-family: ui-monospace, monospace; font-size: 0.82rem; border-left: 2px solid var(--accent); padding-left: 0.75rem; margin-top: 0.5rem; }
+
   /* a form that has a focused control gets a subtle accent (modern :has()) */
   .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
 }

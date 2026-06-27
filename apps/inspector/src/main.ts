@@ -8,7 +8,11 @@ import "./components/messages.js";
 import "./components/approvals.js";
 import "./components/composer.js";
 import "./components/cache.js";
-import { proxyToken } from "./lib/store.js";
+import "./components/oauth.js";
+import { proxyToken, resumeIfAuthCallback } from "./lib/store.js";
+
+// Resume a browser-side OAuth flow if we're returning from the IdP with ?code=…
+void resumeIfAuthCallback();
 
 const app = document.getElementById("app")!;
 if (!proxyToken) {

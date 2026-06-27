@@ -42,10 +42,13 @@ trusted local component.
 - **Phase 2 (done):** raw JSON-RPC message log — filter, expand, NDJSON export, replay,
   IndexedDB persistence. (Web Worker indexing: future.)
 - **Phase 3 (done):** human-in-the-loop center (manual sampling, elicitation forms, roots
-  editor + `roots/list_changed`, audit), raw request composer, cache inspector. Auth/OAuth
-  events surface in the message log; a dedicated OAuth *step-through* debugger needs direct
-  (non-proxy) HTTP connections with an `instrumentAuthProvider`-wrapped provider — a
-  documented follow-up.
+  editor + `roots/list_changed`, audit), raw request composer, cache inspector.
+- **OAuth debugger (done):** check **direct (browser OAuth)** when connecting an http/sse
+  server and the OAuth flow runs *in the browser* (where redirects belong), with every step
+  recorded by `instrumentAuthProvider` and shown as a step-through timeline (tokens redacted),
+  plus re-authorize / clear-credentials. PKCE via a sessionStorage-backed
+  `BrowserOAuthProvider`; the `?code=` redirect is resumed on load. (Direct mode needs the
+  server + token endpoint to allow this origin via CORS.)
 - **Phase 4 (done):** PWA (web app manifest + app-shell service worker, registered in prod),
   a11y pass (semantic HTML, roles, `aria-live`, skip link, focus-visible, reduced-motion),
   CSP-friendly markup, and app tests (`npm test` — schema-form + reactive base).

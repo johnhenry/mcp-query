@@ -22,6 +22,9 @@ export class Connections extends Reactive {
         <input name="command" placeholder="command (stdio), e.g. npx" aria-label="command" />
         <input name="args" placeholder="args, e.g. -y @modelcontextprotocol/server-everything" aria-label="args" />
         <input name="url" placeholder="url (http/sse)" aria-label="url" />
+        <label class="inline" title="connect directly from the browser so OAuth runs + is observable">
+          <input type="checkbox" name="direct" /> direct (browser OAuth)
+        </label>
         <button type="submit">connect</button>
       </form>
       <ul class="server-list" role="list">
@@ -45,6 +48,7 @@ export class Connections extends Reactive {
         command: String(fd.get("command") || "") || undefined,
         args: String(fd.get("args") || "").split(" ").filter(Boolean),
         url: String(fd.get("url") || "") || undefined,
+        direct: fd.get("direct") === "on",
       };
       try {
         await connectServer({ name: String(fd.get("name")), ...spec });

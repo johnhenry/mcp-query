@@ -9,6 +9,8 @@ export interface TargetSpec {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  /** Connect directly from the browser (http/sse) so OAuth runs + is observable here. */
+  direct?: boolean;
 }
 
 export class WebSocketProxyTransport implements Transport {
