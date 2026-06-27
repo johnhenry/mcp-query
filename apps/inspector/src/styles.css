@@ -1,0 +1,109 @@
+/* Simple neumorphism with OKLCH, native nesting, @layer, container queries, :has().
+   Targets Baseline "Widely/Newly available"; degrades gracefully. */
+
+@layer reset, base, components;
+
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  ul { list-style: none; padding: 0; }
+}
+
+@layer base {
+  :root {
+    --bg: oklch(94% 0.012 255);
+    --surface: oklch(95% 0.012 255);
+    --text: oklch(32% 0.03 260);
+    --muted: oklch(58% 0.02 260);
+    --accent: oklch(62% 0.15 264);
+    --danger: oklch(58% 0.17 25);
+    --ok: oklch(70% 0.15 150);
+    --radius: 14px;
+    /* two-light-source neumorphic shadows derived from the surface */
+    --lo: oklch(from var(--surface) calc(l - 0.09) c h);
+    --hi: oklch(from var(--surface) calc(l + 0.06) c h);
+    --raised: 5px 5px 12px var(--lo), -5px -5px 12px var(--hi);
+    --inset: inset 4px 4px 9px var(--lo), inset -4px -4px 9px var(--hi);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(28% 0.02 260);
+      --surface: oklch(30% 0.02 260);
+      --text: oklch(90% 0.02 260);
+      --muted: oklch(68% 0.02 260);
+      --lo: oklch(from var(--surface) calc(l - 0.07) c h);
+      --hi: oklch(from var(--surface) calc(l + 0.05) c h);
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.5;
+    padding: 1rem clamp(1rem, 4vw, 3rem) 4rem;
+  }
+  h1 { font-size: 1.25rem; } h3 { margin-block: 0.25rem; } h4 { color: var(--muted); margin-top: 0.75rem; }
+  code { font-family: ui-monospace, monospace; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .skip { position: absolute; left: -999px; }
+  .skip:focus { left: 1rem; top: 1rem; padding: 0.5rem 1rem; background: var(--surface); border-radius: var(--radius); box-shadow: var(--raised); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--raised);
+    padding: 1rem;
+  }
+  button {
+    background: var(--surface); border: 0; border-radius: 10px; padding: 0.45rem 0.9rem;
+    box-shadow: var(--raised); cursor: pointer; transition: box-shadow 0.12s, transform 0.12s;
+    &:hover { transform: translateY(-1px); }
+    &:active, &[aria-selected="true"], &.sel { box-shadow: var(--inset); transform: none; }
+    &:disabled { opacity: 0.5; cursor: progress; }
+  }
+  input, select, textarea {
+    background: var(--surface); border: 0; border-radius: 10px; padding: 0.45rem 0.7rem;
+    box-shadow: var(--inset); width: 100%;
+  }
+  input:user-invalid { box-shadow: var(--inset), 0 0 0 2px var(--danger); }
+  textarea { min-height: 4rem; resize: vertical; }
+
+  .topbar { display: flex; align-items: baseline; gap: 0.6rem; padding-block: 0.5rem 1rem; }
+
+  .add-server {
+    display: grid; gap: 0.5rem; margin-bottom: 1rem;
+    grid-template-columns: max-content 1fr 1fr 2fr 1fr max-content;
+  }
+  @container (max-width: 720px) { .add-server { grid-template-columns: 1fr 1fr; } }
+
+  .server-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  .server-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem; border-radius: 12px; }
+  .server-list li.active { box-shadow: var(--inset); }
+  .state { font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 999px; box-shadow: var(--inset); }
+  .state-ready { color: var(--ok); } .state-failed, .state-closed { color: var(--danger); }
+  .state-connecting, .state-initializing, .state-reconnecting { color: var(--accent); }
+  .rm { padding: 0.1rem 0.45rem; }
+
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+
+  .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 1rem; container-type: inline-size; }
+  @container (max-width: 560px) { .split { grid-template-columns: 1fr; } }
+  .picker .item { width: 100%; text-align: left; margin-bottom: 0.35rem; display: flex; gap: 0.4rem; align-items: center; }
+  .hint { font-size: 0.68rem; padding: 0.05rem 0.35rem; border-radius: 999px; box-shadow: var(--inset); }
+  .hint.danger { color: var(--danger); } .hint.ro { color: var(--muted); }
+
+  .detail { display: flex; flex-direction: column; gap: 0.6rem; }
+  .schema-form { display: grid; gap: 0.6rem; }
+  .field { display: grid; gap: 0.25rem; }
+  .field span { font-size: 0.85rem; color: var(--muted); }
+  .output { background: var(--surface); border-radius: 10px; box-shadow: var(--inset); padding: 0.7rem; overflow: auto; max-height: 22rem; white-space: pre-wrap; word-break: break-word; }
+
+  .banner { margin-bottom: 1rem; border-left: 4px solid var(--accent); }
+
+  /* a form that has a focused control gets a subtle accent (modern :has()) */
+  .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
+}

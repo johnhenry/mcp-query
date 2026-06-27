@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./react": "./src/react/index.ts",
