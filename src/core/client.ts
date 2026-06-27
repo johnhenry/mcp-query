@@ -10,7 +10,7 @@ import { Router } from "./router.js";
 import { argsHash, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
-import type { HostHandlers, MCPError, ServerState } from "./types.js";
+import type { ClientInfo, HostHandlers, MCPError, ServerState } from "./types.js";
 
 export interface MCPClientConfig {
   servers: Record<string, ConnectionConfig>;
@@ -23,6 +23,10 @@ export interface MCPClientConfig {
   devtools?: DevtoolsSink;
   /** Retry count for *reads* (resource reads + tool queries are safe to retry). Default 0. */
   retry?: number;
+  /** Identity advertised to every server during initialize. Defaults to mcp-query's own. */
+  clientInfo?: ClientInfo;
+  /** Client-wide default request timeouts, overridden per-call by `requestOptions`. */
+  defaultRequestOptions?: RequestTimeoutOpts;
 }
 
 /** Per-request timeout knobs (mirrors the SDK's RequestOptions), exposed like Inspector. */
@@ -68,12 +72,16 @@ export class MCPClient {
   private stateListeners = new Set<() => void>();
   private stateVersion = 0;
   private retryCount = 0;
+  private clientInfo?: ClientInfo;
+  private defaultRequestOptions?: RequestTimeoutOpts;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
     this.devtools = cfg.devtools;
     this.interactions = cfg.interactions;
     this.retryCount = cfg.retry ?? 0;
+    this.clientInfo = cfg.clientInfo;
+    this.defaultRequestOptions = cfg.defaultRequestOptions;
     // Mirror the broker's audit trail into devtools as host-call events.
     if (this.interactions && this.devtools) {
       this.interactions.addAuditSink((e) =>
@@ -95,29 +103,28 @@ export class MCPClient {
       });
 
     for (const [name, conf] of Object.entries(cfg.servers)) {
-      // When a broker is present, sampling + elicitation are routed through it with
-      // server context; other handlers (roots) pass through.
-      const handlers = this.interactions
-        ? this.interactions.handlersFor(name, this.handlers)
-        : this.handlers;
-      this.conns.set(
-        name,
-        new ServerConnection(name, conf, {
-          cache: this.cache,
-          handlers,
-          onStateChange: (s, state, caps) => {
-            this.bumpServerState();
-            this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
-          },
-          onCapabilitiesChanged: (s, kind) =>
-            this.devtools?.emit({ type: "capabilities", server: s, kind }),
-          onLog: (s, entry) =>
-            this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
-          onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
-        }),
-      );
+      this.conns.set(name, this.newConnection(name, conf));
     }
     this.router = new Router(this.conns, cfg.schemeMap);
+  }
+
+  /** Build a ServerConnection with the shared deps (broker routing, devtools taps, identity). */
+  private newConnection(name: string, conf: ConnectionConfig): ServerConnection {
+    // When a broker is present, sampling + elicitation are routed through it with
+    // server context; other handlers (roots) pass through.
+    const handlers = this.interactions ? this.interactions.handlersFor(name, this.handlers) : this.handlers;
+    return new ServerConnection(name, conf, {
+      cache: this.cache,
+      handlers,
+      clientInfo: this.clientInfo,
+      onStateChange: (s, state, caps) => {
+        this.bumpServerState();
+        this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
+      },
+      onCapabilitiesChanged: (s, kind) => this.devtools?.emit({ type: "capabilities", server: s, kind }),
+      onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
+      onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
+    });
   }
 
   /** Connect all servers. Failures are isolated — one dead server doesn't sink the rest. */
@@ -154,7 +161,7 @@ export class MCPClient {
     const p = (async () => {
       try {
         const res = await this.withRetry(() =>
-          conn.sdk.readResource({ uri }, { signal: abort.signal, ...(opts.requestOptions ?? {}) }),
+          conn.sdk.readResource({ uri }, { signal: abort.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) }),
         );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         this.cache.write(key, res, {
@@ -190,7 +197,7 @@ export class MCPClient {
       const result = (await conn.sdk.callTool(
         { name: def.name, arguments: args },
         undefined,
-        { signal: opts.signal, onprogress: opts.onProgress, ...(opts.requestOptions ?? {}) },
+        { signal: opts.signal, onprogress: opts.onProgress, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
       )) as unknown as R & { isError?: boolean };
 
       // Tool-level error channel: surfaced as data, NOT thrown (mirrors GraphQL errors[]).
@@ -288,18 +295,7 @@ export class MCPClient {
   /** Add and connect a server at runtime. */
   async addServer(name: string, conf: ConnectionConfig): Promise<void> {
     if (this.conns.has(name)) throw new Error(`server "${name}" already exists`);
-    const handlers = this.interactions ? this.interactions.handlersFor(name, this.handlers) : this.handlers;
-    const conn = new ServerConnection(name, conf, {
-      cache: this.cache,
-      handlers,
-      onStateChange: (s, state, caps) => {
-        this.bumpServerState();
-        this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
-      },
-      onCapabilitiesChanged: (s, kind) => this.devtools?.emit({ type: "capabilities", server: s, kind }),
-      onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
-      onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
-    });
+    const conn = this.newConnection(name, conf);
     this.conns.set(name, conn);
     await conn.connect();
   }
@@ -334,7 +330,7 @@ export class MCPClient {
         const result = (await this.withRetry(() =>
           conn.sdk.callTool({ name: def.name, arguments: args }, undefined, {
             signal: abort.signal,
-            ...(opts.requestOptions ?? {}),
+            ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}),
           }),
         )) as R;
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];

@@ -112,6 +112,10 @@ export class MockMCPServer {
   async notifyLog(level: string, data: unknown, logger?: string): Promise<void> {
     await this.active?.notification({ method: "notifications/message", params: { level, data, logger } });
   }
+  /** The identity (name/version/title) the connected client advertised during initialize. */
+  clientInfo(): { name?: string; version?: string; title?: string } | undefined {
+    return this.active?.getClientVersion();
+  }
 
   // ── server construction ───────────────────────────────────────────────────
   private capabilities(): ServerCapabilities {

@@ -64,7 +64,8 @@ is reusable for testing your own integrations.
 The conceptual analysis behind every choice lives in [`docs/`](./docs):
 
 - [**docs/design.md**](./docs/design.md) — the Apollo reframe, the GraphQL↔MCP mapping, what's
-  similar/different/new/harder/impossible, and the MCP server conventions a client must respect.
+  similar/different/new/harder/impossible, the MCP server conventions a client must respect, and
+  **how `MCPClient` relates to the SDK's `Client`** (wraps, not replaces).
 - [**docs/prior-art.md**](./docs/prior-art.md) — does this already exist? Lessons from TanStack
   Query, RTK Query, urql, Relay, gRPC, tRPC, Connect, and LSP.
 - [**docs/sampling-and-non-agentic.md**](./docs/sampling-and-non-agentic.md) — why "non-agentic"

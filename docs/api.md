@@ -32,8 +32,20 @@ const client = new MCPClient({
   handlers: { roots: () => [{ uri: "file:///work" }] },
   interactions: new InteractionBroker(/* … */), // optional HITL broker
   retry: 2,                         // retry reads up to 2× on failure
+  clientInfo: { name: "my-app", version: "1.2.3", title: "My App" }, // identity sent at initialize
+  defaultRequestOptions: { timeout: 30_000 }, // client-wide default, overridable per-call
   // cache, devtools — see below
 });
+```
+
+`clientInfo` is what servers see during `initialize` (the SDK's `Implementation`); it defaults
+to `{ name: "mcp-query", version: … }`. `defaultRequestOptions` sets client-wide
+`timeout`/`resetTimeoutOnProgress`/`maxTotalTimeout`, merged *under* any per-call
+`requestOptions`. (The SDK also supports `title`/`websiteUrl`/`icons` on `Implementation` and
+`enforceStrictCapabilities` — only `title` is surfaced today; the rest are a documented future
+option.)
+
+```ts
 await client.connect();             // connects all servers; failures are isolated
 // …
 await client.close();

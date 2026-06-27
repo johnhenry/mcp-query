@@ -41,7 +41,7 @@ export { resourceTag, capsTag, serverTag, entityTag } from "./core/tags.js";
 export type { Tag } from "./core/tags.js";
 export type { CacheKey } from "./core/keys.js";
 export { argsHash, serializeKey } from "./core/keys.js";
-export type { ServerState, MCPError, HostHandlers, Tool, Resource, Prompt } from "./core/types.js";
+export type { ServerState, MCPError, HostHandlers, Tool, Resource, Prompt, ClientInfo } from "./core/types.js";
 export {
   chromeBuiltinAISampling,
   ModelUnavailableError,

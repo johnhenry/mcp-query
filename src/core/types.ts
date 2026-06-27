@@ -13,6 +13,16 @@ export type { Tool, Resource, ResourceTemplate, Prompt, ServerCapabilities };
 export type { Tag } from "./tags.js";
 
 /**
+ * How this client identifies itself to servers during `initialize` (the SDK's
+ * `Implementation`). Defaults to mcp-query's own name/version when omitted.
+ */
+export interface ClientInfo {
+  name: string;
+  version: string;
+  title?: string;
+}
+
+/**
  * Per-server lifecycle, modeled on the LSP client state machine, plus an
  * MCP-specific `degraded` state for "connected but a wanted capability is absent"
  * and a `reconnecting` state that triggers cache reconciliation.

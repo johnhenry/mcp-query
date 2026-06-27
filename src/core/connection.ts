@@ -19,6 +19,7 @@ import { instrumentTransport, type TrafficEvent } from "./instrument.js";
 import { listKeyFor } from "./keys.js";
 import { capsTag, serverTag } from "./tags.js";
 import type {
+  ClientInfo,
   HostHandlers,
   Prompt,
   Resource,
@@ -41,6 +42,8 @@ export interface ConnectionDeps {
   cache: MCPCache;
   /** Host handlers (sampling/elicitation/roots); registering one advertises the capability. */
   handlers: HostHandlers;
+  /** Identity advertised to the server during initialize. Defaults to mcp-query's own. */
+  clientInfo?: ClientInfo;
   onStateChange?: (server: string, state: ServerState, caps?: ServerCapabilities) => void;
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
   /** Server-emitted log messages (notifications/message). */
@@ -76,7 +79,7 @@ export class ServerConnection {
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
     const client = new Client(
-      { name: "mcp-query", version: "0.0.1" },
+      this.deps.clientInfo ?? { name: "mcp-query", version: "0.0.1" },
       { capabilities: clientCapabilities(this.deps.handlers) },
     );
     installHandlers(client, this.deps.handlers);

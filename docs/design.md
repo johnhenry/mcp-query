@@ -115,3 +115,39 @@ The seam: the connection layer *drives* the cache layer (`resources/updated` →
 invalidate; `list_changed` → re-list; subscriber count → `resources/subscribe`;
 reconnect → reconcile). See [prior-art.md](./prior-art.md) for where each idea was
 borrowed from.
+
+## `MCPClient` (mcp-query) vs `Client` (the SDK)
+
+A common confusion: the official SDK's class is **`Client`** (`@modelcontextprotocol/sdk/client`),
+not `MCPClient`. They are different layers, and mcp-query's `MCPClient` **wraps** the SDK
+`Client` rather than replacing it — each `ServerConnection` holds one SDK `Client`, reachable
+via `client.connection(name).sdk`.
+
+One line: **the SDK `Client` is the protocol primitive — one connection, one RPC at a time,
+no state. `MCPClient` is a data layer built on top of many of them** — it is to the SDK
+`Client` what Apollo/TanStack Query is to `fetch`.
+
+| | SDK `Client` | mcp-query `MCPClient` |
+|---|---|---|
+| **Scope** | one server connection | multiplexes **N** servers (routing, namespacing, scheme map, ambiguity) |
+| **Construction** | `new Client({name,version}, {capabilities})` → `connect(transport)` | `new MCPClient({ servers, handlers, interactions, devtools, clientInfo, … })` → `connect()` (all servers, failures isolated) |
+| **State** | stateless beyond the socket | reactive **cache** (keys, tags, dedup, structural sharing, gc, optimistic, persistence) |
+| **Calls** | `callTool(params)` → raw result, every call hits the wire | `callTool(name,args,{invalidates,optimistic,onProgress,requestOptions})` → routed, caches read-only results, surfaces `isError` |
+| **Reads** | `readResource({uri})` → raw | cached + **de-duped** + URI-tagged + retried, with ref-counted `subscribe` |
+| **Invalidation** | none (re-fetch manually) | tag-based (RTK-Query) **+ protocol-driven** (`resources/updated`, `list_changed`) |
+| **Lifecycle** | you handle reconnect | LSP-style state machine, dynamic registration, reconnect-with-reconciliation |
+| **Server→client** | wire `setRequestHandler` per handler | unified **InteractionBroker** (sampling/elicitation/roots) with policy + audit |
+| **Errors** | throws `McpError` / `isError` result | normalized `MCPError` (kinds) with both channels surfaced |
+
+```
+MCPClient (mcp-query)            ← multiplexing, cache, broker, lifecycle, hooks
+  └─ ServerConnection × N        ← LSP-style state machine, dynamic registration, reconnect
+       └─ Client (SDK)           ← raw JSON-RPC: initialize, tools/list, tools/call, …  (conn.sdk)
+            └─ Transport         ← stdio / Streamable HTTP / SSE
+```
+
+**When to use which:** the raw SDK `Client` for a script/CLI/agent loop or one-off calls (our
+codegen + inspect CLIs use it directly); `MCPClient` for an app — especially a UI — that wants
+cached reactive reads, mutations that invalidate views, many servers behind one interface,
+human-in-the-loop approval, and devtools. The **`conn.sdk` escape hatch** is always there for a
+raw call (e.g. an arbitrary `sdk.request(...)`) when you need it.

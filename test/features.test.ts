@@ -55,6 +55,39 @@ describe("server state reactivity", () => {
   });
 });
 
+describe("clientInfo", () => {
+  it("advertises a custom identity to the server, defaulting otherwise", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "t" }] });
+    const custom = new MCPClient({
+      servers: { srv: { transport: mock.transport } },
+      clientInfo: { name: "my-app", version: "9.9.9", title: "My App" },
+    });
+    await custom.connect();
+    expect(mock.clientInfo()).toMatchObject({ name: "my-app", version: "9.9.9" });
+    await custom.close();
+
+    const dflt = new MCPClient({ servers: { srv: { transport: mock.transport } } });
+    await dflt.connect();
+    expect(mock.clientInfo()).toMatchObject({ name: "mcp-query" });
+    await dflt.close();
+  });
+});
+
+describe("defaultRequestOptions", () => {
+  it("applies a client-wide timeout to calls (overridable per-call)", async () => {
+    const mock = new MockMCPServer({
+      tools: [{ name: "slow", handler: async () => (await new Promise((r) => setTimeout(r, 150)), { content: [{ type: "text", text: "late" }] }) }],
+    });
+    const client = new MCPClient({
+      servers: { srv: { transport: mock.transport } },
+      defaultRequestOptions: { timeout: 20 },
+    });
+    await client.connect();
+    await expect(client.callTool("srv.slow", {})).rejects.toBeTruthy();
+    await client.close();
+  });
+});
+
 describe("server logging capture", () => {
   it("forwards notifications/message into the devtools hub", async () => {
     const hub = new DevtoolsHub();
