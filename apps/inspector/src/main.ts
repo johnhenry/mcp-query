@@ -4,6 +4,7 @@ import "./components/connections.js";
 import "./components/tools.js";
 import "./components/resources.js";
 import "./components/prompts.js";
+import "./components/messages.js";
 import { proxyToken } from "./lib/store.js";
 
 const app = document.getElementById("app")!;

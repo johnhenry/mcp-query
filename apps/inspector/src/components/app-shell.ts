@@ -5,9 +5,15 @@ const TABS = [
   ["tools", "Tools"],
   ["resources", "Resources"],
   ["prompts", "Prompts"],
+  ["messages", "Messages"],
 ] as const;
 
-const TAG: Record<string, string> = { tools: "mcp-tools", resources: "mcp-resources", prompts: "mcp-prompts" };
+const TAG: Record<string, string> = {
+  tools: "mcp-tools",
+  resources: "mcp-resources",
+  prompts: "mcp-prompts",
+  messages: "mcp-messages",
+};
 
 export class AppShell extends HTMLElement {
   connectedCallback(): void {

@@ -104,6 +104,18 @@
 
   .banner { margin-bottom: 1rem; border-left: 4px solid var(--accent); }
 
+  .toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+  .toolbar input { flex: 1; }
+  .log { display: flex; flex-direction: column; gap: 0.3rem; font-family: ui-monospace, monospace; font-size: 0.82rem; }
+  .evt { background: var(--surface); border-radius: 8px; box-shadow: var(--raised); padding: 0.1rem 0.4rem; }
+  .evt-head { width: 100%; text-align: left; box-shadow: none; background: none; padding: 0.3rem; }
+  .evt-head:hover { box-shadow: none; transform: none; }
+  .dir { display: inline-block; width: 1ch; color: var(--accent); }
+  .evt-request .dir { color: var(--accent); } .evt-response .dir { color: var(--ok); }
+  .evt [data-replay] { padding: 0.1rem 0.4rem; margin: 0 0.3rem 0.3rem; }
+  dialog { background: var(--surface); border: 0; border-radius: var(--radius); box-shadow: var(--raised); padding: 1rem; max-width: min(90vw, 720px); }
+  dialog::backdrop { background: oklch(0% 0 0 / 0.3); backdrop-filter: blur(2px); }
+
   /* a form that has a focused control gets a subtle accent (modern :has()) */
   .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
 }
