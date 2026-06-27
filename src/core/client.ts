@@ -348,7 +348,9 @@ export class MCPClient {
   }
 
   async getPrompt(name: string, args: Record<string, unknown>, server?: string) {
-    const { server: s } = this.router.resolveTool(name, server); // prompts share the resolve policy
+    // Prompts have their own registry — route by which server offers the prompt, not by tool.
+    const s = server ?? this.connections().find((c) => c.prompts.has(name))?.name;
+    if (!s) throw new Error(`No connected server offers prompt "${name}"`);
     // MCP prompt arguments are string-valued; coerce so callers can pass numbers/bools.
     const stringArgs = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)]));
     return this.req(s).sdk.getPrompt({ name, arguments: stringArgs });

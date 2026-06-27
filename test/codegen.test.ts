@@ -77,7 +77,7 @@ describe("generateToolTypes", () => {
     const diagnostics = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === file);
     const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     expect(messages).toEqual([]);
-  });
+  }, 60_000); // a full TS program compile; extra slow under coverage instrumentation
 });
 
 describe("generatePromptTypes", () => {

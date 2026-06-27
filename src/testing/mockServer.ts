@@ -26,12 +26,16 @@ import {
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
-/** Context a tool handler can use to call back into the client (sampling/elicitation). */
+/** Context a tool handler can use to call back into the client (sampling/elicitation/roots). */
 export interface MockToolContext {
   /** Issue a sampling/createMessage request to the connected client. */
   sample: (params: Record<string, unknown>) => Promise<{ content: { type: string; text?: string } }>;
   /** Issue an elicitation/create request to the connected client. */
   elicit: (params: Record<string, unknown>) => Promise<{ action: string; content?: unknown }>;
+  /** Ask the client for its roots (roots/list). */
+  listRoots: () => Promise<{ roots: Array<{ uri: string; name?: string }> }>;
+  /** Emit a progress notification for this call (if the client sent a progressToken). */
+  progress: (progress: number, total?: number) => void;
 }
 
 export interface MockTool {
@@ -170,13 +174,20 @@ export class MockMCPServer {
       };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
       const tool = (s().tools ?? []).find((t) => t.name === req.params.name);
       this.callLog.push({ name: req.params.name, args: req.params.arguments });
       if (!tool) throw new Error(`unknown tool ${req.params.name}`);
+      const progressToken = (req.params._meta as { progressToken?: string | number } | undefined)?.progressToken;
       const ctx: MockToolContext = {
         sample: (params) => server.createMessage(params as never) as never,
         elicit: (params) => server.elicitInput(params as never) as never,
+        listRoots: () => server.listRoots() as never,
+        progress: (progress, total) => {
+          if (progressToken !== undefined) {
+            void extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress, total } });
+          }
+        },
       };
       const out = await tool.handler?.(req.params.arguments ?? {}, ctx);
       if (out && typeof out === "object" && "content" in out) return out as Record<string, unknown>;

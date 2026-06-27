@@ -50,34 +50,41 @@ function buildTransport(f: Record<string, string>): () => Transport {
 
 async function main(): Promise<void> {
   const { flags, args } = parse(process.argv.slice(2));
-  const method = flags.method ?? "tools/list";
   const client = new MCPClient({ servers: { s: { transport: buildTransport(flags) } } });
   await client.connect();
+  try {
+    process.stdout.write(JSON.stringify(await dispatch(client, flags, args), null, 2) + "\n");
+  } finally {
+    await client.close();
+  }
+}
 
+/** Run one `--method` against a connected client (server alias "s"). Testable core of main(). */
+export async function dispatch(
+  client: MCPClient,
+  flags: Record<string, string>,
+  args: Record<string, string>,
+): Promise<unknown> {
+  const method = flags.method ?? "tools/list";
   const toolArgs = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, coerce(v)]));
-  let out: unknown;
   switch (method) {
-    case "tools/list": out = client.listTools("s"); break;
-    case "tools/call": out = await client.callTool(`s.${flags.tool}`, toolArgs); break;
-    case "resources/list": out = client.listResources("s"); break;
-    case "resources/templates/list": out = client.listResourceTemplates("s"); break;
-    case "resources/read": out = await client.readResource(flags.uri!, { server: "s" }); break;
-    case "prompts/list": out = client.listPrompts("s"); break;
-    case "prompts/get": out = await client.getPrompt(flags.prompt!, toolArgs, "s"); break;
-    case "ping": out = await client.ping("s"); break;
+    case "tools/list": return client.listTools("s");
+    case "tools/call": return client.callTool(`s.${flags.tool}`, toolArgs);
+    case "resources/list": return client.listResources("s");
+    case "resources/templates/list": return client.listResourceTemplates("s");
+    case "resources/read": return client.readResource(flags.uri!, { server: "s" });
+    case "prompts/list": return client.listPrompts("s");
+    case "prompts/get": return client.getPrompt(flags.prompt!, toolArgs, "s");
+    case "ping": return client.ping("s");
     case "complete":
-      out = await client.complete(
+      return client.complete(
         flags.uri ? { type: "ref/resource", uri: flags.uri } : { type: "ref/prompt", name: flags.prompt! },
         { name: flags["arg-name"]!, value: flags["arg-value"] ?? "" },
         "s",
       );
-      break;
     default:
       throw new Error(`unknown --method ${method}`);
   }
-
-  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
-  await client.close();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
