@@ -39,6 +39,11 @@ trusted local component.
 
 - **Phase 1 (now):** monorepo + proxy + reactive Web Components; multi-server connect; tools
   (schema-driven forms + destructive confirm), resources (live subscribe), prompts (get).
-- **Phase 2:** raw JSON-RPC message log + replay (IndexedDB / Web Worker).
-- **Phase 3:** sampling/elicitation/roots (broker), OAuth debugger, request composer, cache inspector.
+- **Phase 2 (done):** raw JSON-RPC message log — filter, expand, NDJSON export, replay,
+  IndexedDB persistence. (Web Worker indexing: future.)
+- **Phase 3 (done):** human-in-the-loop center (manual sampling, elicitation forms, roots
+  editor + `roots/list_changed`, audit), raw request composer, cache inspector. Auth/OAuth
+  events surface in the message log; a dedicated OAuth *step-through* debugger needs direct
+  (non-proxy) HTTP connections with an `instrumentAuthProvider`-wrapped provider — a
+  documented follow-up.
 - **Phase 4:** neumorphic polish, PWA + service worker, strict CSP, a11y pass, app tests.

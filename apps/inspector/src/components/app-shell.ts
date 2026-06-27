@@ -6,6 +6,9 @@ const TABS = [
   ["resources", "Resources"],
   ["prompts", "Prompts"],
   ["messages", "Messages"],
+  ["approvals", "Human-in-loop"],
+  ["composer", "Composer"],
+  ["cache", "Cache"],
 ] as const;
 
 const TAG: Record<string, string> = {
@@ -13,6 +16,9 @@ const TAG: Record<string, string> = {
   resources: "mcp-resources",
   prompts: "mcp-prompts",
   messages: "mcp-messages",
+  approvals: "mcp-approvals",
+  composer: "mcp-composer",
+  cache: "mcp-cache",
 };
 
 export class AppShell extends HTMLElement {

@@ -116,6 +116,18 @@
   dialog { background: var(--surface); border: 0; border-radius: var(--radius); box-shadow: var(--raised); padding: 1rem; max-width: min(90vw, 720px); }
   dialog::backdrop { background: oklch(0% 0 0 / 0.3); backdrop-filter: blur(2px); }
 
+  section.card { margin-bottom: 1rem; }
+  .interaction { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .audit { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+  #roots .field { display: grid; grid-template-columns: 1fr max-content; gap: 0.4rem; margin-bottom: 0.4rem; }
+
+  .composer { display: flex; flex-direction: column; gap: 0.6rem; }
+  .composer .row { display: grid; grid-template-columns: max-content 1fr max-content; gap: 0.5rem; }
+
+  .cache-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .cache-table th, .cache-table td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--lo); vertical-align: top; }
+  .cache-table th { color: var(--muted); font-weight: 600; }
+
   /* a form that has a focused control gets a subtle accent (modern :has()) */
   .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
 }
