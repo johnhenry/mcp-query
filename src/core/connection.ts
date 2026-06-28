@@ -36,6 +36,10 @@ export interface ConnectionConfig {
   maxRetries?: number;
   /** ms before reconnect attempt N (0-based). Default: exponential capped at 30s. */
   retryDelay?: (attempt: number) => number;
+  /** Connect on first use instead of eagerly at client.connect() (server-side). */
+  lazy?: boolean;
+  /** With `lazy`, disconnect after this many ms idle; reconnect on next use. */
+  idleMs?: number;
 }
 
 export interface ConnectionDeps {
@@ -67,6 +71,9 @@ export class ServerConnection {
   private retries = 0;
   private closing = false;
   private reconnectPending = false;
+  private idle = false; // slept by idle eviction (re-wakes on next use)
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private readyPromise?: Promise<void>;
 
   constructor(
     readonly name: string,
@@ -87,10 +94,57 @@ export class ServerConnection {
     // closed on purpose or are already cycling. Mirrors an editor relaunching a
     // crashed language server.
     client.onclose = () => {
-      if (this.closing) return;
+      if (this.closing || this.idle) return; // intentional close / idle sleep — don't reconnect
       if (this.state === "ready" || this.state === "degraded") this.scheduleReconnect();
     };
     return client;
+  }
+
+  get isLazy(): boolean {
+    return this.cfg.lazy === true;
+  }
+
+  /**
+   * Lazy connect: ensure the connection is up before use. No-op for eager (non-lazy)
+   * connections (those connect via client.connect()). Re-wakes after idle eviction.
+   */
+  async ensureReady(): Promise<void> {
+    if (!this.isLazy) return;
+    this.touch();
+    if (this.state === "ready" || this.state === "degraded") return;
+    if (!this.readyPromise) {
+      this.readyPromise = (async () => {
+        if (this.idle || this.state === "closed") {
+          this.idle = false;
+          this.closing = false;
+          this.client = this.makeClient(); // the previous client was closed
+        }
+        await this.connect();
+        this.touch();
+      })().finally(() => {
+        this.readyPromise = undefined;
+      });
+    }
+    return this.readyPromise;
+  }
+
+  /** Idle eviction: close the transport (without `closing`) so the next use re-wakes it. */
+  private async sleep(): Promise<void> {
+    if (this.state !== "ready" && this.state !== "degraded") return;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+    this.idle = true;
+    await this.client.close().catch(() => {});
+    this.setState("idle");
+  }
+
+  private touch(): void {
+    if (!this.isLazy || !this.cfg.idleMs) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => void this.sleep(), this.cfg.idleMs);
+    this.idleTimer.unref?.(); // don't keep the process alive
   }
 
   get sdk(): Client {
@@ -151,6 +205,10 @@ export class ServerConnection {
 
   async close(): Promise<void> {
     this.closing = true;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
     await this.client.close().catch(() => {});
     this.setState("closed");
   }

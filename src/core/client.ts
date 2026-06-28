@@ -117,6 +117,7 @@ export class MCPClient {
   private draining = false;
   private inFlight = new Set<Promise<unknown>>();
   private cacheStore?: CacheStore;
+  private schemeMap?: Record<string, string>;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -153,6 +154,7 @@ export class MCPClient {
     // Apply other nodes' invalidations to this L1 (without re-broadcasting → no loop).
     this.cacheStore?.subscribeInvalidations?.((tags) => this.cache.invalidateTags(tags, false));
 
+    this.schemeMap = cfg.schemeMap;
     for (const [name, conf] of Object.entries(cfg.servers)) {
       this.conns.set(name, this.newConnection(name, conf));
     }
@@ -181,9 +183,23 @@ export class MCPClient {
     });
   }
 
-  /** Connect all servers. Failures are isolated — one dead server doesn't sink the rest. */
+  /** Connect all eager servers. Lazy ones connect on first use. Failures are isolated. */
   async connect(): Promise<void> {
-    await Promise.allSettled([...this.conns.values()].map((c) => c.connect()));
+    await Promise.allSettled([...this.conns.values()].filter((c) => !c.isLazy).map((c) => c.connect()));
+  }
+
+  /** Wake a (possibly lazy) server before routing — no-op for eager/already-connected. */
+  private async wake(server: string | undefined): Promise<void> {
+    if (server) await this.conns.get(server)?.ensureReady();
+  }
+
+  /** Best-effort server hint from an explicit opt, a `server.tool` prefix, or a URI scheme. */
+  private hint(target: string, explicit?: string): string | undefined {
+    if (explicit) return explicit;
+    const dot = target.indexOf(".");
+    if (dot > 0 && this.conns.has(target.slice(0, dot))) return target.slice(0, dot);
+    const scheme = target.includes("://") ? target.slice(0, target.indexOf(":")) : undefined;
+    return scheme ? this.schemeMap?.[scheme] : undefined;
   }
 
   async close(): Promise<void> {
@@ -292,6 +308,7 @@ export class MCPClient {
 
   // ── reads (useResource) ────────────────────────────────────────────────
   async readResource(uri: string, opts: ReadResourceOpts = {}): Promise<unknown> {
+    await this.wake(this.hint(uri, opts.server));
     const { server } = this.router.resolveResource(uri, opts.server);
     const op: Operation = { kind: "read", server, target: uri, context: opts.context, state: {} };
     return this.run(op, (o) => this.execRead(o.server, o.target, { ...opts, context: o.context }));
@@ -345,6 +362,7 @@ export class MCPClient {
     args: A,
     opts: CallToolOpts<A, R> = {},
   ): Promise<R> {
+    await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
     const op: Operation = { kind: "call", server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
@@ -450,6 +468,7 @@ export class MCPClient {
     argument: { name: string; value: string },
     server: string,
   ): Promise<string[]> {
+    await this.wake(server);
     const res = (await this.req(server).sdk.complete({ ref, argument })) as {
       completion?: { values?: string[] };
     };
@@ -486,6 +505,7 @@ export class MCPClient {
     args: A,
     opts: QueryToolOpts = {},
   ): Promise<R> {
+    await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
     const op: Operation = { kind: "query", server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execQuery<R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
@@ -528,6 +548,7 @@ export class MCPClient {
   }
 
   async getPrompt(name: string, args: Record<string, unknown>, server?: string) {
+    await this.wake(server);
     // Prompts have their own registry — route by which server offers the prompt, not by tool.
     const s = server ?? this.connections().find((c) => c.prompts.has(name))?.name;
     if (!s) throw new Error(`No connected server offers prompt "${name}"`);
