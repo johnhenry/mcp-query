@@ -111,6 +111,8 @@ export class MCPClient {
   private defaultRequestOptions?: RequestTimeoutOpts;
   private interceptors: RequestInterceptor[];
   private onCall?: (entry: CallAuditEntry) => void;
+  private draining = false;
+  private inFlight = new Set<Promise<unknown>>();
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -213,21 +215,57 @@ export class MCPClient {
     };
   }
 
-  /** Run an operation through the interceptor chain (or straight to exec if none), audited. */
+  /** Run an operation through the interceptor chain (audited + tracked for drain). */
   private run(op: Operation, exec: (op: Operation) => Promise<unknown>): Promise<unknown> {
-    const chained = () => (this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op));
-    if (!this.onCall) return chained();
-    const at = Date.now();
-    const emit = (outcome: CallAuditEntry["outcome"], error?: string) =>
-      this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
-    return chained().then(
-      (r) => (emit("ok"), r),
-      (e) => {
-        // -32003 is the AuthorizationError code (see mcp-query/server); don't import across layers.
-        emit((e as { code?: number })?.code === -32003 ? "denied" : "error", e instanceof Error ? e.message : String(e));
-        throw e;
-      },
+    if (this.draining) return Promise.reject(new Error("client is draining"));
+    const at = this.onCall ? Date.now() : 0;
+    let base = this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
+    if (this.onCall) {
+      base = base.then(
+        (r) => (this.audit(op, at, "ok"), r),
+        (e) => {
+          // -32003 is AuthorizationError's code (mcp-query/server); don't import across layers.
+          this.audit(op, at, (e as { code?: number })?.code === -32003 ? "denied" : "error", e instanceof Error ? e.message : String(e));
+          throw e;
+        },
+      );
+    }
+    this.inFlight.add(base);
+    const rm = () => this.inFlight.delete(base);
+    base.then(rm, rm);
+    return base;
+  }
+
+  private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string): void {
+    this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
+  }
+
+  /** Graceful shutdown: refuse new ops, await in-flight, then close all connections (SIGTERM). */
+  async drain(): Promise<void> {
+    this.draining = true;
+    await Promise.allSettled([...this.inFlight]);
+    await this.close();
+  }
+
+  /** Per-server health snapshot for readiness probes (+ does a live ping per server). */
+  async health(): Promise<Record<string, { state: ServerState; pingMs?: number; ok: boolean }>> {
+    const out: Record<string, { state: ServerState; pingMs?: number; ok: boolean }> = {};
+    await Promise.all(
+      this.connections().map(async (c) => {
+        const start = Date.now();
+        let ok = false;
+        let pingMs: number | undefined;
+        try {
+          await c.sdk.ping();
+          ok = true;
+          pingMs = Date.now() - start;
+        } catch {
+          ok = false;
+        }
+        out[c.name] = { state: c.state, pingMs, ok };
+      }),
     );
+    return out;
   }
 
   // ── reads (useResource) ────────────────────────────────────────────────
