@@ -3,29 +3,37 @@
 
 import type { ListKind } from "./types.js";
 
+/**
+ * Optional cache namespace, e.g. a tenant/session id, so one shared client can
+ * isolate entries across principals (server-side / multi-tenant use). Omitted in the
+ * single-user (browser) case, which keeps keys byte-identical to before.
+ */
+type Partitioned = { partition?: string };
+
 export type CacheKey =
-  | { kind: "resource"; server: string; uri: string }
-  | { kind: "resourceList"; server: string }
-  | { kind: "templateList"; server: string }
-  | { kind: "toolList"; server: string }
-  | { kind: "promptList"; server: string }
-  | { kind: "toolResult"; server: string; tool: string; argsHash: string }
-  | { kind: "prompt"; server: string; name: string; argsHash: string };
+  | ({ kind: "resource"; server: string; uri: string } & Partitioned)
+  | ({ kind: "resourceList"; server: string } & Partitioned)
+  | ({ kind: "templateList"; server: string } & Partitioned)
+  | ({ kind: "toolList"; server: string } & Partitioned)
+  | ({ kind: "promptList"; server: string } & Partitioned)
+  | ({ kind: "toolResult"; server: string; tool: string; argsHash: string } & Partitioned)
+  | ({ kind: "prompt"; server: string; name: string; argsHash: string } & Partitioned);
 
 /**
  * Stable string form, used only as a Map key and a devtools label. Code never
  * parses this back — the structured CacheKey is carried on each cache entry.
  */
 export function serializeKey(k: CacheKey): string {
+  const p = k.partition ? `@${k.partition} ` : ""; // absent → identical to pre-partition keys
   switch (k.kind) {
     case "resource":
-      return `resource ${k.server} ${k.uri}`;
+      return `${p}resource ${k.server} ${k.uri}`;
     case "toolResult":
-      return `toolResult ${k.server} ${k.tool} ${k.argsHash}`;
+      return `${p}toolResult ${k.server} ${k.tool} ${k.argsHash}`;
     case "prompt":
-      return `prompt ${k.server} ${k.name} ${k.argsHash}`;
+      return `${p}prompt ${k.server} ${k.name} ${k.argsHash}`;
     default:
-      return `${k.kind} ${k.server}`;
+      return `${p}${k.kind} ${k.server}`;
   }
 }
 

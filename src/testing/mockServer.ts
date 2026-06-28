@@ -36,6 +36,8 @@ export interface MockToolContext {
   listRoots: () => Promise<{ roots: Array<{ uri: string; name?: string }> }>;
   /** Emit a progress notification for this call (if the client sent a progressToken). */
   progress: (progress: number, total?: number) => void;
+  /** The request's `_meta` (per-call context the client attached), if any. */
+  meta?: Record<string, unknown>;
 }
 
 export interface MockTool {
@@ -183,6 +185,7 @@ export class MockMCPServer {
         sample: (params) => server.createMessage(params as never) as never,
         elicit: (params) => server.elicitInput(params as never) as never,
         listRoots: () => server.listRoots() as never,
+        meta: req.params._meta as Record<string, unknown> | undefined,
         progress: (progress, total) => {
           if (progressToken !== undefined) {
             void extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress, total } });

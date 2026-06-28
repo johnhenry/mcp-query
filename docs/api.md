@@ -92,6 +92,27 @@ await client.addServer("github", { transport: () => httpTransport });
 await client.removeServer("github");
 ```
 
+## Server-side / multi-tenant (`CallContext` + `scope`)
+
+For backend use, one shared client can serve many principals: `partition` isolates cache
+entries per tenant/session (no cross-tenant reads), and `meta` is forwarded to the server
+as the request's `_meta` (e.g. a user id). Per-call, or bound via `scope()`:
+
+```ts
+// per call
+await client.readResource(uri, { context: { partition: tenantId, meta: { userId } } });
+
+// or bind a per-request view
+const tenant = client.scope({ partition: tenantId, meta: { userId } });
+await tenant.readResource(uri);
+await tenant.callTool("svc.do_thing", args);   // partitioned cache + _meta propagated
+```
+
+`partition` namespaces cache *storage* (keys are byte-identical to before when omitted);
+tag-based and protocol invalidation still fan out across partitions (safe — refetch, not
+leak). Note: true per-user *auth* on a shared connection isn't an MCP concept — for that,
+instantiate one `MCPClient` per principal; `context` covers cache isolation + `_meta`.
+
 ## React hooks
 
 ```tsx

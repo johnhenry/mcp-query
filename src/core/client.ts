@@ -36,6 +36,19 @@ export interface RequestTimeoutOpts {
   maxTotalTimeout?: number;
 }
 
+/**
+ * Per-call context for server-side / multi-tenant use: isolate cache entries by
+ * `partition` (e.g. a tenant or session id) and pass `meta` (a principal/user id, …) to
+ * the server via the request's `_meta`. See `client.scope(context)` for an ergonomic
+ * per-request wrapper. NOTE: true per-user *auth* on a shared connection isn't an MCP
+ * concept — for that, instantiate one MCPClient per principal; `context` gives cache
+ * isolation + `_meta` propagation on a shared client.
+ */
+export interface CallContext {
+  partition?: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface ReadResourceOpts {
   server?: string;
   subscribe?: boolean;
@@ -43,6 +56,7 @@ export interface ReadResourceOpts {
   /** Extra tags this entry provides — a list, or a function of the result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
+  context?: CallContext;
 }
 
 export interface QueryToolOpts {
@@ -50,6 +64,7 @@ export interface QueryToolOpts {
   /** Extra tags this cached result provides — list or function of result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
+  context?: CallContext;
 }
 
 export interface CallToolOpts<A, R> {
@@ -59,6 +74,7 @@ export interface CallToolOpts<A, R> {
   signal?: AbortSignal;
   onProgress?: (p: { progress: number; total?: number }) => void;
   requestOptions?: RequestTimeoutOpts;
+  context?: CallContext;
 }
 
 export class MCPClient {
@@ -146,11 +162,31 @@ export class MCPClient {
     return this.conns.get(server)?.state ?? "idle";
   }
 
+  /**
+   * A per-request view bound to a `CallContext` (partition + meta). Lets one shared
+   * client serve many principals: `const s = client.scope({ partition: tenantId, meta:
+   * { userId } }); await s.readResource(uri)`. Per-call opts override the bound context.
+   */
+  scope(context: CallContext) {
+    const merge = <O extends { context?: CallContext }>(opts: O): O => ({
+      ...opts,
+      context: { ...context, ...opts.context },
+    });
+    return {
+      readResource: (uri: string, opts: ReadResourceOpts = {}) => this.readResource(uri, merge(opts)),
+      callTool: <A extends Record<string, unknown>, R = unknown>(name: string, args: A, opts: CallToolOpts<A, R> = {}) =>
+        this.callTool<A, R>(name, args, merge(opts)),
+      queryTool: <A extends Record<string, unknown>, R = unknown>(name: string, args: A, opts: QueryToolOpts = {}) =>
+        this.queryTool<A, R>(name, args, merge(opts)),
+    };
+  }
+
   // ── reads (useResource) ────────────────────────────────────────────────
   async readResource(uri: string, opts: ReadResourceOpts = {}): Promise<unknown> {
     const { server } = this.router.resolveResource(uri, opts.server);
     const conn = this.req(server);
-    const key = { kind: "resource", server, uri } as const;
+    const key = { kind: "resource", server, uri, partition: opts.context?.partition } as const;
+    const meta = opts.context?.meta;
 
     // De-dupe: concurrent reads of the same key share one in-flight request.
     const existing = this.cache.inflight(key);
@@ -161,7 +197,10 @@ export class MCPClient {
     const p = (async () => {
       try {
         const res = await this.withRetry(() =>
-          conn.sdk.readResource({ uri }, { signal: abort.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) }),
+          conn.sdk.readResource(
+            { uri, ...(meta ? { _meta: meta } : {}) },
+            { signal: abort.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+          ),
         );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         this.cache.write(key, res, {
@@ -192,10 +231,11 @@ export class MCPClient {
     const conn = this.req(server);
     const readOnly = def.annotations?.readOnlyHint === true;
 
+    const meta = opts.context?.meta;
     const rollback = opts.optimistic ? this.cache.patch(opts.optimistic(args)) : undefined;
     try {
       const result = (await conn.sdk.callTool(
-        { name: def.name, arguments: args },
+        { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) },
         undefined,
         { signal: opts.signal, onprogress: opts.onProgress, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
       )) as unknown as R & { isError?: boolean };
@@ -205,9 +245,11 @@ export class MCPClient {
 
       // readOnly tool results may be cached by (name,args) like a query.
       if (readOnly) {
-        this.cache.write({ kind: "toolResult", server, tool: def.name, argsHash: argsHash(args) }, result, {
-          tags: [serverTag(server)],
-        });
+        this.cache.write(
+          { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition },
+          result,
+          { tags: [serverTag(server)] },
+        );
       }
 
       // Declared invalidation. A well-behaved server also emits resources/updated,
@@ -318,7 +360,8 @@ export class MCPClient {
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
     const conn = this.req(server);
-    const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args) } as const;
+    const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition } as const;
+    const meta = opts.context?.meta;
 
     const existing = this.cache.inflight(key);
     if (existing) return existing as Promise<R>;
@@ -328,7 +371,7 @@ export class MCPClient {
     const p = (async () => {
       try {
         const result = (await this.withRetry(() =>
-          conn.sdk.callTool({ name: def.name, arguments: args }, undefined, {
+          conn.sdk.callTool({ name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, {
             signal: abort.signal,
             ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}),
           }),
