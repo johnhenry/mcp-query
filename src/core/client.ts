@@ -104,6 +104,7 @@ export class MCPClient {
   private handlers: HostHandlers;
   private devtools?: DevtoolsSink;
   private stateListeners = new Set<() => void>();
+  private capListeners = new Set<(server: string, kind: "tools" | "resources" | "prompts") => void>();
   private stateVersion = 0;
   private retryCount = 0;
   private clientInfo?: ClientInfo;
@@ -159,7 +160,10 @@ export class MCPClient {
         this.bumpServerState();
         this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
       },
-      onCapabilitiesChanged: (s, kind) => this.devtools?.emit({ type: "capabilities", server: s, kind }),
+      onCapabilitiesChanged: (s, kind) => {
+        for (const cb of this.capListeners) cb(s, kind);
+        this.devtools?.emit({ type: "capabilities", server: s, kind });
+      },
       onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
       onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
     });
@@ -182,6 +186,12 @@ export class MCPClient {
   }
   serverState(server: string): ServerState {
     return this.conns.get(server)?.state ?? "idle";
+  }
+
+  /** Subscribe to upstream capability changes (list_changed re-lists). Returns unsubscribe. */
+  subscribeCapabilities(cb: (server: string, kind: "tools" | "resources" | "prompts") => void): () => void {
+    this.capListeners.add(cb);
+    return () => this.capListeners.delete(cb);
   }
 
   /**

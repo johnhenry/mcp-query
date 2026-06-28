@@ -3,3 +3,5 @@
 
 export { authorize, denyDestructiveUnless, AuthorizationError } from "./authorize.js";
 export type { AuthzVerdict, AuthzRequest } from "./authorize.js";
+export { createGateway } from "./gateway.js";
+export type { GatewayOptions } from "./gateway.js";
