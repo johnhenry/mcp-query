@@ -61,6 +61,9 @@ is reusable for testing your own integrations.
 ## Design & background
 
 - [**docs/api.md**](./docs/api.md) — **the full API reference: every feature with an example.**
+- [**docs/backend.md**](./docs/backend.md) — using mcp-query **server-side**: multi-tenant
+  context, interceptors, authorization + audit, resilience, metrics/health, the gateway
+  re-server, per-principal sessions, and the multi-node L2 cache.
 
 The conceptual analysis behind every choice lives in [`docs/`](./docs):
 
