@@ -27,6 +27,8 @@ export type { AuthStep } from "./core/authDebug.js";
 export { ServerConnection } from "./core/connection.js";
 export type { ConnectionConfig } from "./core/connection.js";
 export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.js";
+export { runInterceptors } from "./core/interceptors.js";
+export type { RequestInterceptor, Operation, OperationKind, Next } from "./core/interceptors.js";
 export { InteractionBroker } from "./core/interactions.js";
 export type {
   Interaction,

@@ -6,11 +6,12 @@ import { MCPCache, type CachePatch } from "./cache.js";
 import { ServerConnection, type ConnectionConfig } from "./connection.js";
 import { InteractionBroker } from "./interactions.js";
 import type { TrafficEvent } from "./instrument.js";
+import { runInterceptors, type Operation, type RequestInterceptor } from "./interceptors.js";
 import { Router } from "./router.js";
 import { argsHash, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
-import type { ClientInfo, HostHandlers, MCPError, ServerState } from "./types.js";
+import type { ClientInfo, HostHandlers, MCPError, ServerState, Tool } from "./types.js";
 
 export interface MCPClientConfig {
   servers: Record<string, ConnectionConfig>;
@@ -21,6 +22,8 @@ export interface MCPClientConfig {
   schemeMap?: Record<string, string>;
   cache?: MCPCache;
   devtools?: DevtoolsSink;
+  /** Request interceptors (auth, tracing, rate-limit, …) wrapping every read/call/query. */
+  interceptors?: RequestInterceptor[];
   /** Retry count for *reads* (resource reads + tool queries are safe to retry). Default 0. */
   retry?: number;
   /** Identity advertised to every server during initialize. Defaults to mcp-query's own. */
@@ -90,11 +93,13 @@ export class MCPClient {
   private retryCount = 0;
   private clientInfo?: ClientInfo;
   private defaultRequestOptions?: RequestTimeoutOpts;
+  private interceptors: RequestInterceptor[];
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
     this.devtools = cfg.devtools;
     this.interactions = cfg.interactions;
+    this.interceptors = cfg.interceptors ?? [];
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
     this.defaultRequestOptions = cfg.defaultRequestOptions;
@@ -181,9 +186,19 @@ export class MCPClient {
     };
   }
 
+  /** Run an operation through the interceptor chain (or straight to exec if none). */
+  private run(op: Operation, exec: (op: Operation) => Promise<unknown>): Promise<unknown> {
+    return this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
+  }
+
   // ── reads (useResource) ────────────────────────────────────────────────
   async readResource(uri: string, opts: ReadResourceOpts = {}): Promise<unknown> {
     const { server } = this.router.resolveResource(uri, opts.server);
+    const op: Operation = { kind: "read", server, target: uri, context: opts.context, state: {} };
+    return this.run(op, (o) => this.execRead(o.server, o.target, { ...opts, context: o.context }));
+  }
+
+  private execRead(server: string, uri: string, opts: ReadResourceOpts): Promise<unknown> {
     const conn = this.req(server);
     const key = { kind: "resource", server, uri, partition: opts.context?.partition } as const;
     const meta = opts.context?.meta;
@@ -228,6 +243,16 @@ export class MCPClient {
     opts: CallToolOpts<A, R> = {},
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
+    const op: Operation = { kind: "call", server, target: def.name, args, context: opts.context, state: {} };
+    return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
+  }
+
+  private async execCall<A extends Record<string, unknown>, R = unknown>(
+    server: string,
+    def: Tool,
+    args: A,
+    opts: CallToolOpts<A, R>,
+  ): Promise<R> {
     const conn = this.req(server);
     const readOnly = def.annotations?.readOnlyHint === true;
 
@@ -359,6 +384,11 @@ export class MCPClient {
     opts: QueryToolOpts = {},
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
+    const op: Operation = { kind: "query", server, target: def.name, args, context: opts.context, state: {} };
+    return this.run(op, (o) => this.execQuery<R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
+  }
+
+  private execQuery<R = unknown>(server: string, def: Tool, args: Record<string, unknown>, opts: QueryToolOpts): Promise<R> {
     const conn = this.req(server);
     const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition } as const;
     const meta = opts.context?.meta;
