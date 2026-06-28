@@ -18,6 +18,14 @@ with `npx tsx examples/<file>`. The `.tsx` files are **illustrative** (compile u
 | 08 | [`08-webmcp-bridge.tsx`](./08-webmcp-bridge.tsx) | *illustrative · experimental*: WebMCP bridge both directions | browser |
 | — | [`react-app.tsx`](./react-app.tsx) | *illustrative*: every React surface wired together | bundler |
 
+## Backend / server-side
+
+mcp-query as a backend library has its own extensive, runnable series in
+[`backend/`](./backend) (11 examples + index): multi-tenancy, interceptors, authorization +
+audit, resilience, metrics + health, the gateway re-server, per-principal sessions, the
+multi-node L2 cache, lazy connect, OpenTelemetry, and a kitchen-sink assembly. See
+[backend/README.md](./backend/README.md) and the [backend guide](../docs/backend.md).
+
 ## Working alongside other clients
 
 mcp-query is a **non-agentic data layer**, not a replacement for your agent or other MCP
