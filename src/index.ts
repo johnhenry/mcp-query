@@ -19,6 +19,8 @@ export {
 } from "./core/annotations.js";
 export { MCPCache, structuralEqual } from "./core/cache.js";
 export type { CacheEntry, CachePatch, CacheWriteOpts } from "./core/cache.js";
+export { MemoryCacheStore } from "./core/cacheStore.js";
+export type { CacheStore, StoredEntry } from "./core/cacheStore.js";
 export { persistCache } from "./core/persist.js";
 export type { SyncStorage, PersistOptions } from "./core/persist.js";
 export { instrumentTransport } from "./core/instrument.js";

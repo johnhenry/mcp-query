@@ -52,6 +52,7 @@ export interface CacheEvents {
   onSubscribe?: (entry: CacheEntry) => void; // first subscriber arrived -> maybe resources/subscribe
   onUnsubscribe?: (entry: CacheEntry) => void; // last subscriber left -> maybe resources/unsubscribe
   onInvalidate?: (keys: string[]) => void; // for devtools + auto-refetch wiring
+  onInvalidateTags?: (tags: Tag[]) => void; // for distributed (L2) invalidation broadcast
 }
 
 const DEFAULT_STALE = 30_000; // freshly fetched data is fresh for 30s by default
@@ -162,7 +163,7 @@ export class MCPCache {
 
   // ── invalidation ───────────────────────────────────────────────────────
   /** RTK Query-style: mark every entry carrying any of these tags stale. */
-  invalidateTags(tags: Tag[]): void {
+  invalidateTags(tags: Tag[], broadcast = true): void {
     const touched: string[] = [];
     for (const tag of tags) {
       for (const k of this.tagIndex.get(tag) ?? []) {
@@ -175,21 +176,24 @@ export class MCPCache {
     }
     for (const k of touched) this.emit(k);
     if (touched.length) this.events.onInvalidate?.(touched);
+    // Declared invalidations broadcast to other nodes; protocol-driven ones stay local
+    // (each node gets its own resources/updated). `broadcast=false` breaks remote loops.
+    if (broadcast) this.events.onInvalidateTags?.(tags);
   }
 
   /** Protocol-driven: notifications/resources/updated -> invalidate that exact resource. */
   onResourceUpdated(server: string, uri: string): void {
-    this.invalidateTags([`res:${server}:${uri}`]);
+    this.invalidateTags([`res:${server}:${uri}`], false);
   }
 
   /** Protocol-driven: notifications/<kind>/list_changed -> invalidate that catalog. */
   onListChanged(server: string, what: "tools" | "resources" | "prompts"): void {
-    this.invalidateTags([`caps:${server}:${what}`]);
+    this.invalidateTags([`caps:${server}:${what}`], false);
   }
 
   /** Blunt invalidation used on reconnect when the capability set may have changed. */
   markStaleByServer(server: string): void {
-    this.invalidateTags([`server:${server}`]);
+    this.invalidateTags([`server:${server}`], false);
   }
 
   // ── optimistic updates ───────────────────────────────────────────────────

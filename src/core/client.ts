@@ -3,12 +3,13 @@
 // the imperative read/call/list API that the React hooks sit on top of.
 
 import { MCPCache, type CachePatch } from "./cache.js";
+import type { CacheStore } from "./cacheStore.js";
 import { ServerConnection, type ConnectionConfig } from "./connection.js";
 import { InteractionBroker } from "./interactions.js";
 import type { TrafficEvent } from "./instrument.js";
 import { runInterceptors, type Operation, type RequestInterceptor } from "./interceptors.js";
 import { Router } from "./router.js";
-import { argsHash, type CacheKey } from "./keys.js";
+import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
 import type { ClientInfo, HostHandlers, MCPError, ServerState, Tool } from "./types.js";
@@ -21,6 +22,8 @@ export interface MCPClientConfig {
   /** scheme -> server for resource routing, e.g. { file: "fs", github: "github" }. */
   schemeMap?: Record<string, string>;
   cache?: MCPCache;
+  /** Optional async L2 store (cross-instance cache sharing + distributed invalidation). */
+  cacheStore?: CacheStore;
   devtools?: DevtoolsSink;
   /** Request interceptors (auth, tracing, rate-limit, …) wrapping every read/call/query. */
   interceptors?: RequestInterceptor[];
@@ -113,6 +116,7 @@ export class MCPClient {
   private onCall?: (entry: CallAuditEntry) => void;
   private draining = false;
   private inFlight = new Set<Promise<unknown>>();
+  private cacheStore?: CacheStore;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -120,6 +124,7 @@ export class MCPClient {
     this.interactions = cfg.interactions;
     this.interceptors = cfg.interceptors ?? [];
     this.onCall = cfg.onCall;
+    this.cacheStore = cfg.cacheStore;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
     this.defaultRequestOptions = cfg.defaultRequestOptions;
@@ -140,8 +145,13 @@ export class MCPClient {
             this.cache.abortInflight(e.cacheKey); // cancel a fetch nobody is watching anymore
           },
           onInvalidate: (keys) => this.devtools?.emit({ type: "invalidate", keys }),
+          // Distributed invalidation: declared invalidations fan out to other nodes via L2.
+          onInvalidateTags: (tags) => void this.cacheStore?.publishInvalidation?.(tags),
         },
       });
+
+    // Apply other nodes' invalidations to this L1 (without re-broadcasting → no loop).
+    this.cacheStore?.subscribeInvalidations?.((tags) => this.cache.invalidateTags(tags, false));
 
     for (const [name, conf] of Object.entries(cfg.servers)) {
       this.conns.set(name, this.newConnection(name, conf));
@@ -240,6 +250,18 @@ export class MCPClient {
     this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
   }
 
+  /** L2 read-through: if L1 has no fresh data, populate it from the store. Returns the hit. */
+  private async l2ReadThrough(key: CacheKey): Promise<{ data: unknown } | undefined> {
+    if (!this.cacheStore || this.cache.getSnapshot(key)?.status === "success") return undefined;
+    const stored = await this.cacheStore.get(serializeKey(key));
+    if (!stored) return undefined;
+    this.cache.write(key, stored.data, { tags: stored.tags });
+    return { data: stored.data };
+  }
+  private l2WriteThrough(key: CacheKey, data: unknown, tags: string[]): void {
+    void this.cacheStore?.set(serializeKey(key), { data, tags, updatedAt: Date.now() });
+  }
+
   /** Graceful shutdown: refuse new ops, await in-flight, then close all connections (SIGTERM). */
   async drain(): Promise<void> {
     this.draining = true;
@@ -288,6 +310,12 @@ export class MCPClient {
     const abort = new AbortController();
     const p = (async () => {
       try {
+        // L2 read-through: another node may have cached this; skip the network on a hit.
+        const fromL2 = await this.l2ReadThrough(key);
+        if (fromL2) {
+          if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
+          return fromL2.data;
+        }
         const res = await this.withRetry(() =>
           conn.sdk.readResource(
             { uri, ...(meta ? { _meta: meta } : {}) },
@@ -295,11 +323,9 @@ export class MCPClient {
           ),
         );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
-        this.cache.write(key, res, {
-          staleTime: opts.staleTime,
-          // every resource auto-provides its URI tag (+ server tag for blunt invalidation)
-          tags: [resourceTag(server, uri), serverTag(server), ...extra],
-        });
+        const tags = [resourceTag(server, uri), serverTag(server), ...extra];
+        this.cache.write(key, res, { staleTime: opts.staleTime, tags });
+        this.l2WriteThrough(key, res, tags);
         if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
         return res;
       } catch (err) {
@@ -477,6 +503,8 @@ export class MCPClient {
     const abort = new AbortController();
     const p = (async () => {
       try {
+        const fromL2 = await this.l2ReadThrough(key);
+        if (fromL2) return fromL2.data as R;
         const result = (await this.withRetry(() =>
           conn.sdk.callTool({ name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, {
             signal: abort.signal,
@@ -484,7 +512,9 @@ export class MCPClient {
           }),
         )) as R;
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
-        this.cache.write(key, result, { tags: [serverTag(server), ...extra] });
+        const tags = [serverTag(server), ...extra];
+        this.cache.write(key, result, { tags });
+        this.l2WriteThrough(key, result, tags);
         return result;
       } catch (err) {
         this.cache.setError(key, this.toError(err, server, "protocol"));

@@ -21,7 +21,8 @@
     "./webmcp": { "types": "./dist/webmcp/index.d.ts", "default": "./dist/webmcp/index.js" },
     "./server": { "types": "./dist/server/index.d.ts", "default": "./dist/server/index.js" },
     "./session": { "types": "./dist/session/index.d.ts", "default": "./dist/session/index.js" },
-    "./metrics": { "types": "./dist/metrics/index.d.ts", "default": "./dist/metrics/index.js" }
+    "./metrics": { "types": "./dist/metrics/index.d.ts", "default": "./dist/metrics/index.js" },
+    "./redis": { "types": "./dist/redis/index.d.ts", "default": "./dist/redis/index.js" }
   },
   "bin": {
     "mcp-query-codegen": "./dist/codegen/cli.js",
