@@ -23,7 +23,8 @@ official `@modelcontextprotocol/sdk`.
 ```bash
 npm install
 npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 100 tests
+npm test              # vitest run — 128 tests
+npm run build         # emit dist/ (ESM + .d.ts) — what `npm publish` ships
 npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
 ```

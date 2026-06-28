@@ -3,21 +3,30 @@
   "version": "0.0.1",
   "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
   "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "workspaces": [
     "apps/*"
   ],
   "exports": {
-    ".": "./src/index.ts",
-    "./react": "./src/react/index.ts",
-    "./devtools": "./src/devtools/index.ts",
-    "./testing": "./src/testing/mockServer.ts",
-    "./webmcp": "./src/webmcp/index.ts"
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./react": { "types": "./dist/react/index.d.ts", "default": "./dist/react/index.js" },
+    "./devtools": { "types": "./dist/devtools/index.d.ts", "default": "./dist/devtools/index.js" },
+    "./testing": { "types": "./dist/testing/mockServer.d.ts", "default": "./dist/testing/mockServer.js" },
+    "./webmcp": { "types": "./dist/webmcp/index.d.ts", "default": "./dist/webmcp/index.js" }
   },
   "bin": {
-    "mcp-query-codegen": "./src/codegen/cli.ts",
-    "mcp-query-inspect": "./src/cli/inspect.ts"
+    "mcp-query-codegen": "./dist/codegen/cli.js",
+    "mcp-query-inspect": "./dist/cli/inspect.js"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
