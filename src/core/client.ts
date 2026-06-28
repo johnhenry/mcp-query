@@ -30,6 +30,21 @@ export interface MCPClientConfig {
   clientInfo?: ClientInfo;
   /** Client-wide default request timeouts, overridden per-call by `requestOptions`. */
   defaultRequestOptions?: RequestTimeoutOpts;
+  /** Durable audit sink — called for every read/call/query with its outcome + timing. */
+  onCall?: (entry: CallAuditEntry) => void;
+}
+
+/** One audited operation (every read/call/query) for a durable governance log. */
+export interface CallAuditEntry {
+  at: number;
+  ms: number;
+  server: string;
+  kind: "read" | "call" | "query";
+  target: string;
+  /** `context.meta.principal`, if the caller set one. */
+  principal?: unknown;
+  outcome: "ok" | "denied" | "error";
+  error?: string;
 }
 
 /** Per-request timeout knobs (mirrors the SDK's RequestOptions), exposed like Inspector. */
@@ -94,12 +109,14 @@ export class MCPClient {
   private clientInfo?: ClientInfo;
   private defaultRequestOptions?: RequestTimeoutOpts;
   private interceptors: RequestInterceptor[];
+  private onCall?: (entry: CallAuditEntry) => void;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
     this.devtools = cfg.devtools;
     this.interactions = cfg.interactions;
     this.interceptors = cfg.interceptors ?? [];
+    this.onCall = cfg.onCall;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
     this.defaultRequestOptions = cfg.defaultRequestOptions;
@@ -186,9 +203,21 @@ export class MCPClient {
     };
   }
 
-  /** Run an operation through the interceptor chain (or straight to exec if none). */
+  /** Run an operation through the interceptor chain (or straight to exec if none), audited. */
   private run(op: Operation, exec: (op: Operation) => Promise<unknown>): Promise<unknown> {
-    return this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
+    const chained = () => (this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op));
+    if (!this.onCall) return chained();
+    const at = Date.now();
+    const emit = (outcome: CallAuditEntry["outcome"], error?: string) =>
+      this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
+    return chained().then(
+      (r) => (emit("ok"), r),
+      (e) => {
+        // -32003 is the AuthorizationError code (see mcp-query/server); don't import across layers.
+        emit((e as { code?: number })?.code === -32003 ? "denied" : "error", e instanceof Error ? e.message : String(e));
+        throw e;
+      },
+    );
   }
 
   // ── reads (useResource) ────────────────────────────────────────────────
@@ -243,7 +272,7 @@ export class MCPClient {
     opts: CallToolOpts<A, R> = {},
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "call", server, target: def.name, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "call", server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
   }
 
@@ -384,7 +413,7 @@ export class MCPClient {
     opts: QueryToolOpts = {},
   ): Promise<R> {
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "query", server, target: def.name, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "query", server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execQuery<R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
   }
 

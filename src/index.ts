@@ -7,6 +7,7 @@ export type {
   QueryToolOpts,
   RequestTimeoutOpts,
   CallContext,
+  CallAuditEntry,
 } from "./core/client.js";
 export {
   isReadOnly,

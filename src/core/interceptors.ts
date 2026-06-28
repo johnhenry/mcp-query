@@ -5,6 +5,7 @@
 // runs. Authorization, tracing, rate-limiting, redaction all hang here.
 
 import type { CallContext } from "./client.js";
+import type { Tool } from "./types.js";
 
 export type OperationKind = "read" | "call" | "query";
 
@@ -15,6 +16,8 @@ export interface Operation {
   target: string;
   /** Tool arguments (call/query); undefined for reads. Mutable. */
   args?: Record<string, unknown>;
+  /** The resolved tool definition (call/query) — read annotations (destructive/read-only) here. */
+  def?: Tool;
   /** Per-call context (partition + meta/principal). Mutable. */
   context?: CallContext;
   /** Scratch bag for interceptors to thread data down the chain (e.g. a span, start time). */
