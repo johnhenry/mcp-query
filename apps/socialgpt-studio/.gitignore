@@ -1,2 +1,6 @@
 dist
 node_modules
+
+# deno desktop build output
+SocialGPT.app
+backend/dist-embed.json
