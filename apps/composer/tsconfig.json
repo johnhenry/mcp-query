@@ -16,6 +16,7 @@
       "mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
       "mcp-query/react": ["../../packages/mcp-query/src/react/index.ts"],
       "mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"],
+      "mcp-query/testing": ["../../packages/mcp-query/src/testing/mockServer.ts"],
       "@app-shared": ["../shared/src/react/index.tsx"],
       "@app-shared/*": ["../shared/src/*"]
     }
