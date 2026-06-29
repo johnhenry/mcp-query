@@ -56,6 +56,31 @@ Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `d
 it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
 framework-agnostic core.
 
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="apps/ops-cockpit"><img src="apps/ops-cockpit/screenshots/grid.png" alt="ops-cockpit"></a><br>
+      <b><a href="apps/ops-cockpit">ops-cockpit</a></b> — a NOC dashboard with live health tiles over many servers at once.
+    </td>
+    <td width="50%" valign="top">
+      <a href="apps/socialgpt-studio"><img src="apps/socialgpt-studio/screenshots/creator.png" alt="socialgpt-studio"></a><br>
+      <b><a href="apps/socialgpt-studio">socialgpt-studio</a></b> — creator analytics over a live, OAuth-gated MCP server.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="apps/inspector"><img src="apps/inspector/screenshots/messages.png" alt="inspector"></a><br>
+      <b><a href="apps/inspector">inspector</a></b> — a protocol debugger with the raw JSON-RPC message log.
+    </td>
+    <td width="50%" valign="top">
+      <a href="apps/composer"><img src="apps/composer/screenshots/reply.png" alt="composer"></a><br>
+      <b><a href="apps/composer">composer</a></b> — tools as <i>input</i>: a user-driven, grounded chat.
+    </td>
+  </tr>
+</table>
+
+> Each app's README has a full Screenshots section.
+
 ## How they relate
 
 - **One core, composable seams.** `mcp-gate` is just `mcp-query`'s `MCPClient` behind its
