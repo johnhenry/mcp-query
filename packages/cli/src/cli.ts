@@ -27,10 +27,12 @@ import {
   type Scope,
 } from "../../mcp-contract/src/index.js";
 import { registryVerbs, subcommandVerbs } from "./registry-verbs.js";
-import { formatResult } from "./format.js";
+import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
 import * as client from "./invoke.js";
-import type { InvokeFlags } from "./invoke.js";
+import { resolveInvoke, parseCallArgs, type InvokeFlags } from "./invoke.js";
 import { session } from "./session.js";
+import { request, daemonStatus, daemonStop, daemonStart } from "./daemon/client.js";
+import type { DaemonRequest } from "./daemon/protocol.js";
 
 const CLIENT_VERBS = ["tools", "call", "read", "prompt", "ping", "session"] as const;
 const REGISTRY_VERBS: Record<string, string> = {
@@ -116,6 +118,11 @@ export function helpText(): string {
       "Client",
       CLIENT_VERBS.map((k) => [k, CLIENT_DESCRIBE[k]!] as [string, string]),
     ),
+    "",
+    section("Daemon", [
+      ["daemon start|status|stop|logs", "Keep-alive daemon: reuse live upstreams across `--daemon` calls"],
+      ["<client verb> --daemon", "Route a tools/call/read/prompt/ping through the daemon"],
+    ]),
     "",
     "Examples:",
     '  mcpq add linear https://mcp.linear.app/sse',
@@ -265,7 +272,7 @@ function flatEntry(entry: RegistryEntry): Record<string, string> {
 
 // Connection + output flags we own. The boolean ones never consume a following token.
 const CLIENT_VALUE_FLAGS = new Set(["command", "args", "url", "bearer", "config"]);
-const CLIENT_BOOL_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts"]);
+const CLIENT_BOOL_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts", "daemon"]);
 
 interface ClientParse {
   flags: InvokeFlags;
@@ -287,6 +294,7 @@ function parseClient(argv: string[]): ClientParse {
       else if (key === "yes") f.yes = true;
       else if (key === "resources") f.resources = true;
       else if (key === "prompts") f.prompts = true;
+      else if (key === "daemon") f.daemon = true;
     } else if (a.startsWith("--") && CLIENT_VALUE_FLAGS.has(a.slice(2))) {
       const key = a.slice(2);
       const val = argv[++i] ?? "";
@@ -310,6 +318,12 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
   const tokens = [...rest];
   let serverRef: string | undefined;
   if (!hasInline && tokens.length) serverRef = tokens.shift();
+
+  // `--daemon` routes tools/call/read/prompt/ping through the keep-alive daemon (session
+  // and one-shot stay as they are).
+  if (f.daemon && verb !== "session") {
+    return runClientViaDaemon(verb, serverRef, tokens, f);
+  }
 
   switch (verb) {
     case "tools":
@@ -339,6 +353,143 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
     }
     default:
       throw new Error(`unknown client verb "${verb}"`);
+  }
+}
+
+// ── daemon ────────────────────────────────────────────────────────────────────────
+//
+// `mcpq daemon start|status|stop|logs` manages the keep-alive daemon directly; the
+// per-call `--daemon` flag on a client verb routes that one invocation through it.
+
+function modeOf(f: InvokeFlags): OutputMode {
+  if (f.raw) return "raw";
+  if (f.json) return "json";
+  return "human";
+}
+
+async function runDaemonVerb(sub: string | undefined, p: Parsed): Promise<void> {
+  switch (sub ?? "status") {
+    case "start": {
+      await daemonStart();
+      console.log("daemon running");
+      return;
+    }
+    case "status": {
+      const s = await daemonStatus();
+      if (!s.running) {
+        console.log(p.flags.json ? JSON.stringify({ running: false }, null, 2) : "daemon not running");
+        return;
+      }
+      if (p.flags.json) {
+        console.log(JSON.stringify({ running: true, ...s.status }, null, 2));
+        return;
+      }
+      if (s.error) {
+        console.log(`daemon running, but status failed: ${s.error}`);
+        return;
+      }
+      const st = s.status!;
+      console.log(`daemon running — uptime ${Math.round(st.uptimeMs / 1000)}s, ${st.servers.length} upstream(s)`);
+      if (st.servers.length) {
+        console.log(formatResult(st.servers.map((u) => ({ server: u.key, idle: `${Math.round(u.idleMs / 1000)}s` })), "human"));
+      }
+      return;
+    }
+    case "stop": {
+      const r = await daemonStop();
+      console.log(r.stopped ? "daemon stopped" : "daemon not running");
+      return;
+    }
+    case "logs": {
+      const { LOG } = await import("./daemon/protocol.js");
+      const { existsSync, readFileSync } = await import("node:fs");
+      if (!existsSync(LOG)) {
+        console.log(`no log yet at ${LOG}`);
+        return;
+      }
+      process.stdout.write(readFileSync(LOG, "utf8"));
+      return;
+    }
+    default:
+      throw new Error(`unknown daemon subcommand "${sub}" (use: start | status | stop | logs)`);
+  }
+}
+
+/** Build the DaemonRequest for a `--daemon` client verb, send it, and render the result. */
+async function runClientViaDaemon(verb: string, serverRef: string | undefined, tokens: string[], f: InvokeFlags): Promise<void> {
+  const opts = resolveInvoke(serverRef, f, "mcpq-daemon");
+  let req: DaemonRequest;
+  switch (verb) {
+    case "tools":
+      req = { op: "tools", opts };
+      break;
+    case "ping":
+      req = { op: "ping", opts };
+      break;
+    case "call": {
+      // Same name/args split as the one-shot path (function-call string vs flag stream).
+      const isExpr = tokens.length === 1 && /^[A-Za-z_][\w.-]*\s*\(/.test(tokens[0]!);
+      const explicit = isExpr ? undefined : tokens.shift();
+      const parsed = parseCallArgs(explicit, tokens);
+      if (!parsed.tool) throw new Error("no tool name — pass `<tool>` or a function-call string `tool(arg: …)`");
+      req = { op: "call", opts, tool: parsed.tool, args: parsed.args };
+      break;
+    }
+    case "read": {
+      const uri = tokens.shift();
+      if (!uri) throw new Error("usage: mcpq read <server> <uri> --daemon");
+      req = { op: "read", opts, uri };
+      break;
+    }
+    case "prompt": {
+      const name = tokens.shift();
+      if (!name) throw new Error("usage: mcpq prompt <server> <name> [args…] --daemon");
+      const parsed = parseCallArgs(name, tokens);
+      req = { op: "prompt", opts, name, args: parsed.args };
+      break;
+    }
+    default:
+      throw new Error(`"${verb}" cannot be routed through the daemon`);
+  }
+
+  const res = await request(req);
+  if (!res.ok) throw new Error(res.error);
+  renderDaemonResult(verb, res.result, f);
+}
+
+/** Render a daemon op result client-side, honoring --json/--raw, matching the op* renderers. */
+function renderDaemonResult(verb: string, result: unknown, f: InvokeFlags): void {
+  const mode = modeOf(f);
+  switch (verb) {
+    case "tools": {
+      const list = (result as ToolLike[]) ?? [];
+      if (f.schema) return void console.log(JSON.stringify(list, null, 2));
+      if (mode === "json" || mode === "raw") return void console.log(JSON.stringify(list.map((t) => ({ name: t.name, description: (t as { description?: string }).description })), null, 2));
+      return void console.log(list.map((t) => toolSignature(t)).join("\n\n"));
+    }
+    case "call": {
+      const r = result as { content?: unknown };
+      if (mode === "raw") return void console.log(formatResult(r, "raw"));
+      if (mode === "json") return void console.log(formatResult(r.content, "json"));
+      return void console.log(formatResult(r.content, "human"));
+    }
+    case "read": {
+      const r = result as { contents: Array<{ text?: string; mimeType?: string }> };
+      if (mode === "raw") return void console.log(formatResult(r, "raw"));
+      if (mode === "json") return void console.log(formatResult(r.contents, "json"));
+      return void console.log(r.contents.map((c) => (c.text !== undefined ? c.text : `[blob: ${c.mimeType ?? "binary"}]`)).join("\n"));
+    }
+    case "prompt": {
+      const r = result as { messages: Array<{ role: string; content: { type: string; text?: string } }> };
+      if (mode === "raw") return void console.log(formatResult(r, "raw"));
+      if (mode === "json") return void console.log(formatResult(r.messages, "json"));
+      return void console.log(r.messages.map((m) => `${m.role}: ${m.content.type === "text" ? (m.content.text ?? "") : `[${m.content.type}]`}`).join("\n"));
+    }
+    case "ping": {
+      const { ms } = result as { ms: number };
+      if (mode === "json") return void console.log(JSON.stringify({ ok: true, ms }, null, 2));
+      return void console.log(`ok (${ms}ms)`);
+    }
   }
 }
 
@@ -372,6 +523,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     return;
   }
 
+  if (verb === "daemon") return runDaemonVerb(rest[0], parse(rest.slice(1)));
   if (verb in registryVerbs) return runTool(verb, rest);
   if (verb === "servers" || verb === "ls" || verb === "remove" || verb === "rm" || verb in REGISTRY_VERBS) {
     return runRegistry(verb, parse(rest));

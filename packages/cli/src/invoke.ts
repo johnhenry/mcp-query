@@ -35,6 +35,8 @@ export interface InvokeFlags {
   url?: string;
   bearer?: string;
   headers?: string[];
+  /** Route the verb through the keep-alive daemon (reuses a live upstream connection). */
+  daemon?: boolean;
 }
 
 function modeOf(f: InvokeFlags): OutputMode {
@@ -44,7 +46,7 @@ function modeOf(f: InvokeFlags): OutputMode {
 }
 
 /** Resolve to ConnectOptions: a positional ref wins; otherwise fall back to inline flags. */
-function resolve(serverRef: string | undefined, f: InvokeFlags, clientName: string): ConnectOptions {
+export function resolveInvoke(serverRef: string | undefined, f: InvokeFlags, clientName = "mcpq"): ConnectOptions {
   if (serverRef) {
     const base = resolveServer(serverRef, { config: f.config });
     const headers = inlineHeaders(f);
@@ -71,7 +73,7 @@ function inlineHeaders(f: InvokeFlags): Record<string, string> {
 
 /** Resolve + connect; caller owns close(). Shared by one-shot verbs, the REPL, and the daemon. */
 export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcpq"): Promise<{ client: Client; close: () => Promise<void> }> {
-  return connectClient(resolve(serverRef, f, clientName));
+  return connectClient(resolveInvoke(serverRef, f, clientName));
 }
 
 // ── failure classification (for --json error reports) ─────────────────────────
@@ -98,6 +100,16 @@ function fail(err: unknown, ctx: { server: string; tool?: string }, mode: Output
 }
 
 // ── value coercion ────────────────────────────────────────────────────────────
+
+/**
+ * Coerce a whole raw arg map by a tool's inputSchema (each value retyped per `coerce`).
+ * Exported so the daemon can coerce flag-style string args without re-deriving the logic.
+ */
+export function coerceArgs(schema: JSONSchema | undefined, rawArgs: Record<string, unknown>): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rawArgs)) args[k] = coerce(k, v, schema);
+  return args;
+}
 
 /** Coerce a raw string token to the type the tool's inputSchema declares for `key`. */
 function coerce(key: string, raw: unknown, schema: JSONSchema | undefined): unknown {
@@ -300,8 +312,7 @@ export async function opCall(client: Client, toolName: string | undefined, argTo
   if (!name) throw new Error("no tool name — pass `<tool>` or a function-call string `tool(arg: …)`");
   const def = list.find((t) => t.name === name);
   const schema = def?.inputSchema as JSONSchema | undefined;
-  const args: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(parsed.args)) args[k] = coerce(k, v, schema);
+  const args = coerceArgs(schema, parsed.args);
 
   if (def?.annotations?.destructiveHint && !f.yes) {
     const ok = await confirm(`Tool "${name}" is marked destructive. Proceed?`);
