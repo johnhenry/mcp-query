@@ -30,7 +30,7 @@ npm run dev -w @mcp-query/notebook
 **Open the URL the proxy printed** (it carries the token + port the client needs), e.g.
 
 ```
-http://localhost:5177/?proxyToken=<token>&proxyPort=6280
+http://localhost:5177/?proxyToken=<token>&proxyPort=6284
 ```
 
 > The absolute path to `sample-notes/` is baked in at build time (Vite `define`

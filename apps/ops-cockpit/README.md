@@ -22,7 +22,7 @@ npm run dev -w @mcp-query/ops-cockpit
   (localhost-only, random bearer token, prints a connect URL with `?proxyPort` /
   `?proxyToken`).
 - **`dev:web`** — Vite. Open the URL the proxy prints (it carries the token), e.g.
-  `http://localhost:5175/?proxyPort=6280&proxyToken=…`.
+  `http://localhost:5175/?proxyPort=6282&proxyToken=…`.
 
 By default the cockpit dials **two stdio servers**, `everything-a` and `everything-b`,
 both `npx -y @modelcontextprotocol/server-everything`. The roster is editable in the UI

@@ -38,8 +38,8 @@ The proxy prints a pre-wired URL — **open that link**, because it carries the
 `?proxyToken=…&proxyPort=…` the browser needs to reach the proxy:
 
 ```
-  ⬡ mcp-query proxy  ws://localhost:6280  (token abc123)
-  → Open:  http://localhost:5174/?proxyToken=abc123&proxyPort=6280
+  ⬡ mcp-query proxy  ws://localhost:6281  (token abc123)
+  → Open:  http://localhost:5174/?proxyToken=abc123&proxyPort=6281
 ```
 
 > Direct OAuth (http/sse) servers connect straight from the browser and don't need the

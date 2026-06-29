@@ -74,4 +74,4 @@ wss.on("connection", (ws: WebSocket, req) => {
 });
 
 console.log(`\n  ⬡ MCP Inspector proxy  ws://127.0.0.1:${PORT}`);
-console.log(`  → Open:  ${WEB}/?proxyToken=${TOKEN}\n`);
+console.log(`  → Open:  ${WEB}/?proxyToken=${TOKEN}&proxyPort=${PORT}\n`);

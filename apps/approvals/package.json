@@ -5,7 +5,7 @@
   "type": "module",
   "description": "React + Vite mcp-query example app (human-in-the-loop approvals) with the shared WS proxy.",
   "scripts": {
-    "dev": "WEB_PORT=5176 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev": "WEB_PORT=5176 PROXY_PORT=6283 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
     "build": "vite build",

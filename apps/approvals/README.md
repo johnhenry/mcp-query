@@ -34,15 +34,15 @@ npm run dev -w @mcp-query/approvals
 This launches two processes (via `concurrently`):
 
 - **proxy** — `tsx ../shared/src/proxy-cli.ts`, a WebSocket bridge on
-  `ws://127.0.0.1:6280` that dials MCP servers (here: `@modelcontextprotocol/server-everything`
+  `ws://127.0.0.1:6283` that dials MCP servers (here: `@modelcontextprotocol/server-everything`
   over stdio) on the browser's behalf.
 - **web** — Vite dev server on `http://localhost:5176`.
 
 The proxy prints a tokenized URL on startup, e.g.:
 
 ```
-  ⬡ mcp-query proxy  ws://127.0.0.1:6280
-  → Open:  http://localhost:5176/?proxyToken=<token>&proxyPort=6280
+  ⬡ mcp-query proxy  ws://127.0.0.1:6283
+  → Open:  http://localhost:5176/?proxyToken=<token>&proxyPort=6283
 ```
 
 **Open that printed URL** (the `proxyToken` query param is required — the client
