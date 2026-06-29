@@ -38,16 +38,25 @@ reverse-proxies `/mcp` to the live server and injects the OAuth bearer token.
 
 ---
 
-## Prerequisites
+## Login (self-contained)
 
-You must already be authenticated to SocialGPT, i.e. the token file must exist:
+The app **facilitates its own login** — no CLI step needed. On launch it checks
+`/auth/status`; if you're not signed in it shows a **Connect SocialGPT** screen. Clicking it
+runs the full OAuth 2.1 flow from the backend (dynamic client registration + PKCE), opens
+your system browser to SocialGPT's sign-in page, captures the redirect on
+`http://localhost:8787/auth/callback`, exchanges the code, and caches the token at
+`~/.mcp-query/oauth/mcp.gpt.social.json`. The UI polls `/auth/status` and proceeds once done.
 
-```
-~/.mcp-query/oauth/mcp.gpt.social.json
-```
+This is exactly why a **desktop** app is the right home for it: the backend, the OAuth
+callback, and your browser are all on the same machine, so login needs **no SSH tunnel** (the
+remote-server caveat that applies to the `mcp-contract auth` CLI). Sign-in happens on
+SocialGPT's own page — the app never sees your password.
 
-(Use the inspector / mcp-query OAuth flow to create it if missing.) Without it the proxy
-returns `500 { error: "no_oauth_token" }` and the UI shows a connection error.
+Backend auth routes: `GET /auth/status`, `POST /auth/login` (→ `{ authorizeUrl }`),
+`GET /auth/callback`, `POST /auth/logout`. An existing token (e.g. from `mcp-contract auth`)
+is reused and auto-refreshed; if it carries only `analysis:read`, the app shows a
+**"Reconnect for full access"** banner that re-runs login requesting `analysis:read:public`
+too (some tools like `get_creator` need it).
 
 ---
 

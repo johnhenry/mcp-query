@@ -1,0 +1,90 @@
+/* In-app login screen + limited-scope banner. */
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  width: min(30rem, 100%);
+  background: var(--surface, #161922);
+  border: 1px solid var(--border, #272b38);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.auth-mark {
+  font-size: 2rem;
+  color: var(--accent, #6c8cff);
+  margin-bottom: 0.25rem;
+}
+
+.auth-card h1 {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1.5rem;
+}
+
+.auth-sub {
+  color: var(--muted, #9aa3b6);
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.auth-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.8rem 1.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent, #6c8cff);
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.auth-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.auth-btn:active:not(:disabled) { transform: translateY(1px); }
+.auth-btn:disabled { opacity: 0.65; cursor: progress; }
+
+.auth-hint,
+.auth-foot {
+  color: var(--muted, #9aa3b6);
+  font-size: 0.85rem;
+  margin: 1rem 0 0;
+}
+.auth-foot { font-size: 0.78rem; opacity: 0.8; }
+.auth-hint a { color: var(--accent, #6c8cff); }
+
+.auth-error {
+  margin: 1rem 0 0;
+  color: #ff6b6b;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.scope-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, #f5a623 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #f5a623 35%, transparent);
+  font-size: 0.88rem;
+}
+.scope-banner button {
+  appearance: none;
+  border: 1px solid var(--accent, #6c8cff);
+  background: transparent;
+  color: var(--accent, #6c8cff);
+  border-radius: 8px;
+  padding: 0.3rem 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.scope-banner button:hover { background: color-mix(in srgb, var(--accent, #6c8cff) 12%, transparent); }

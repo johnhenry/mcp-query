@@ -11,12 +11,15 @@
 //
 // Runs on port 8787. `deno task dev` = `deno run -A backend/main.ts`.
 
+import { discover, register, pkce, buildAuthUrl, exchangeCode, chooseScope, tokenFile } from "./oauth.mjs";
+
 const UPSTREAM = "https://mcp.gpt.social/mcp";
 const TOKEN_ENDPOINT = "https://mcp.gpt.social/oauth/token";
 const PORT = 8787;
 
 const HOME = Deno.env.get("HOME") ?? Deno.env.get("USERPROFILE") ?? "";
-const TOKEN_PATH = `${HOME}/.mcp-query/oauth/mcp.gpt.social.json`;
+const TOKEN_DIR = `${HOME}/.mcp-query/oauth`;
+const TOKEN_PATH = `${TOKEN_DIR}/mcp.gpt.social.json`;
 
 interface OAuthFile {
   clientInformation: { client_id: string; [k: string]: unknown };
@@ -118,6 +121,91 @@ function json(status: number, payload: unknown): Response {
   });
 }
 
+// ── in-app login (OAuth 2.1: DCR + PKCE, callback on this same port) ──────────
+//
+// Because this backend, the OAuth callback, and the user's browser are all on the
+// same machine in the desktop app, the whole browser-consent flow works with no
+// tunnel: /auth/login opens the system browser to the authorize URL; the redirect
+// lands back on /auth/callback here; the UI polls /auth/status and proceeds.
+
+interface Pending {
+  clientId: string;
+  verifier: string;
+  state: string;
+  redirectUri: string;
+  meta: { authorization_endpoint: string; token_endpoint: string; registration_endpoint: string };
+}
+let pending: Pending | null = null;
+
+function openBrowser(url: string): void {
+  const os = Deno.build.os;
+  const [cmd, ...args] = os === "darwin" ? ["open", url] : os === "windows" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
+  try {
+    new Deno.Command(cmd, { args, stdout: "null", stderr: "null" }).spawn();
+  } catch {
+    /* best-effort; the UI also shows a clickable link */
+  }
+}
+
+function htmlPage(title: string, body: string): Response {
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui;max-width:34rem;margin:18vh auto;padding:0 1.5rem;text-align:center"><h2>${title}</h2><p style="color:#555">${body}</p></body>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } },
+  );
+}
+
+async function authStatus(): Promise<Response> {
+  try {
+    const f = await readOAuth();
+    return json(200, { authenticated: !!f.tokens?.access_token, scope: f.tokens?.scope ?? null });
+  } catch {
+    return json(200, { authenticated: false, scope: null });
+  }
+}
+
+async function authLogin(): Promise<Response> {
+  try {
+    const meta = await discover();
+    const redirectUri = `http://localhost:${PORT}/auth/callback`;
+    const scope = chooseScope(meta);
+    const reg = await register(meta, redirectUri, scope);
+    const { verifier, challenge } = await pkce();
+    const state = crypto.randomUUID();
+    pending = { clientId: reg.client_id, verifier, state, redirectUri, meta };
+    const authorizeUrl = buildAuthUrl(meta, { clientId: reg.client_id, redirectUri, scope, challenge, state });
+    openBrowser(authorizeUrl);
+    return json(200, { authorizeUrl, scope });
+  } catch (err) {
+    return json(500, { error: "login_init_failed", message: String(err) });
+  }
+}
+
+async function authCallback(url: URL): Promise<Response> {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!pending || !code || state !== pending.state) {
+    return htmlPage("Login failed", "Invalid or expired login attempt — return to the app and try again.");
+  }
+  try {
+    const tokens = await exchangeCode(pending.meta, { code, verifier: pending.verifier, clientId: pending.clientId, redirectUri: pending.redirectUri });
+    await Deno.mkdir(TOKEN_DIR, { recursive: true });
+    await Deno.writeTextFile(TOKEN_PATH, JSON.stringify(tokenFile({ clientId: pending.clientId, redirectUri: pending.redirectUri, verifier: pending.verifier, tokens }), null, 2));
+    pending = null;
+    return htmlPage("✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.");
+  } catch (err) {
+    return htmlPage("Login failed", String(err));
+  }
+}
+
+async function authLogout(): Promise<Response> {
+  try {
+    await Deno.remove(TOKEN_PATH);
+  } catch {
+    /* already gone */
+  }
+  return json(200, { ok: true });
+}
+
 // ── static assets (built dist/) ──────────────────────────────────────────────
 
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -163,6 +251,10 @@ async function serveStatic(pathname: string): Promise<Response> {
 Deno.serve({ port: PORT }, (req: Request) => {
   const url = new URL(req.url);
   if (url.pathname === "/mcp") return handleMcp(req);
+  if (url.pathname === "/auth/status") return authStatus();
+  if (url.pathname === "/auth/login" && req.method === "POST") return authLogin();
+  if (url.pathname === "/auth/callback") return authCallback(url);
+  if (url.pathname === "/auth/logout" && req.method === "POST") return authLogout();
   return serveStatic(url.pathname);
 });
 

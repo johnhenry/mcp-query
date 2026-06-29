@@ -9,19 +9,23 @@
 // Run: `node backend/node-proxy.mjs`  (listens on port 8787).
 
 import http from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, normalize } from "node:path";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
+import { discover, register, pkce, buildAuthUrl, exchangeCode, chooseScope, tokenFile } from "./oauth.mjs";
 
 const UPSTREAM = "https://mcp.gpt.social/mcp";
 const TOKEN_ENDPOINT = "https://mcp.gpt.social/oauth/token";
 const PORT = 8787;
 
 const HOME = process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
-const TOKEN_PATH = join(HOME, ".mcp-query", "oauth", "mcp.gpt.social.json");
+const TOKEN_DIR = join(HOME, ".mcp-query", "oauth");
+const TOKEN_PATH = join(TOKEN_DIR, "mcp.gpt.social.json");
 
 const DIST = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -117,6 +121,71 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+// ── in-app login (OAuth 2.1: DCR + PKCE; callback on this same port) ──────────
+let pending = null;
+
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
+  try {
+    spawn(cmd[0], cmd.slice(1), { stdio: "ignore", detached: true }).unref();
+  } catch {
+    /* best-effort */
+  }
+}
+
+function htmlPage(res, title, body) {
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.end(`<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui;max-width:34rem;margin:18vh auto;padding:0 1.5rem;text-align:center"><h2>${title}</h2><p style="color:#555">${body}</p></body>`);
+}
+
+async function authStatus(res) {
+  try {
+    const f = await readOAuth();
+    sendJson(res, 200, { authenticated: !!f.tokens?.access_token, scope: f.tokens?.scope ?? null });
+  } catch {
+    sendJson(res, 200, { authenticated: false, scope: null });
+  }
+}
+
+async function authLogin(res) {
+  try {
+    const meta = await discover();
+    const redirectUri = `http://localhost:${PORT}/auth/callback`;
+    const scope = chooseScope(meta);
+    const reg = await register(meta, redirectUri, scope);
+    const { verifier, challenge } = await pkce();
+    const state = randomUUID();
+    pending = { clientId: reg.client_id, verifier, state, redirectUri, meta };
+    const authorizeUrl = buildAuthUrl(meta, { clientId: reg.client_id, redirectUri, scope, challenge, state });
+    openBrowser(authorizeUrl);
+    sendJson(res, 200, { authorizeUrl, scope });
+  } catch (err) {
+    sendJson(res, 500, { error: "login_init_failed", message: String(err) });
+  }
+}
+
+async function authCallback(url, res) {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!pending || !code || state !== pending.state) {
+    return htmlPage(res, "Login failed", "Invalid or expired login attempt — return to the app and try again.");
+  }
+  try {
+    const tokens = await exchangeCode(pending.meta, { code, verifier: pending.verifier, clientId: pending.clientId, redirectUri: pending.redirectUri });
+    await mkdir(TOKEN_DIR, { recursive: true });
+    await writeFile(TOKEN_PATH, JSON.stringify(tokenFile({ clientId: pending.clientId, redirectUri: pending.redirectUri, verifier: pending.verifier, tokens }), null, 2));
+    pending = null;
+    htmlPage(res, "✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.");
+  } catch (err) {
+    htmlPage(res, "Login failed", String(err));
+  }
+}
+
+async function authLogout(res) {
+  await rm(TOKEN_PATH, { force: true }).catch(() => {});
+  sendJson(res, 200, { ok: true });
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -161,6 +230,10 @@ const server = http.createServer((req, res) => {
     handleMcp(req, res).catch((err) => sendJson(res, 502, { error: "proxy_error", message: String(err) }));
     return;
   }
+  if (url.pathname === "/auth/status") return void authStatus(res);
+  if (url.pathname === "/auth/login" && req.method === "POST") return void authLogin(res);
+  if (url.pathname === "/auth/callback") return void authCallback(url, res);
+  if (url.pathname === "/auth/logout" && req.method === "POST") return void authLogout(res);
   serveStatic(url.pathname, res);
 });
 

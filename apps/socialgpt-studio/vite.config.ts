@@ -25,10 +25,8 @@ export default defineConfig({
   server: {
     fs: { allow: [resolve(here, "../../")] },
     proxy: {
-      "/mcp": {
-        target: "http://localhost:8787",
-        changeOrigin: true,
-      },
+      "/mcp": { target: "http://localhost:8787", changeOrigin: true },
+      "/auth": { target: "http://localhost:8787", changeOrigin: true },
     },
   },
 });
