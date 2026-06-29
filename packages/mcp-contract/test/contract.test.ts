@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { MockMCPServer, type MockSpec } from "../../../src/testing/mockServer.js";
+import { MockMCPServer, type MockSpec } from "../../mcp-query/src/testing/mockServer.js";
 import { captureContract, diffContract } from "../src/contract.js";
 import { diffSchema } from "../src/schema.js";
 import { mockFromContract } from "../src/mock.js";

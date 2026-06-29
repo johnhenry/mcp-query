@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { MockMCPServer } from "../../../src/testing/mockServer.js";
+import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { createGate, type GateConfig } from "../src/index.js";
 
 async function gateWith(config: Omit<GateConfig, "audit"> & { audit?: GateConfig["audit"] }) {

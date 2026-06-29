@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { MockMCPServer } from "../../../src/testing/mockServer.js";
+import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { createCassette } from "../src/cassette.js";
 import { recordTransport } from "../src/record.js";
 import { replayServer, replayTransport } from "../src/replay.js";

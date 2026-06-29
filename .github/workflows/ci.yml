@@ -15,14 +15,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Typecheck
+
+      - name: Typecheck (all workspaces)
         run: npm run typecheck
-      - name: Test + coverage
+
+      - name: Test (all workspaces)
+        run: npm test
+
+      - name: Coverage (mcp-query)
         run: npm run test:coverage
-      - name: Build
-        run: npm run build
+
+      - name: Build mcp-query
+        run: npm run build -w mcp-query
+
       - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcp-query
         run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
+
       - name: Inspector typecheck + build
         run: |
           npm run typecheck -w @mcp-query/inspector

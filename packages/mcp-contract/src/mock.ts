@@ -2,7 +2,7 @@
 // MockMCPServer. Lets a consumer's tests run against the *contracted* surface with
 // zero upstream — the contract becomes the test double.
 
-import { MockMCPServer } from "../../../src/testing/mockServer.js";
+import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import type { Contract } from "./contract.js";
 
 /** Construct a MockMCPServer whose advertised surface mirrors the contract. */

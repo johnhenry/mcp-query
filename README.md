@@ -1,220 +1,73 @@
-# mcp-query
+# mcp-query ecosystem
 
-**A reactive, cached, embeddable MCP client for ordinary (non-agentic) applications.**
+A data-layer ecosystem for the **Model Context Protocol** — a reactive client and the
+governance, testing, and fixture tooling built around it. Same shape as the GraphQL world
+(Apollo Client + a gateway + schema checks + mocking), but for MCP.
 
-MCP is almost always consumed by LLM agents. But an MCP server is just a typed,
-introspectable capability surface — tools, resources, prompts — and there's no
-reason a normal app can't use it as a universal data/capability layer. `mcp-query`
-gives such apps the developer experience that Apollo/React-Query gave GraphQL/REST
-apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
-official `@modelcontextprotocol/sdk`.
+This repo is an npm-workspaces monorepo. The packages share one core (`mcp-query`) and
+compose along a clean seam (an interceptor chain + a transport tap), so each does one job
+and they stack:
 
-> Status: **working reference implementation.** `tsc --noEmit` is clean and the full
-> vitest suite (100 tests) passes, including end-to-end coverage of the cache,
-> multiplexing, protocol-driven invalidation, dynamic registration, reconnect, the
-> human-in-the-loop broker, and Inspector-style tooling (message log, manual sampling,
-> auth recorder, CLI) — all driven against a *real* SDK server over an in-memory
-> transport, with the codegen CLI verified against the live
-> `@modelcontextprotocol/server-everything`. It is a reference/learning codebase, not a
-> published package (no build/publish pipeline yet).
+```
+                            ┌─────────────────────────────────────────────┐
+   your app / agent host ──▶│                 mcp-query                    │──▶ MCP servers
+                            │   reactive client · cache · codegen · core   │
+                            └─────────────────────────────────────────────┘
+                                  ▲             ▲              ▲
+                  ┌───────────────┘   ┌─────────┘   ┌──────────┘
+            ┌───────────┐       ┌───────────┐  ┌───────────┐
+            │ mcp-gate  │       │mcp-contract│  │ mcp-record│
+            │ govern at │       │ guard the  │  │ freeze    │
+            │ runtime   │       │ interface  │  │ traffic   │
+            └───────────┘       └───────────┘  └───────────┘
+```
+
+## Packages
+
+| Package | What it does | When you reach for it |
+|---|---|---|
+| **[mcp-query](packages/mcp-query)** | The reactive, cached, embeddable MCP **client**: TanStack-Query-style document cache, RTK-Query tags, LSP-client lifecycle, React hooks, codegen, an interceptor chain, and optional server-side modules (gateway, metrics, OTel, sessions, Redis L2). | You're **consuming** MCP servers from an app or backend and want a real data layer, not raw SDK calls. |
+| **[@mcp-query/gate](packages/mcp-gate)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
+| **[@mcp-query/contract](packages/mcp-contract)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
+| **[@mcp-query/record](packages/mcp-record)** | **Record / replay** (VCR for MCP). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
+
+Plus **[apps/inspector](apps/inspector)** — a flagship MCP Inspector (Web Components + Vite +
+a stdio/HTTP proxy) that dogfoods the framework-agnostic core.
+
+## How they relate
+
+- **One core, composable seams.** `mcp-gate` is just `mcp-query`'s `MCPClient` behind its
+  `createGateway`, with an interceptor stack. `mcp-record` taps the same `instrumentTransport`
+  seam the devtools use. `mcp-contract`'s mock and `mcp-record`'s replay both build on the
+  shared `MockMCPServer`.
+- **contract vs record:** a *contract* pins the **shape** (schemas/annotations) to catch drift;
+  a *cassette* freezes the **real results** for offline replay. Use both — contract in CI,
+  cassettes in tests.
 
 ## Develop
 
 ```bash
-npm install
-npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 128 tests
-npm run build         # emit dist/ (ESM + .d.ts) — what `npm publish` ships
-npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
-npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
+npm install                 # install all workspaces
+
+npm test                    # run every workspace's test suite
+npm run build               # build the publishable mcp-query package (dist/)
+npm run typecheck           # typecheck all workspaces
+
+# work in one package
+npm test -w mcp-query
+npm test -w @mcp-query/gate
+npm run dev -w @mcp-query/inspector
 ```
 
-### Examples
+In this monorepo the gate/contract/record packages consume `mcp-query` directly from its
+TypeScript **source** (`packages/mcp-query/src`) for a zero-build dev loop; only `mcp-query`
+itself emits a `dist/` for publishing.
 
-A graded series from one-liner to full app lives in [`examples/`](./examples) (see
-[examples/README.md](./examples/README.md)) — `01`→`06` are **runnable** with no network
-(`npm run example:01` … `example:06`):
+## Status
 
-- **01** connect/list/call · **02** caching + invalidation · **03** live subscriptions ·
-  **04** multi-server routing · **05** human-in-the-loop · **06** *running alongside a
-  separate MCP client on shared state*.
-- [`examples/node-everything.ts`](./examples/node-everything.ts) — guided tour against the
-  real `server-everything` (`npm run example:node`).
-- [`examples/07-hybrid-agent-ui.tsx`](./examples/07-hybrid-agent-ui.tsx) /
-  [`react-app.tsx`](./examples/react-app.tsx) — illustrative React (agent + live UI + broker;
-  every React surface).
+`mcp-query` is the publishable core (`0.0.1`); the gate/contract/record packages and the
+inspector are MVPs (`private`) tracking it. See each package's README for specifics.
 
-### What the tests cover
+## License
 
-| File | Exercises |
-|---|---|
-| `test/cache.test.ts` | staleTime, subscriber ref-counting, tag + protocol invalidation, optimistic rollback, gc |
-| `test/router.test.ts` | tool/resource routing, namespacing, ambiguity errors |
-| `test/connection.test.ts` | connect/negotiate, cursor pagination, `resources/updated`, `list_changed`, **reconnect with a changed capability set** |
-| `test/client.test.ts` | multi-server routing, URI-tagged caching, subscribe ref-count, declared invalidation, isError rollback |
-| `test/codegen.test.ts` | JSON Schema → TS, generated output compiles under `--strict`, paginated `generateFromClient` |
-| `test/react.dom.test.tsx` | `useResource` loading→data, `useTool` invoke, `useTools` reactivity on `list_changed` (happy-dom) |
-
-The in-memory mock server (`src/testing/mockServer.ts`, exported as `mcp-query/testing`)
-is reusable for testing your own integrations.
-
-## Design & background
-
-- [**docs/api.md**](./docs/api.md) — **the full API reference: every feature with an example.**
-- [**docs/backend.md**](./docs/backend.md) — using mcp-query **server-side**: multi-tenant
-  context, interceptors, authorization + audit, resilience, metrics/health, the gateway
-  re-server, per-principal sessions, and the multi-node L2 cache.
-
-The conceptual analysis behind every choice lives in [`docs/`](./docs):
-
-- [**docs/design.md**](./docs/design.md) — the Apollo reframe, the GraphQL↔MCP mapping, what's
-  similar/different/new/harder/impossible, the MCP server conventions a client must respect, and
-  **how `MCPClient` relates to the SDK's `Client`** (wraps, not replaces).
-- [**docs/prior-art.md**](./docs/prior-art.md) — does this already exist? Lessons from TanStack
-  Query, RTK Query, urql, Relay, gRPC, tRPC, Connect, and LSP.
-- [**docs/sampling-and-non-agentic.md**](./docs/sampling-and-non-agentic.md) — why "non-agentic"
-  ≠ "no LLM," and how to plug Chrome's built-in AI into the `sampling` handler.
-- [**docs/human-in-the-loop.md**](./docs/human-in-the-loop.md) — the InteractionBroker: one
-  approval queue for sampling + elicitation, with prompt-edit, response-redaction, trust
-  policy, and an audit log.
-- [**docs/inspector.md**](./docs/inspector.md) — Inspector-style debugging on mcp-query: raw
-  JSON-RPC message log, manual (human-as-model) sampling, OAuth-debug recorder, and the
-  `mcp-query-inspect` CLI + per-request timeouts.
-- [**docs/webmcp.md**](./docs/webmcp.md) — *experimental* WebMCP bridge: expose backend tools
-  to an in-browser agent (`bridgeToWebMCP`), and consume page tools (`webMcpToolServer`).
-
-## The thesis
-
-The right prior art for an MCP client is **not Apollo** — Apollo's defining feature
-(normalized entity caching) is impossible on MCP's opaque, identity-free results.
-The right models are:
-
-| Borrowed from | What we took |
-|---|---|
-| **TanStack Query** | key→document cache, `staleTime`/`gcTime`, background refetch, cache-and-network |
-| **RTK Query** | tag-based invalidation (`providesTags`/`invalidatesTags`) |
-| **urql** | document cache by default, normalization strictly opt-in |
-| **Language Server Protocol** | per-server lifecycle state machine, *dynamic registration* (`list_changed` ≙ `client/registerCapability`), N-server multiplexing, reconnection with capability re-negotiation, cancellation/progress |
-| **Connect-Query** | typed RPC feeding a key-cache; codegen from schema (JSON Schema here) |
-
-The MCP bonus: a chunk of the invalidation you'd hand-declare in RTK Query is
-**emitted by the protocol itself** (`notifications/resources/updated`,
-`notifications/.../list_changed`), so well-behaved servers invalidate your cache for free.
-
-## Architecture (two layers)
-
-```
-                        ┌──────────────────────────── React bindings ───────────────────────────┐
-                        │ useResource (useQuery)   useTool (useMutation)   useTools/usePrompt …   │
-                        └───────────────▲───────────────────────▲──────────────────▲─────────────┘
-                                        │ useSyncExternalStore    │                  │
-  Layer 1: CACHE  ──────────────────────┴─────────────────────────┴──────────────────┴───────────
-  MCPCache: key→entry, tag index, invalidateTags, onResourceUpdated/onListChanged,
-            ref-counted subscribers (→ drives resources/subscribe), gc, optimistic patch
-                                        ▲                         ▲
-                       writes / invalidation                fires onResourceUpdated / onListChanged
-                                        │                         │
-  Layer 2: CONNECTIONS ─────────────────┴─────────────────────────┴──────────────────────────────
-  MCPClient            multiplexer + router + host handlers (sampling/elicitation/roots)
-   └─ ServerConnection (×N)  LSP-style state machine · dynamic registration · reconnect+reconcile
-        └─ @modelcontextprotocol/sdk Client  ── stdio / Streamable HTTP / SSE
-```
-
-**The seam that matters:** the connection layer *drives* the cache layer.
-- `notifications/resources/updated` → `cache.onResourceUpdated` → invalidates that exact URI tag.
-- `notifications/<kind>/list_changed` → re-list → `cache.onListChanged` → `useTools()` re-renders.
-- cache subscriber count (>0) → connection issues `resources/subscribe`; (==0) → unsubscribe + gc.
-- reconnect → re-`initialize` (capabilities may differ) → reconcile → re-list → resubscribe observed entries.
-
-## Usage
-
-```tsx
-import { MCPClient } from "mcp-query";
-import { MCPProvider, useResource, useTool, useTools } from "mcp-query/react";
-import { DevtoolsHub, MCPDevtools } from "mcp-query/devtools";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-
-const hub = new DevtoolsHub();
-
-const client = new MCPClient({
-  servers: {
-    fs:     { transport: () => new StdioClientTransport({ command: "mcp-server-filesystem", args: ["/work"] }) },
-    github: { transport: () => new StreamableHTTPClientTransport(new URL("https://mcp.example.com/github")) },
-  },
-  schemeMap: { file: "fs", github: "github" },
-  handlers: {
-    // Registering a handler is what advertises the capability to the server.
-    elicitation: async (req) => showModal(req.message, req.requestedSchema), // → UI dialog
-    roots:       () => [{ uri: "file:///work" }],
-    // no `sampling` → not advertised → server never asks for an LLM. (non-agentic)
-  },
-  devtools: hub,
-});
-await client.connect();
-
-function App() {
-  return (
-    <MCPProvider client={client}>
-      <Issues />
-      <MCPDevtools hub={hub} />
-    </MCPProvider>
-  );
-}
-
-function Issues() {
-  // useQuery analog: read a resource, live-subscribe, auto-tagged by URI.
-  const { data, isLoading } = useResource("github://repos/acme/app/issues", {
-    fetchPolicy: "cache-and-network",
-    subscribe: true,
-  });
-
-  // useMutation analog. Args validate against the tool's inputSchema (bind a form to it).
-  // `invalidates` is the fallback for servers that DON'T emit resources/updated.
-  const [createIssue, { isPending, isDestructive, inputSchema }] = useTool("github.create_issue", {
-    invalidates: ["res:github:github://repos/acme/app/issues"],
-    optimistic: (a) => [{
-      key: { kind: "resource", server: "github", uri: "github://repos/acme/app/issues" },
-      recipe: (prev: any) => ({ ...prev, contents: [...(prev?.contents ?? []), { title: a.title }] }),
-    }],
-  });
-
-  const { tools } = useTools({ server: "github" }); // re-renders on tools/list_changed
-  // ...render `inputSchema` as a form; gate a confirm dialog on `isDestructive`...
-}
-```
-
-## What's deliberately *not* here (and why)
-
-- **Normalized caching.** No global object identity in MCP results → impossible to do
-  automatically. The opt-in entity layer is `providesTags` + `entityTag()` only.
-- **Static end-to-end types (tRPC-style).** MCP servers are polyglot/decoupled, so types
-  come from **codegen against `tools/list` JSON Schemas** + `createTypedHooks()`, not TS
-  inference.
-Everything else discussed during design — codegen-typed hooks, sampling (incl. Chrome
-built-in AI), polling, persistence, Suspense, dynamic topology, completion, ping — is now
-implemented. See [docs/api.md](./docs/api.md) for every feature with an example.
-
-## Feature coverage
-
-Reads/queries (`useResource`, `useToolResult`, `queryTool`) · mutations (`useTool` with
-optimistic + invalidation + progress + cancel) · capability lists + templates + prompts ·
-`useServerState` · in-flight dedup · structural sharing · polling · Suspense · persistence ·
-entity tags · structured output + annotation helpers · human-in-the-loop broker (sampling +
-elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
-ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
-log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
-per-request timeouts. **100 tests, green.**
-
-## File map
-
-| Path | Role |
-|---|---|
-| `core/cache.ts` | the centerpiece — keys, tags, invalidation, subscribers, gc, optimistic |
-| `core/connection.ts` | LSP-style lifecycle, dynamic registration, reconnect + reconcile |
-| `core/client.ts` | multiplexer + imperative read/call/list API |
-| `core/router.ts` | resolve tool-name / resource-URI → server (namespacing, ambiguity) |
-| `core/handlers.ts` | sampling/elicitation/roots; registration ⇒ capability advertisement |
-| `core/keys.ts`, `core/tags.ts` | cache-key shapes + tag conventions |
-| `react/*` | `useResource`, `useTool`, `useTools/useResourceList/usePrompt` |
-| `devtools/*` | event protocol + three-pane panel |
+[MIT](LICENSE)

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const lib = resolve(here, "../../src"); // consume mcp-query's TS source directly
+const lib = resolve(here, "../../packages/mcp-query/src"); // consume mcp-query's TS source directly
 
 export default defineConfig({
   // Aliases (most-specific first) so Vite/esbuild transpiles mcp-query's .ts source.

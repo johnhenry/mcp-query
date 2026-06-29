@@ -4,7 +4,7 @@
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
-import { instrumentTransport, type TrafficEvent } from "../../../src/core/instrument.js";
+import { instrumentTransport, type TrafficEvent } from "../../mcp-query/src/core/instrument.js";
 import type { Cassette, Interaction } from "./cassette.js";
 
 interface RpcMessage {

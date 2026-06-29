@@ -1,8 +1,8 @@
 // Gate configuration. Config is *code* (a .ts/.js module default-exporting a GateConfig),
 // because transports are functions — but the policy can be expressed declaratively.
 
-import type { AuthzRequest, AuthzVerdict } from "../../../src/server/index.js";
-import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "../../../src/index.js";
+import type { AuthzRequest, AuthzVerdict } from "../../mcp-query/src/server/index.js";
+import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "../../mcp-query/src/index.js";
 import type { RedactRule } from "./redact.js";
 
 /** Declarative policy: glob-matched `server.tool` allow/deny lists + a destructive switch. */

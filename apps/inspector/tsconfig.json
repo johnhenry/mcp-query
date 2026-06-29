@@ -11,9 +11,9 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "mcp-query": ["../../src/index.ts"],
-      "mcp-query/devtools": ["../../src/devtools/protocol.ts"],
-      "mcp-query/webmcp": ["../../src/webmcp/index.ts"]
+      "mcp-query": ["../../packages/mcp-query/src/index.ts"],
+      "mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
+      "mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"]
     }
   },
   "include": ["src", "server", "vite.config.ts"]
