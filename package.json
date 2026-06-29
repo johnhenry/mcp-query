@@ -11,7 +11,8 @@
     "dist"
   ],
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "exports": {
     ".": {
