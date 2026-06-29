@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { useToolResult, useServerState } from "mcp-query/react";
 import { SERVER, useNav } from "../nav.js";
-import { unwrapResult, firstString, isObj } from "../lib/format.js";
+import { unwrapResult, firstString, isObj, metricsOf } from "../lib/format.js";
 import { reduceAnalysis } from "../lib/analysis.js";
 import { Loading, ErrorState, Empty } from "../components/States.js";
 import { AnalysisStateView } from "../components/AnalysisPoller.js";
+import { ExternalLink } from "../components/ExternalLink.js";
 import { JsonView } from "@app-shared";
 
 export function VideoScreen({ platform, postId, title }: { platform: string; postId: string; title?: string }) {
@@ -27,7 +28,11 @@ export function VideoScreen({ platform, postId, title }: { platform: string; pos
   });
 
   const videoObj = video.data ? unwrapResult(video.data) : undefined;
-  const heading = (isObj(videoObj) && firstString(videoObj, ["title", "caption", "name"])) || title || postId;
+  const handle = isObj(videoObj) ? firstString(videoObj, ["creator_username", "username", "handle"]) : undefined;
+  const heading =
+    (isObj(videoObj) && firstString(videoObj, ["title", "caption", "name"])) ||
+    title ||
+    (handle ? `@${handle}` : `post ${postId}`);
 
   if (!server.isReady) return <Loading label="Connecting…" />;
 
@@ -68,13 +73,23 @@ export function VideoScreen({ platform, postId, title }: { platform: string; pos
 }
 
 function VideoMeta({ rec }: { rec: Record<string, unknown> }) {
-  const desc = firstString(rec, ["description", "caption", "summary"]);
-  const url = firstString(rec, ["url", "link", "video_url", "post_url", "permalink"]);
-  const stats = Object.entries(rec).filter(
-    ([k, v]) => typeof v === "number" && /view|like|comment|share|play|duration|engagement/i.test(k),
+  const desc = firstString(rec, ["description", "caption", "summary", "text"]);
+  const handle = firstString(rec, ["creator_username", "username", "handle"]);
+  const url = firstString(rec, ["post_url", "url", "link", "video_url", "permalink"]);
+  const thumb = firstString(rec, ["thumbnail_url", "thumbnail", "cover_url", "image"]);
+  // Metrics are nested under `metrics` (views/likes/comments/shares/saves/engagement_rate).
+  const stats = Object.entries(metricsOf(rec)).filter(
+    ([k, v]) => (typeof v === "number" || (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)))) &&
+      /view|like|comment|share|play|save|duration|engagement/i.test(k),
   );
   return (
     <div>
+      {thumb && <img className="video-thumb" src={thumb} alt="" loading="lazy" />}
+      {handle && (
+        <p className="muted small">
+          by @{handle}
+        </p>
+      )}
       {desc && <p>{desc}</p>}
       {stats.length > 0 && (
         <dl className="metrics">
@@ -88,9 +103,9 @@ function VideoMeta({ rec }: { rec: Record<string, unknown> }) {
       )}
       {url && (
         <p>
-          <a href={url} target="_blank" rel="noreferrer" className="btn ghost">
+          <ExternalLink href={url} className="btn ghost">
             Open post ↗
-          </a>
+          </ExternalLink>
         </p>
       )}
       <details className="raw">

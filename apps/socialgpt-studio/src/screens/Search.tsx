@@ -7,6 +7,7 @@ import {
   firstString,
   creatorRef,
   videoRef,
+  viewCount,
   unwrapResult,
   isObj,
 } from "../lib/format.js";
@@ -111,38 +112,47 @@ function ResultCard({
   onVideo: (v: { platform: string; postId: string; title?: string }) => void;
 }) {
   const name = displayName(rec);
-  const platform = firstString(rec, ["platform", "network"]);
-  const verified = rec.is_verified === true;
 
-  if (mode === "videos") {
-    const v = videoRef(rec);
-    const views = firstString(rec, ["views", "view_count", "plays"]);
+  // "accounts" lists tracked creators → drill into the Creator screen.
+  if (mode === "accounts") {
+    const ref = creatorRef(rec);
+    const plat = ref?.platform;
+    const verified = rec.is_verified === true;
+    const pic = firstString(rec, ["profile_picture_url", "avatar", "image"]);
     return (
       <li>
-        <button type="button" className="card" disabled={!v} onClick={() => v && onVideo(v)}>
-          <div className="card-title">{firstString(rec, ["title", "caption", "name"]) ?? name}</div>
-          {platform && <div className="card-sub">{platform}</div>}
-          {views && <div className="card-meta">{views} views</div>}
-          <div className="card-cta">{v ? "View video →" : "no post id"}</div>
+        <button type="button" className="card" disabled={!ref} onClick={() => ref && onCreator(ref)}>
+          <div className="card-row">
+            {pic && <img className="card-avatar" src={pic} alt="" loading="lazy" />}
+            <div className="card-title">
+              {name} {verified && <span title="verified">✓</span>}
+            </div>
+          </div>
+          <div className="card-sub">
+            {plat ?? ""}
+            {ref?.username ? ` · @${ref.username}` : ""}
+          </div>
+          <div className="card-cta">{ref ? "View creator →" : "needs platform + username"}</div>
         </button>
       </li>
     );
   }
 
-  // accounts / creators → a creator ref drill-in.
-  const ref = creatorRef(rec);
-  const username = firstString(rec, ["username", "handle"]);
+  // "Search" (content) and "Videos" both return posts → drill into the Video screen.
+  const v = videoRef(rec);
+  const views = viewCount(rec);
+  const thumb = firstString(rec, ["thumbnail_url", "thumbnail", "cover_url"]);
   return (
     <li>
-      <button type="button" className="card" disabled={!ref} onClick={() => ref && onCreator(ref)}>
-        <div className="card-title">
-          {name} {verified && <span title="verified">✓</span>}
-        </div>
+      <button type="button" className="card" disabled={!v} onClick={() => v && onVideo(v)}>
+        {thumb && <img className="card-thumb" src={thumb} alt="" loading="lazy" />}
+        <div className="card-title">{firstString(rec, ["title", "caption", "name", "text"]) ?? v?.title ?? name}</div>
         <div className="card-sub">
-          {platform ? `${platform}` : ""}
-          {username ? ` · @${username}` : ""}
+          {v?.platform ?? ""}
+          {v?.username ? ` · @${v.username}` : ""}
         </div>
-        <div className="card-cta">{ref ? "View creator →" : "needs platform + username"}</div>
+        {views && <div className="card-meta">{views} views</div>}
+        <div className="card-cta">{v ? "View post →" : "no post id"}</div>
       </button>
     </li>
   );
