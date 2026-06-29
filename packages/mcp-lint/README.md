@@ -21,7 +21,11 @@ npx tsx packages/mcp-lint/src/cli.ts --list-rules
 ```
 
 A live server is reached over stdio (`--command`) **or Streamable HTTP** (`--url https://host/mcp`,
-with optional `--bearer "$TOKEN"` / repeated `--header "K: V"` for OAuth-protected hosts).
+with optional `--bearer "$TOKEN"` / repeated `--header "K: V"`). For an **OAuth-protected** host
+with no token yet, run `mcp-contract auth --url …` once (browser-consent flow, incl. an
+`ssh -L` recipe for remote boxes) — see
+[mcp-contract › OAuth-protected servers](../mcp-contract#oauth-protected-servers). The token is
+cached and auto-refreshed, so `mcp-lint --url …` then just works.
 
 Exits non-zero on any **error**-level finding, or when warnings exceed `--max-warnings`
 (default: unbounded). Disable or escalate rules with `--off a,b` / `--error a,b`.

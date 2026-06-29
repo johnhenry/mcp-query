@@ -22,7 +22,11 @@ With no `--out`, the Markdown is written to stdout (pipe it anywhere). See
 [`examples/everything.md`](examples/everything.md) for real generated output.
 
 A live server is reached over stdio (`--command`) **or Streamable HTTP** (`--url https://host/mcp`,
-with optional `--bearer "$TOKEN"` / repeated `--header "K: V"` for OAuth-protected hosts).
+with optional `--bearer "$TOKEN"` / repeated `--header "K: V"`). For an **OAuth-protected** host
+with no token yet, run `mcp-contract auth --url …` once (browser-consent flow, incl. an
+`ssh -L` recipe for remote boxes) — see
+[mcp-contract › OAuth-protected servers](../mcp-contract#oauth-protected-servers). The token is
+cached and auto-refreshed, so `mcp-docs --url …` then just works.
 
 ## What it renders
 
