@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { AppProvider } from "@app-shared";
 import { NavProvider } from "./nav.js";
 import { App } from "./App.js";
+import { openExternal } from "./lib/external.js";
 import "./styles.css";
 import "./auth.css";
 
@@ -82,7 +83,7 @@ function Login({ onConnected }: { onConnected: () => void }) {
         {authorizeUrl && (
           <p className="auth-hint">
             A sign-in tab should have opened. Didn't see it?{" "}
-            <a href={authorizeUrl} target="_blank" rel="noreferrer">Open it manually</a>.
+            <a href={authorizeUrl} rel="noreferrer" onClick={(e) => { e.preventDefault(); void openExternal(authorizeUrl); }}>Open it manually</a>.
           </p>
         )}
         {authorizeUrl && (

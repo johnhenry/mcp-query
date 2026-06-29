@@ -246,6 +246,28 @@ async function authComplete(req, res) {
   return result.ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { ok: false, message: result.error });
 }
 
+/** Open an external URL in the system browser (the desktop webview can't follow target=_blank). */
+async function openExternal(req, res) {
+  let url;
+  try {
+    const buf = await readBody(req);
+    url = String(JSON.parse(buf ? buf.toString("utf8") : "{}").url ?? "").trim();
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "invalid JSON body" });
+  }
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "invalid url" });
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return sendJson(res, 400, { ok: false, message: "only http(s) urls are allowed" });
+  }
+  openBrowser(parsed.toString());
+  return sendJson(res, 200, { ok: true });
+}
+
 async function authLogout(res) {
   await closeCallbackServer();
   pending = null;
@@ -302,6 +324,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/auth/callback") return void authCallback(url, res); // same-port fallback (shares `pending`)
   if (url.pathname === "/auth/complete" && req.method === "POST") return void authComplete(req, res);
   if (url.pathname === "/auth/logout" && req.method === "POST") return void authLogout(res);
+  if (url.pathname === "/open" && req.method === "POST") return void openExternal(req, res);
   serveStatic(url.pathname, res);
 });
 

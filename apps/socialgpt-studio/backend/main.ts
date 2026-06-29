@@ -358,6 +358,30 @@ async function authComplete(req: Request): Promise<Response> {
   return result.ok ? json(200, { ok: true }) : json(400, { ok: false, message: result.error });
 }
 
+/**
+ * Open an external URL in the system browser. The packaged `deno desktop` webview can't follow
+ * `target="_blank"` / `window.open` to the system browser, so the UI POSTs external links here.
+ */
+async function openExternal(req: Request): Promise<Response> {
+  let url: string;
+  try {
+    url = String(((await req.json()) as { url?: string }).url ?? "").trim();
+  } catch {
+    return json(400, { ok: false, message: "invalid JSON body" });
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return json(400, { ok: false, message: "invalid url" });
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return json(400, { ok: false, message: "only http(s) urls are allowed" });
+  }
+  openBrowser(parsed.toString());
+  return json(200, { ok: true });
+}
+
 async function authLogout(): Promise<Response> {
   await closeCallbackServer();
   pending = null;
@@ -402,33 +426,37 @@ function mimeFor(path: string): string {
   return (dot >= 0 ? MIME[path.slice(dot)] : undefined) ?? "application/octet-stream";
 }
 
+function embedResponse(key: string): Response {
+  return new Response(Uint8Array.from(atob(DIST_EMBED[key]!), (c) => c.charCodeAt(0)), { headers: { "content-type": mimeFor(key) } });
+}
+
 async function serveStatic(pathname: string): Promise<Response> {
   let rel = decodeURIComponent(pathname);
   if (rel.endsWith("/")) rel += "index.html";
   // Prevent path traversal.
   const safe = rel.replace(/\.\.+/g, "").replace(/^\/+/, "");
 
-  // 1. Embedded SPA (packaged binary). SPA fallback → index.html for unknown routes.
-  if (Object.keys(DIST_EMBED).length) {
-    const hit = DIST_EMBED[safe] ? safe : DIST_EMBED["index.html"] ? "index.html" : undefined;
-    if (!hit) return new Response("not found", { status: 404 });
-    return new Response(Uint8Array.from(atob(DIST_EMBED[hit]!), (c) => c.charCodeAt(0)), { headers: { "content-type": mimeFor(hit) } });
+  // 1. Filesystem dist (dev / `deno run`). Preferred so a fresh `npm run build` is always served —
+  //    even if a stale backend/dist-embed.json lingers from a `deno task desktop` build. In the
+  //    packaged binary there's no dist on disk, so this falls through to the embed below.
+  try {
+    return new Response(await Deno.readFile(`${DIST}${safe}`), { headers: { "content-type": mimeFor(safe) } });
+  } catch {
+    /* not on disk → try the embed, then SPA fallback */
   }
 
-  // 2. Filesystem dist (dev / `deno run -A backend/main.ts`).
-  const filePath = `${DIST}${safe}`;
+  // 2. Embedded SPA (packaged binary).
+  if (DIST_EMBED[safe]) return embedResponse(safe);
+
+  // 3. SPA fallback → index.html (filesystem first, then embed).
   try {
-    const data = await Deno.readFile(filePath);
-    return new Response(data, { headers: { "content-type": mimeFor(filePath) } });
+    const html = await Deno.readFile(`${DIST}index.html`);
+    return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
   } catch {
-    // SPA fallback.
-    try {
-      const html = await Deno.readFile(`${DIST}index.html`);
-      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
-    } catch {
-      return new Response("not found (build the app first: `npm run build`)", { status: 404 });
-    }
+    /* no fs index → embed index */
   }
+  if (DIST_EMBED["index.html"]) return embedResponse("index.html");
+  return new Response("not found (build the app first: `npm run build`)", { status: 404 });
 }
 
 Deno.serve(
@@ -444,6 +472,7 @@ Deno.serve(
     if (url.pathname === "/auth/callback") return authCallback(url); // same-port fallback (shares `pending`)
     if (url.pathname === "/auth/complete" && req.method === "POST") return authComplete(req);
     if (url.pathname === "/auth/logout" && req.method === "POST") return authLogout();
+    if (url.pathname === "/open" && req.method === "POST") return openExternal(req);
     return serveStatic(url.pathname);
   },
 );
