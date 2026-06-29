@@ -1,0 +1,161 @@
+# @mcp-query/socialgpt-studio
+
+A creator-analytics UI built on **[mcp-query](../../packages/mcp-query)** over the LIVE,
+OAuth-protected **SocialGPT** MCP server at `https://mcp.gpt.social/mcp` (server name
+`SocialGPT`, 21 tools).
+
+React + Vite frontend, a small **Deno** backend (with a plain-**Node** fallback) that
+reverse-proxies `/mcp` to the live server and injects the OAuth bearer token.
+
+---
+
+## Architecture
+
+```
+ React app  ──fetch("/mcp")──▶  reverse proxy (:8787)  ──Bearer token──▶  mcp.gpt.social/mcp
+ (StreamableHTTPClientTransport)   Deno  backend/main.ts          (refresh-on-401, retry once)
+                                or Node  backend/node-proxy.mjs
+   dev: Vite server.proxy /mcp ─▶ :8787
+```
+
+- The React app **always** calls the relative URL `/mcp` — it never sees the token.
+- The client is built **directly** (no WS proxy / `makeProxyClient`):
+
+  ```ts
+  const client = new MCPClient({
+    servers: { socialgpt: { transport: () => new StreamableHTTPClientTransport(new URL("/mcp", location.origin)) } },
+    clientInfo: { name: "socialgpt-studio", version: "0.0.1" },
+  });
+  void client.connect();
+  ```
+
+- The proxy reads `~/.mcp-query/oauth/mcp.gpt.social.json`
+  (`{ clientInformation: { client_id, … }, tokens: { access_token, refresh_token, … } }`),
+  injects `Authorization: Bearer <access_token>`, and on a `401` refreshes the token
+  (`POST https://mcp.gpt.social/oauth/token`, `grant_type=refresh_token`), persists the
+  new tokens back to that file, and retries the request once. Responses are streamed
+  through unbuffered (the server replies `text/event-stream`).
+
+---
+
+## Prerequisites
+
+You must already be authenticated to SocialGPT, i.e. the token file must exist:
+
+```
+~/.mcp-query/oauth/mcp.gpt.social.json
+```
+
+(Use the inspector / mcp-query OAuth flow to create it if missing.) Without it the proxy
+returns `500 { error: "no_oauth_token" }` and the UI shows a connection error.
+
+---
+
+## Run (dev)
+
+Two processes — the proxy and Vite:
+
+```bash
+# Terminal 1 — the reverse proxy on :8787
+#   Deno (preferred):
+deno task dev                 # = deno run -A backend/main.ts
+#   …or plain Node (no Deno required):
+node backend/node-proxy.mjs
+
+# Terminal 2 — the Vite dev server (proxies /mcp → :8787)
+npm run dev -w @mcp-query/socialgpt-studio
+```
+
+Open the URL Vite prints (default http://localhost:5173). Vite's `server.proxy` forwards
+`/mcp` to `http://localhost:8787`.
+
+> No Deno installed? Use `node backend/node-proxy.mjs` — it's a byte-for-byte equivalent
+> of the Deno proxy (same token read / refresh-on-401 / retry logic).
+
+## Run (production / single process)
+
+```bash
+npm run build -w @mcp-query/socialgpt-studio   # → dist/
+deno run -A backend/main.ts                    # serves dist/ AND proxies /mcp on :8787
+#   …or: node backend/node-proxy.mjs
+```
+
+Then open http://localhost:8787 — the backend serves the built SPA and proxies `/mcp`.
+
+---
+
+## Desktop packaging (experimental)
+
+`deno task desktop` runs:
+
+```bash
+deno desktop backend/main.ts
+```
+
+`deno desktop` is an **experimental** subcommand and requires **Deno ≥ 2.9**. This machine
+has **Deno 2.7.4**, so `deno desktop` is **not available here** — on this version Deno
+doesn't recognize `desktop` as a subcommand and instead tries to *run a module* named
+`desktop` (errors: `Module not found ".../desktop"`). When on Deno ≥ 2.9:
+
+```bash
+npm run build -w @mcp-query/socialgpt-studio   # build the SPA first
+deno task desktop                              # = deno desktop backend/main.ts
+```
+
+The backend already serves `dist/` for non-`/mcp` paths, so the same `backend/main.ts`
+is the desktop entrypoint. Until Deno 2.9 is available, use the **Node fallback** path
+above (`node backend/node-proxy.mjs` + a browser) for the same experience.
+
+---
+
+## Screens
+
+| Screen | Tools used | Notes |
+|--------|-----------|-------|
+| **Search** | `list_accounts`, `search`, `search_videos` (`useToolResult`) | Tabs: Accounts / Search / Videos. Cards drill into Creator or Video. **No auto-refetch** (cached). |
+| **Creator** | `get_creator`, `get_account_metrics`, `get_follower_history`, `get_growth_summary`, `list_creator_videos` | Keyed by `(platform, username)` / `account_id`. Follower history & growth render as a **hand-rolled inline SVG line chart** (no chart lib). |
+| **Analyze** | `analyze_creator` / `analyze_post` (`useTool` mutation) → poll `get_analysis_status` (`useToolResult` `refetchInterval`) | Polls **only while pending**; stops on done/error. Surfaces a **10 calls/hour** budget meter. |
+| **Video** | `get_video`, `get_video_analysis` | Pending → retry poll pattern (poll only while unsettled). |
+| **Header** | `whoami`, `server_info`, `useServerState` | Connection state + identity + analysis budget. |
+
+### Rate-limit awareness
+
+The analysis tools are limited to **10 calls/hour**. The app tracks spent calls in
+`localStorage` (rolling 1h window, see `src/lib/rateBudget.ts`), shows a remaining-budget
+pill in the header and Analyze screen, and disables the Analyze form when the budget is
+exhausted. Read screens are cached and **never auto-refetch**, to avoid burning quota.
+
+> Note: the supplied token carries the `analysis:read` scope. Some tools (e.g.
+> `get_creator`) require `analysis:read:public`; if the token lacks a scope the server
+> returns a tool error, which the UI surfaces in an error state. `whoami` /
+> `server_info` / `list_accounts` work with the base scope.
+
+---
+
+## Tests
+
+```bash
+npm test -w @mcp-query/socialgpt-studio
+```
+
+- `test/analysis.test.ts` — unit tests for the **analysis polling state machine**
+  (`reduceAnalysis`: pending → done / error, progress normalization, MCP-result
+  unwrapping) and the result formatters (`asList`, `asSeries`, `displayName`).
+- `test/integration.test.tsx` — a real `MCPClient` over `InMemoryTransport` wired to a
+  `MockMCPServer` (`mcp-query/testing`) emulating SocialGPT's `search` and
+  `get_follower_history` tools; renders components via `@testing-library/react`
+  (happy-dom) and asserts the search list + the SVG follower chart render their data.
+
+---
+
+## Verify
+
+```bash
+npm run typecheck -w @mcp-query/socialgpt-studio
+npm test       -w @mcp-query/socialgpt-studio
+npm run build  -w @mcp-query/socialgpt-studio
+deno check backend/main.ts          # best-effort (needs Deno)
+node --check backend/node-proxy.mjs
+```
+
+**Live target:** `https://mcp.gpt.social/mcp` (via the local reverse proxy on :8787).

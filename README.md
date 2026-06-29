@@ -35,8 +35,24 @@ and they stack:
 | **[@mcp-query/bench](packages/mcp-bench)** | **Benchmarking.** Latency (p50/p95/p99) + throughput per tool, with perf budgets that fail CI. Local or hosted servers. | You want to **track an MCP server's performance** or gate on a latency budget. |
 | **[@mcp-query/record](packages/mcp-record)** | **Record / replay** (VCR for MCP). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
 
-Plus **[apps/inspector](apps/inspector)** — a flagship MCP Inspector (Web Components + Vite +
-a stdio/HTTP proxy) that dogfoods the framework-agnostic core.
+## Apps
+
+Reference applications that prove you can build real product UIs on MCP — each chosen to
+exploit a different MCP-native capability REST/GraphQL lack. They share a spine (`apps/shared`:
+the WS proxy, transport, OAuth, schema-form, and React glue).
+
+| App | What it shows | Stack |
+|---|---|---|
+| **[inspector](apps/inspector)** | Protocol **debugger** — raw message log, manual sampling, OAuth stepper, cache view | Web Components |
+| **[socialgpt-studio](apps/socialgpt-studio)** | **One backend, two consumers** — a creator-analytics UI over the live OAuth-gated [SocialGPT](https://mcp.gpt.social/mcp) tool surface an agent also uses | React, **Deno desktop** (+ token-injecting backend proxy) |
+| **[console](apps/console)** | **Capability discovery** — a polished operator UI auto-generated from *any* server's tools/resources/prompts | Web Components |
+| **[ops-cockpit](apps/ops-cockpit)** | **Aggregation + live tiles** — a NOC dashboard over many servers, reactive on health + `list_changed` | React |
+| **[approvals](apps/approvals)** | **Human-in-the-loop** — agent sampling/elicitation proposals approved/edited in a queue, on the `InteractionBroker` | React |
+| **[notebook](apps/notebook)** | **Subscriptions** — a notes UI where agent and app share one live view via `resources/subscribe` | React |
+
+Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
+it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
+framework-agnostic core.
 
 ## How they relate
 

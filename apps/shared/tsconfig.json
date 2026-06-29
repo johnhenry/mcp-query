@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "paths": {
+      "mcp-query": ["../../packages/mcp-query/src/index.ts"],
+      "mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
+      "mcp-query/react": ["../../packages/mcp-query/src/react/index.ts"],
+      "mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

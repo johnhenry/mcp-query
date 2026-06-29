@@ -1,0 +1,6 @@
+plain text scratchpad
+
+no markdown here — just raw text.
+this file proves the viewer handles .txt as well as .md.
+
+agent notes: edit me on disk to see the live update flash.

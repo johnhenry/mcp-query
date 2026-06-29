@@ -32,7 +32,9 @@ jobs:
         working-directory: packages/mcp-query
         run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
 
-      - name: Inspector typecheck + build
+      - name: Apps typecheck + build
         run: |
-          npm run typecheck -w @mcp-query/inspector
-          npm run build -w @mcp-query/inspector
+          for app in inspector socialgpt-studio console ops-cockpit approvals notebook; do
+            npm run typecheck -w @mcp-query/$app
+            npm run build -w @mcp-query/$app
+          done

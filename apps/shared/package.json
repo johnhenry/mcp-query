@@ -1,0 +1,24 @@
+{
+  "name": "@mcp-query/app-shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Shared app spine for the mcp-query example apps: reusable WS proxy, transports, OAuth, and React glue (provider, schema form, result/JSON views).",
+  "main": "src/react/index.tsx",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "mcp-query": "*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.9.3"
+  }
+}

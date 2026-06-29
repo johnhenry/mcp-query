@@ -1,0 +1,35 @@
+{
+  "name": "@mcp-query/approvals",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "React + Vite mcp-query example app (human-in-the-loop approvals) with the shared WS proxy.",
+  "scripts": {
+    "dev": "concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mcp-query/app-shared": "*",
+    "mcp-query": "*",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.0",
+    "happy-dom": "^20.10.6",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.9",
+    "ws": "^8.18.0"
+  }
+}

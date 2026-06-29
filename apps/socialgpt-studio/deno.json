@@ -1,0 +1,7 @@
+{
+  "tasks": {
+    "dev": "deno run -A backend/main.ts",
+    "desktop": "deno desktop backend/main.ts"
+  },
+  "imports": {}
+}
