@@ -1,0 +1,24 @@
+{
+  "name": "@mcp-query/contract",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Contract testing & breaking-change detection for MCP capability surfaces — pin a server's tools/resources/prompts, then fail CI when a live server drifts incompatibly. The dual of mcp-query codegen.",
+  "bin": {
+    "mcp-contract": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "mcp-query": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}
