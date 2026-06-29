@@ -1,0 +1,38 @@
+{
+  "name": "@mcp-query/composer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "A chat composer where the USER drives MCP tools to assemble grounded input, with a pluggable model picker (ai.matey).",
+  "scripts": {
+    "dev": "concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "mcp-query": "*",
+    "@mcp-query/app-shared": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ai.matey.core": "^0.2.0",
+    "ai.matey.backend": "^0.2.4",
+    "ai.matey.frontend": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.0",
+    "happy-dom": "^20.10.6",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.9",
+    "ws": "^8.18.0"
+  }
+}

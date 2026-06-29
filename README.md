@@ -50,6 +50,7 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 | **[ops-cockpit](apps/ops-cockpit)** | **Aggregation + live tiles** — a NOC dashboard over many servers, reactive on health + `list_changed` | React |
 | **[approvals](apps/approvals)** | **Human-in-the-loop** — agent sampling/elicitation proposals approved/edited in a queue, on the `InteractionBroker` | React |
 | **[notebook](apps/notebook)** | **Subscriptions** — a notes UI where agent and app share one live view via `resources/subscribe` | React |
+| **[composer](apps/composer)** | **Tools as *input*** — a chat where the *user* drives MCP tools to assemble grounded input (the inverse of agentic tool use), with a pluggable model picker via [ai.matey](https://github.com/johnhenry/ai.matey) | React |
 
 Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
 it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the

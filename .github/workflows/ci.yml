@@ -34,7 +34,7 @@ jobs:
 
       - name: Apps typecheck + build
         run: |
-          for app in inspector socialgpt-studio console ops-cockpit approvals notebook; do
+          for app in inspector socialgpt-studio console ops-cockpit approvals notebook composer; do
             npm run typecheck -w @mcp-query/$app
             npm run build -w @mcp-query/$app
           done
