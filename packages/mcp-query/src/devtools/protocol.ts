@@ -33,8 +33,10 @@ export class DevtoolsHub implements DevtoolsSink {
   events(): readonly DevtoolsEvent[] {
     return this.buf;
   }
-  subscribe(fn: () => void): () => void {
+  // Arrow property (bound) so it can be passed unbound to subscribe-style consumers —
+  // matching InteractionBroker.subscribe and MCPClient.subscribeServerState.
+  subscribe = (fn: () => void): (() => void) => {
     this.subs.add(fn);
     return () => this.subs.delete(fn);
-  }
+  };
 }

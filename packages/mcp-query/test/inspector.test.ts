@@ -44,6 +44,19 @@ describe("raw message log", () => {
     await client.connect(); // no throw, no tap
     await client.close();
   });
+
+  it("subscribe is bound — safe to pass unbound to subscribe-style consumers", () => {
+    const hub = new DevtoolsHub();
+    // Consumers (e.g. the Inspector's Reactive.track) pass the method reference directly.
+    const subscribe = hub.subscribe;
+    let fired = 0;
+    const unsub = subscribe(() => fired++); // must not throw on `this.subs`
+    hub.emit({ type: "notification", server: "s", method: "x", dir: "in" } as never);
+    expect(fired).toBe(1);
+    unsub();
+    hub.emit({ type: "notification", server: "s", method: "x", dir: "in" } as never);
+    expect(fired).toBe(1); // unsubscribed
+  });
 });
 
 describe("manual (human-as-model) sampling", () => {
