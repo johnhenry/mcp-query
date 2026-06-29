@@ -1,10 +1,13 @@
 // Drill-down for a selected server: its tools (re-rendered on list_changed via
-// useTools), each with a read-only "watch" toggle. Read-only tools (isReadOnly) get a
-// WatchWidget; others are shown as call-only (no auto-watch — cockpit is observe-first).
+// useTools), each with a "watch" toggle. Tools are classified three ways from their MCP
+// annotations: read-only (readOnlyHint) → safe to watch; destructive (destructiveHint) →
+// call-only; and *unannotated* → "unverified" (most real servers, incl. the demo
+// `everything` server, annotate nothing) — watchable, but flagged so the operator confirms
+// it's safe to poll. Treating "no annotation" as mutating would make watch unusable here.
 
 import { useEffect, useState } from "react";
 import { useTools, useResourceList, useServerState } from "mcp-query/react";
-import { isReadOnly, type Tool } from "mcp-query";
+import { isReadOnly, isDestructive, type Tool } from "mcp-query";
 import { JsonView } from "@app-shared";
 import { WatchWidget } from "./WatchWidget.js";
 import type { MCPClient } from "mcp-query";
@@ -66,25 +69,43 @@ function ToolRow({
   onToggle: () => void;
 }) {
   const readOnly = isReadOnly(tool);
+  const destructive = isDestructive(tool);
+  // Only explicitly-destructive tools are blocked; read-only and unannotated are watchable.
+  const watchable = !destructive;
+  const badge = readOnly ? (
+    <span className="tag tag--ro">read-only</span>
+  ) : destructive ? (
+    <span className="tag tag--dgr">destructive</span>
+  ) : (
+    <span className="tag tag--unk">unverified</span>
+  );
   return (
     <li className={`toolrow${open ? " toolrow--open" : ""}`}>
       <button type="button" className="toolrow__head" onClick={onToggle}>
         <span className="toolrow__name">{tool.name}</span>
-        {readOnly ? <span className="tag tag--ro">read-only</span> : <span className="tag tag--mut">mutating</span>}
+        {badge}
         <span className="toolrow__chev">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
         <div className="toolrow__body">
           {tool.description && <p className="toolrow__desc">{tool.description}</p>}
-          {readOnly ? (
-            <WatchWidget
-              server={server}
-              toolName={`${server}.${tool.name}`}
-              inputSchema={tool.inputSchema as never}
-            />
+          {watchable ? (
+            <>
+              {!readOnly && (
+                <p className="toolrow__warn">
+                  ⚠ No <code>readOnlyHint</code> — this server didn't declare this tool read-only.
+                  Confirm it's safe to call repeatedly before watching.
+                </p>
+              )}
+              <WatchWidget
+                server={server}
+                toolName={tool.name}
+                inputSchema={tool.inputSchema as never}
+              />
+            </>
           ) : (
             <div className="toolrow__nowatch">
-              <p className="muted">Mutating tool — not auto-watched. Schema:</p>
+              <p className="muted">Destructive tool — not watchable. Schema:</p>
               <JsonView value={tool.inputSchema ?? { type: "object" }} />
             </div>
           )}

@@ -277,9 +277,24 @@ body {
   background: rgba(63, 185, 80, 0.15);
   color: var(--ok);
 }
-.tag--mut {
+.tag--dgr {
   background: rgba(248, 81, 73, 0.15);
   color: var(--err);
+}
+.tag--unk {
+  background: rgba(240, 180, 41, 0.15);
+  color: #f0b429;
+}
+.toolrow__warn {
+  font-size: 0.75rem;
+  color: #f0b429;
+  margin: 0 0 0.5rem;
+  line-height: 1.4;
+}
+.toolrow__warn code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0 3px;
+  border-radius: 3px;
 }
 .toolrow__body {
   padding: 0.6rem;
