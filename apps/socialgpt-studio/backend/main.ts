@@ -11,7 +11,91 @@
 //
 // Runs on port 8787. `deno task dev` = `deno run -A backend/main.ts`.
 
-import { discover, register, pkce, buildAuthUrl, exchangeCode, chooseScope, tokenFile } from "./oauth.mjs";
+// OAuth 2.1 (DCR + PKCE) helpers — INLINED from oauth.mjs so the compiled `deno desktop`
+// binary has no sibling-module import to resolve (deno desktop's macOS relative-module
+// resolution is flaky; it choked on "./oauth.mjs"). The Node fallback (node-proxy.mjs)
+// still imports the .mjs copy, which stays the single source for that path.
+const AUTH_SERVER = "https://mcp.gpt.social";
+const RESOURCE = "https://mcp.gpt.social/mcp"; // RFC 8707 resource indicator
+const WANT_SCOPES = ["analysis:read", "analysis:read:public", "offline_access"];
+
+function base64url(bytes: ArrayBuffer | Uint8Array): string {
+  let bin = "";
+  for (const b of new Uint8Array(bytes)) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function randomString(len = 64): string {
+  const a = new Uint8Array(len);
+  crypto.getRandomValues(a);
+  return base64url(a).slice(0, len);
+}
+async function discover(): Promise<{ authorization_endpoint: string; token_endpoint: string; registration_endpoint: string; scopes_supported?: string[] }> {
+  const res = await fetch(`${AUTH_SERVER}/.well-known/oauth-authorization-server`);
+  if (!res.ok) throw new Error(`oauth discovery failed: ${res.status}`);
+  return await res.json();
+}
+function chooseScope(meta: { scopes_supported?: string[] }): string {
+  const supported = new Set(meta?.scopes_supported ?? WANT_SCOPES);
+  const picked = WANT_SCOPES.filter((s) => supported.has(s));
+  return (picked.length ? picked : ["analysis:read", "offline_access"]).join(" ");
+}
+async function pkce(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = randomString(64);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return { verifier, challenge: base64url(digest) };
+}
+async function register(meta: { registration_endpoint: string }, redirectUri: string, scope: string): Promise<{ client_id: string }> {
+  const res = await fetch(meta.registration_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "SocialGPT Studio",
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope,
+    }),
+  });
+  if (!res.ok) throw new Error(`client registration failed: ${res.status} ${await res.text().catch(() => "")}`);
+  return await res.json();
+}
+function buildAuthUrl(
+  meta: { authorization_endpoint: string },
+  { clientId, redirectUri, scope, challenge, state }: { clientId: string; redirectUri: string; scope: string; challenge: string; state: string },
+): string {
+  const u = new URL(meta.authorization_endpoint);
+  u.search = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    resource: RESOURCE,
+  }).toString();
+  return u.toString();
+}
+async function exchangeCode(
+  meta: { token_endpoint: string },
+  { code, verifier, clientId, redirectUri }: { code: string; verifier: string; clientId: string; redirectUri: string },
+): Promise<OAuthFile["tokens"]> {
+  const res = await fetch(meta.token_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: verifier, client_id: clientId, redirect_uri: redirectUri, resource: RESOURCE }),
+  });
+  if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text().catch(() => "")}`);
+  return await res.json();
+}
+function tokenFile({ clientId, redirectUri, verifier, tokens }: { clientId: string; redirectUri: string; verifier: string; tokens: OAuthFile["tokens"] }): OAuthFile {
+  return {
+    clientInformation: { client_id: clientId, redirect_uris: [redirectUri], token_endpoint_auth_method: "none" },
+    tokens,
+    codeVerifier: verifier,
+  };
+}
 
 const UPSTREAM = "https://mcp.gpt.social/mcp";
 const TOKEN_ENDPOINT = "https://mcp.gpt.social/oauth/token";
