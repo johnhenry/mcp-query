@@ -9,6 +9,22 @@ reverse-proxies `/mcp` to the live server and injects the OAuth bearer token.
 
 ---
 
+## Screenshots
+
+**Search — your tracked creators** across Instagram, TikTok, and YouTube.
+
+![Accounts](screenshots/accounts.png)
+
+**Creator** — a live follower-history chart, the latest account-metrics snapshot, per-metric growth deltas (e.g. `130 ▼5 -3.7%`), and a video grid with thumbnails + view counts.
+
+![Creator](screenshots/creator.png)
+
+**Video** — a post's metrics (views, engagement), the creator handle, the thumbnail, and an **Open post ↗** link that opens in the system browser (works inside the packaged desktop webview too).
+
+![Video](screenshots/video.png)
+
+---
+
 ## Architecture
 
 ```

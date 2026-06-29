@@ -23,6 +23,20 @@ interaction type and server.
   persisted rule set.
 - **Audit** — an outcome-colored timeline with **NDJSON export**.
 
+## Screenshots
+
+**Elicitation** — the server's `requestedSchema` rendered as a form; approve & submit, or deny.
+
+![Elicitation request](screenshots/elicitation.png)
+
+**Manual sampling** — you author the model's reply (the messages are editable); approve to return it to the agent.
+
+![Manual sampling](screenshots/sampling.png)
+
+**Audit** — an outcome-colored timeline of every decision, exportable as NDJSON.
+
+![Audit trail](screenshots/audit.png)
+
 ## Run
 
 From the monorepo root:

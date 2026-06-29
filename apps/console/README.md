@@ -21,6 +21,22 @@ framework-agnostic core and the shared app spine:
 - `mcp-query` — `MCPClient`, `isReadOnly`, `isDestructive`
 - `mcp-query/devtools` — `DevtoolsHub` (used only to cheaply re-render on activity)
 
+## Screenshots
+
+**Tools** — an auto-generated form from each tool's JSON Schema; the result is rendered for a human.
+
+![Running a tool](screenshots/tool.png)
+
+**Image content** renders inline; **resources** render their content (markdown here) with a live-subscribe toggle.
+
+![Image tool result](screenshots/image.png)
+
+![Resource viewer](screenshots/resource.png)
+
+**Prompts** render as a role-labeled transcript.
+
+![Prompt transcript](screenshots/prompt.png)
+
 ## Run
 
 ```bash

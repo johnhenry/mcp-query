@@ -44,6 +44,20 @@ straight into your draft as an editable block, then send.
 - **Send** assembles the whole draft into a single grounded user message and streams the
   model's reply into the thread. `⌘↵` / `Ctrl↵` sends.
 
+## Screenshots
+
+**Compose** — run an MCP tool yourself and its live result drops into the draft as an editable block (re-run ↻ / trim ✂ / remove ✕).
+
+![Composing with a grounded tool block](screenshots/compose.png)
+
+**Send** — the whole draft is assembled into one grounded user message and the model's reply streams into the thread.
+
+![Grounded reply streamed from the model](screenshots/reply.png)
+
+**Model picker** — pick a provider/model; for Ollama it lists the models actually installed locally and warns when the selected one isn't pulled.
+
+![Model picker with installed-model warning](screenshots/model-picker.png)
+
 ## Running it
 
 Composer talks to MCP servers through the shared WebSocket proxy, and to Ollama through

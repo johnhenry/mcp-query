@@ -6,6 +6,20 @@ mcp-query's framework-agnostic core** (binding custom elements to `cache.subscri
 the Web Components analog of `useSyncExternalStore`). Built per
 [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance), simple neumorphic.
 
+## Screenshots
+
+**Tools** — schema-driven forms with destructive-confirm; results render inline.
+
+![Tools tab](screenshots/tools.png)
+
+**Messages** — the raw JSON-RPC log: live request/response/notification stream with filtering, NDJSON export, and per-request replay (⟳).
+
+![Raw JSON-RPC message log](screenshots/messages.png)
+
+**OAuth** — the browser-side OAuth debugger for http/sse servers (step-through timeline, re-authorize / clear credentials).
+
+![OAuth debugger](screenshots/oauth.png)
+
 ## Run
 
 ```bash

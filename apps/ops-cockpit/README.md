@@ -9,6 +9,20 @@ the devtools event hub.
 It's a React + Vite app that talks to MCP servers through the shared **WebSocket proxy**
 (the browser-to-stdio bridge that `mcp-query` deliberately leaves out).
 
+## Screenshots
+
+**Tile grid + activity stream** — one health tile per server (status, latency, sparkline, capability counts) and a unified, filterable activity log fed by the audit callback and the devtools hub.
+
+![Tile grid and activity stream](screenshots/grid.png)
+
+**Drill-down** — a server's tools, classified read-only / unverified / destructive from their MCP annotations.
+
+![Drill-down tool list](screenshots/drilldown.png)
+
+**Watch** — poll a tool on an interval and render its latest result live.
+
+![Watching a tool](screenshots/watch.png)
+
 ## Run it
 
 ```bash

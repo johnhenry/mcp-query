@@ -12,6 +12,20 @@ files** — edit a note on disk and the open viewer updates by itself.
 └──────────┘                  └───────────────┘             └──────────────────────────────┘
 ```
 
+## Screenshots
+
+**Rendered note** — the file tree (left) and a note rendered to markdown, kept **live**: edit the file on disk and the viewer updates by itself.
+
+![Rendered note](screenshots/note.png)
+
+**Edit** — write changes back through the filesystem `write_file` tool.
+
+![Editing a note](screenshots/edit.png)
+
+**Search** — find notes by name via `search_files` (glob, e.g. `*.md`).
+
+![Search by filename glob](screenshots/search.png)
+
 ## Run it
 
 From the repo root (everything is already installed — do **not** run `npm install`):
