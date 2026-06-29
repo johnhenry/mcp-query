@@ -1,0 +1,30 @@
+{
+  "name": "@mcp-query/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "mcpq — the unified MCP CLI: an umbrella over the mcp-query tool CLIs (codegen/inspect/contract/lint/docs/bench/record/gate) plus a server registry and live MCP client verbs (tools/call/read/prompt/ping).",
+  "bin": {
+    "mcpq": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "mcp-query": "*",
+    "@mcp-query/contract": "*",
+    "@mcp-query/lint": "*",
+    "@mcp-query/docs": "*",
+    "@mcp-query/bench": "*",
+    "@mcp-query/record": "*",
+    "@mcp-query/gate": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

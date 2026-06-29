@@ -10,7 +10,7 @@
 // --bearer / repeated --header "K: V").
 
 import { readFile, writeFile } from "node:fs/promises";
-import { captureFrom, connectFromFlags, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, type Contract } from "../../mcp-contract/src/index.js";
 import { renderMarkdown } from "./render.js";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
@@ -26,11 +26,11 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
   if (flags.contract) return JSON.parse(await readFile(flags.contract, "utf8")) as Contract;
-  return captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-docs" });
+  return captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-docs" });
 }
 
-async function main(): Promise<void> {
-  const { flags, headers } = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { flags, headers } = parseArgs(argv);
   const contract = await loadContract(flags, headers);
   const md = renderMarkdown(contract, flags.title ? { title: flags.title } : {});
   if (flags.out) {
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-docs]", e instanceof Error ? e.message : e);
     process.exit(1);
   });

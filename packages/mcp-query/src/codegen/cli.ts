@@ -54,8 +54,8 @@ function parseArgs(argv: string[]): Record<string, string> {
   return out;
 }
 
-async function main(): Promise<void> {
-  const a = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const a = parseArgs(argv);
   if (!a.command) {
     console.error("usage: mcp-query-codegen --command <cmd> [--args <space-separated>] --out <file.ts>");
     process.exit(1);
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
 
 // Run only when invoked directly (not when imported by tests).
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error(e);
     process.exit(1);
   });

@@ -48,8 +48,8 @@ function buildTransport(f: Record<string, string>): () => Transport {
   return () => new StdioClientTransport({ command: f.command!, args });
 }
 
-async function main(): Promise<void> {
-  const { flags, args } = parse(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { flags, args } = parse(argv);
   const client = new MCPClient({ servers: { s: { transport: buildTransport(flags) } } });
   await client.connect();
   try {
@@ -88,10 +88,10 @@ export async function dispatch(
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   });
 }
 
-export { main, parse, coerce };
+export { parse, coerce };

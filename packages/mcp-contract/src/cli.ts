@@ -15,7 +15,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { MCPClient } from "../../mcp-query/src/index.js";
 import { createGateway } from "../../mcp-query/src/server/index.js";
 import { diffContract, type Contract } from "./contract.js";
-import { captureFrom, connectFromFlags } from "./connect.js";
+import { captureFrom } from "./connect.js";
+import { resolveConnect } from "./registry.js";
 import { authenticate, tokenCachePath } from "./oauth.js";
 import { mockFromContract } from "./mock.js";
 import { usedFromSource } from "./used.js";
@@ -38,11 +39,11 @@ async function readContract(path: string): Promise<Contract> {
   return JSON.parse(await readFile(path, "utf8")) as Contract;
 }
 
-async function main(): Promise<void> {
-  const { _, flags, headers } = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { _, flags, headers } = parseArgs(argv);
   const cmd = _[0];
   const isLive = !!(flags.url || flags.command);
-  const live = () => captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-contract" });
+  const live = () => captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-contract" });
   const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command for a live server, or a contract file path")));
 
   switch (cmd) {
@@ -120,7 +121,7 @@ async function resolveUsed(flags: Record<string, string>, contract: Contract): P
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-contract]", e instanceof Error ? e.message : e);
     process.exit(1);
   });

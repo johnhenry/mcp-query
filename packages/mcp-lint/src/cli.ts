@@ -9,7 +9,7 @@
 // --bearer / repeated --header "K: V"). Exits non-zero on any error, or warnings over --max-warnings.
 
 import { readFile } from "node:fs/promises";
-import { captureFrom, connectFromFlags, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
@@ -27,11 +27,11 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
   if (flags.contract) return JSON.parse(await readFile(flags.contract, "utf8")) as Contract;
-  return captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-lint" });
+  return captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-lint" });
 }
 
-async function main(): Promise<void> {
-  const { flags, headers } = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { flags, headers } = parseArgs(argv);
   if ("list-rules" in flags) {
     console.error(RULES.map((r) => `  ${r.id} (${r.defaultSeverity}) — ${r.description}`).join("\n"));
     return;
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-lint]", e instanceof Error ? e.message : e);
     process.exit(1);
   });

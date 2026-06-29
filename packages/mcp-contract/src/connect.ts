@@ -3,7 +3,7 @@
 // HTTP support lets these tools target *hosted* MCP servers, not just locally-spawned ones.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { captureContract, type Contract } from "./contract.js";
@@ -18,6 +18,10 @@ export interface ConnectOptions {
   url?: string;
   /** Extra HTTP headers (e.g. `Authorization: Bearer …`) for the `url` transport. */
   headers?: Record<string, string>;
+  /** Environment for a stdio `command`. */
+  env?: Record<string, string>;
+  /** Working directory for a stdio `command`. */
+  cwd?: string;
   /** clientInfo.name sent during initialize. */
   clientName?: string;
 }
@@ -35,9 +39,14 @@ export function buildTransport(opts: ConnectOptions): Transport {
     return new StreamableHTTPClientTransport(new URL(opts.url), init);
   }
   if (opts.command) {
-    return new StdioClientTransport({ command: opts.command, args: opts.args ? opts.args.split(" ").filter(Boolean) : [] });
+    return new StdioClientTransport({
+      command: opts.command,
+      args: opts.args ? opts.args.split(" ").filter(Boolean) : [],
+      ...(opts.env ? { env: { ...getDefaultEnvironment(), ...opts.env } } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    });
   }
-  throw new Error("provide --url <https://…> or --command <cmd> [--args …] for a live server");
+  throw new Error("provide --url <https://…> or --command <cmd> [--args …], or a registered server name");
 }
 
 /** Connect a live SDK client from connect options; caller is responsible for `close()`. */

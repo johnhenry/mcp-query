@@ -74,8 +74,8 @@ function summarize(c: Cassette): string {
   ].join("\n");
 }
 
-async function main(): Promise<void> {
-  const { _, flags, calls } = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { _, flags, calls } = parseArgs(argv);
   switch (_[0]) {
     case "record": {
       const cassette = await recordSession(required(flags, "command"), flags.args, calls);
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-record]", e instanceof Error ? e.message : e);
     process.exit(1);
   });

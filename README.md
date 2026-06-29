@@ -27,6 +27,7 @@ and they stack:
 
 | Package | What it does | When you reach for it |
 |---|---|---|
+| **[@mcp-query/cli](packages/cli)** | The unified **`mcpq`** CLI: one entry point over every tool below (`mcpq lint`/`docs`/`bench`/…), **plus a server registry** (`mcpq add`, honoring the `.mcp.json`/`mcpServers` standard) and **client verbs** (`mcpq tools`/`call`/`read`) to drive any registered server. | You want **one command** for the whole toolkit and to call your MCP servers by name from the terminal. |
 | **[mcp-query](packages/mcp-query)** | The reactive, cached, embeddable MCP **client**: TanStack-Query-style document cache, RTK-Query tags, LSP-client lifecycle, React hooks, codegen, an interceptor chain, and optional server-side modules (gateway, metrics, OTel, sessions, Redis L2). | You're **consuming** MCP servers from an app or backend and want a real data layer, not raw SDK calls. |
 | **[@mcp-query/gate](packages/mcp-gate)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
 | **[@mcp-query/contract](packages/mcp-contract)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
@@ -68,6 +69,32 @@ framework-agnostic core.
 - **contract vs record:** a *contract* pins the **shape** (schemas/annotations) to catch drift;
   a *cassette* freezes the **real results** for offline replay. Use both — contract in CI,
   cassettes in tests.
+
+## The `mcpq` CLI
+
+One entry point over the whole toolkit, a server registry, and a terminal MCP client:
+
+```bash
+# register a server once (stdio or hosted; honors ~/.mcp-query/servers.json + project .mcp.json)
+mcpq add everything --command npx --args "-y @modelcontextprotocol/server-everything"
+mcpq add linear https://mcp.linear.app/mcp        # hosted
+mcpq login linear                                  # browser OAuth (DCR+PKCE), token cached + auto-refreshed
+mcpq servers                                       # list them
+mcpq import claude                                 # pull servers from Claude/Cursor/VS Code configs
+
+# drive any registered server (by name) from the terminal
+mcpq tools everything                              # list tools as typed signatures
+mcpq call everything echo --message hi             # flag style …
+mcpq call everything 'get-sum(a: 2, b: 40)'        # … or function-call style (coerced by inputSchema)
+mcpq read everything file:///x   ·   mcpq ping everything
+
+# every tool is a verb — and accepts a registered name
+mcpq lint everything   ·   mcpq docs linear --out API.md   ·   mcpq bench everything --call echo:'{}'
+mcpq contract snapshot everything --out api.json   ·   mcpq gate ./gate.config.ts
+```
+
+`.mcp.json`/`mcpServers` configs from Claude, Cursor, and VS Code are read natively (no secrets
+stored — OAuth lives in `~/.mcp-query/oauth/`). The individual `mcp-*` bins still work standalone.
 
 ## Develop
 

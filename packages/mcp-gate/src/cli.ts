@@ -11,8 +11,8 @@ import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createGate, type GateConfig } from "./index.js";
 
-async function main(): Promise<void> {
-  const path = process.argv[2];
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const path = argv[0];
   if (!path) {
     console.error("usage: mcp-gate <config.{ts,js}>  (config default-exports a GateConfig)");
     process.exit(1);
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-gate]", e instanceof Error ? e.message : e);
     process.exit(1);
   });

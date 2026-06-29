@@ -11,7 +11,7 @@
 // ⚠  Benchmarking sends REAL traffic. Against a hosted server that means real load on
 //    someone else's infra — mind rate limits and terms of service.
 
-import { connectClient, connectFromFlags, captureContract } from "../../mcp-contract/src/index.js";
+import { connectClient, resolveConnect, captureContract } from "../../mcp-contract/src/index.js";
 import { benchmark, type BenchOp } from "./bench.js";
 import { evaluateReport, type Budget } from "./report.js";
 
@@ -28,11 +28,11 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
   return { flags, headers, calls };
 }
 
-async function main(): Promise<void> {
-  const { flags, headers, calls } = parseArgs(process.argv.slice(2));
+export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const { flags, headers, calls } = parseArgs(argv);
   if (flags.url) console.error("⚠  benchmarking a hosted server sends real traffic — mind rate limits & ToS.\n");
 
-  const { client, close } = await connectClient({ ...connectFromFlags(flags, headers), clientName: "mcp-bench" });
+  const { client, close } = await connectClient({ ...resolveConnect(flags, headers), clientName: "mcp-bench" });
   try {
     const ops: BenchOp[] = [{ label: "tools/list", invoke: () => client.listTools() }];
 
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  run().catch((e) => {
     console.error("[mcp-bench]", e instanceof Error ? e.message : e);
     process.exit(1);
   });
