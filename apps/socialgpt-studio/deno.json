@@ -1,7 +1,7 @@
 {
   "tasks": {
     "dev": "deno run -A backend/main.ts",
-    "desktop": "deno desktop -A --no-check --include dist --output SocialGPT.app backend/main.ts"
+    "desktop": "deno run -A scripts/embed-dist.ts && deno desktop -A --no-check --output SocialGPT.app backend/main.ts"
   },
   "imports": {}
 }

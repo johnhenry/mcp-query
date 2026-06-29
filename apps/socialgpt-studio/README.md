@@ -98,33 +98,33 @@ Then open http://localhost:8787 — the backend serves the built SPA and proxies
 `deno task desktop` runs:
 
 ```bash
-deno desktop -A --output SocialGPT.app backend/main.ts
+deno run -A scripts/embed-dist.ts && deno desktop -A --no-check --output SocialGPT.app backend/main.ts
 ```
 
-Requires **Deno ≥ 2.9** (the subcommand is experimental). Three things matter:
+Requires **Deno ≥ 2.9** (the subcommand is experimental). Three hard-won details, all handled
+by the task:
 
-1. **Build `dist/` first** — and embed it with `--include dist`. The backend serves `dist/`
-   via a *runtime* `Deno.readFile`, which `deno compile` can't see statically, so it isn't
-   bundled unless you pass `--include dist`. Symptoms if you skip it: the window loads but
-   shows `not found (build the app first)` (dist not embedded), or — with bare `deno desktop`
-   — `Including …/dist: No such file or directory` at compile (dist not built).
-2. **Permissions must be baked in** — unlike `deno task dev` (`deno run -A`), a *compiled*
-   binary only has the permissions you pass at compile time. `backend/main.ts` reads `HOME`
-   and the token cache, writes refreshed tokens, serves + fetches over the network, and
-   opens the system browser → it needs `env + read + write + net + run`. `-A` (all) is the
-   simplest; otherwise `--allow-env --allow-read --allow-write --allow-net --allow-run`.
-   Without them the `.app` fails at launch with
+1. **The SPA is embedded as a static JSON module, not via `--include`.** `scripts/embed-dist.ts`
+   writes `backend/dist-embed.json` (`{ path: base64 }` for every file in `dist/`); `backend/main.ts`
+   imports it statically, so `deno compile` follows it and ships `dist/` *inside* the binary —
+   then serves from it (filesystem `dist/` is the dev fallback). We learned this the hard way:
+   `deno desktop --include dist` **breaks entry resolution on macOS** (`Module not found …/backend/main.ts`
+   / `TS2307`), and *without* embedding, the window loads but shows `not found (build the app first)`.
+   The static-import approach needs neither flag and works cross-platform. **Build `dist/` first**
+   (`npm run build`) so there's something to embed.
+2. **Permissions must be baked in** — unlike `deno task dev` (`deno run -A`), a *compiled* binary
+   only has the permissions passed at compile time. `backend/main.ts` reads `HOME` + the token
+   cache, writes refreshed tokens, serves + fetches, and opens the system browser → `env + read +
+   write + net + run`. `-A` is simplest. Without it the `.app` fails at launch with
    `Requires env access to "HOME", specify … --allow-env`.
-
 3. **`--no-check`** — `deno desktop` type-checks the entry by default and can spuriously fail
-   (`TS2307: Cannot find module …/backend/main.ts`, environment-dependent). The app is already
-   type-checked by `npm run typecheck` (tsc), so the desktop task passes `--no-check`.
+   (`TS2307`, environment-dependent). The app is already type-checked by `npm run typecheck` (tsc).
 
 ```bash
 npm run build -w @mcp-query/socialgpt-studio   # 1. build the SPA → dist/
 cd apps/socialgpt-studio
-deno task desktop                              # 2. → SocialGPT.app  (run: open SocialGPT.app)
-# = deno desktop -A --no-check --include dist --output SocialGPT.app backend/main.ts
+deno task desktop                              # 2. embed dist + compile → SocialGPT.app
+open SocialGPT.app                             # 3. run it
 ```
 
 **Use `deno task desktop`, not bare `deno desktop`** — this app is a Vite SPA *plus* a Deno

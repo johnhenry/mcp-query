@@ -4,3 +4,4 @@ dist/
 .DS_Store
 *.gen.ts
 coverage/
+apps/socialgpt-studio/backend/dist-embed.json
