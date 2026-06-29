@@ -1,0 +1,25 @@
+{
+  "name": "@mcp-query/lint",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "ESLint for MCP servers — quality-lint a capability surface (descriptions, annotations, typed inputs, naming) and gate CI on it. Complements mcp-contract's drift detection.",
+  "bin": {
+    "mcp-lint": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "mcp-query": "*",
+    "@mcp-query/contract": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

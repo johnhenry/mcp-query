@@ -1,0 +1,25 @@
+{
+  "name": "@mcp-query/docs",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Generate Markdown reference docs from an MCP server's capability surface — Redoc for MCP. Renders tools (with args tables + annotation badges), resources, templates, and prompts.",
+  "bin": {
+    "mcp-docs": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "mcp-query": "*",
+    "@mcp-query/contract": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}
