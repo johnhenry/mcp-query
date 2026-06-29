@@ -18,6 +18,17 @@ import { parseDirectory, parseSearch, toolText, type FileEntry } from "./fs.js";
 
 const SERVER = "fs";
 
+/** Best-effort human message for any thrown value (Error, JSON-RPC error object, or string). */
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const m = (e as { message?: unknown; error?: unknown }).message ?? (e as { error?: unknown }).error;
+    if (typeof m === "string") return m;
+    try { return JSON.stringify(e); } catch { /* fall through */ }
+  }
+  return String(e);
+}
+
 /** The directory listing, refreshable. Polls so files added on disk appear. */
 export function useFileTree(baseDir: string, pollMs = 4000) {
   const [list] = useTool("list_directory", { server: SERVER });
@@ -31,7 +42,7 @@ export function useFileTree(baseDir: string, pollMs = 4000) {
       setFiles(parseDirectory(toolText(res), baseDir));
       setError(undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMsg(e));
     } finally {
       setLoaded(true);
     }
@@ -78,7 +89,7 @@ export function useLiveFile(path: string | undefined, pollMs = 1500) {
         setRev((r) => r + 1); // <- drives the live flash
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMsg(e));
     } finally {
       setLoading(false);
     }

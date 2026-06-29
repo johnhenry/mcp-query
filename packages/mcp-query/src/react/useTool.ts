@@ -36,6 +36,11 @@ export function useTool<A extends Record<string, unknown> = Record<string, unkno
     progress?: { progress: number; total?: number };
   }>({ isPending: false });
   const abortRef = useRef<AbortController | undefined>(undefined);
+  // Read the latest opts without making `invoke` depend on the opts object's identity —
+  // callers routinely pass an inline `{ server }` literal (a new ref every render), and a
+  // changing `invoke` breaks consumers that put it in a useEffect dependency (infinite loop).
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
 
   const def = useMemo(() => {
     try {
@@ -56,7 +61,7 @@ export function useTool<A extends Record<string, unknown> = Record<string, unkno
       setState((s) => ({ ...s, isPending: true, error: undefined, progress: undefined }));
       try {
         const result = await client.callTool<A, R>(name, args, {
-          ...opts,
+          ...optsRef.current,
           signal,
           onProgress: (p) => setState((s) => ({ ...s, progress: p })),
         });
@@ -67,7 +72,7 @@ export function useTool<A extends Record<string, unknown> = Record<string, unkno
         throw err;
       }
     },
-    [client, name, opts],
+    [client, name],
   );
 
   return [
