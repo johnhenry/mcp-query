@@ -16,6 +16,7 @@ import { MCPClient } from "../../mcp-query/src/index.js";
 import { createGateway } from "../../mcp-query/src/server/index.js";
 import { diffContract, type Contract } from "./contract.js";
 import { captureFrom, connectFromFlags } from "./connect.js";
+import { authenticate, tokenCachePath } from "./oauth.js";
 import { mockFromContract } from "./mock.js";
 import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
@@ -75,6 +76,16 @@ async function main(): Promise<void> {
       break;
     }
 
+    case "auth": {
+      const url = required(flags, "url");
+      const tokens = await authenticate(url, { scope: flags.scope, out: flags.out, open: flags.open !== "false" });
+      console.error(`\n✓ authorized ${url}`);
+      console.error(`  token cached: ${tokenCachePath(url)}${flags.out ? ` (also → ${flags.out})` : ""}`);
+      console.error(`  scopes: ${tokens.scope ?? "(server default)"}${tokens.refresh_token ? " · refresh token obtained" : ""}`);
+      console.error(`  now run, e.g.:  mcp-lint --url ${url}`);
+      break;
+    }
+
     case "mock": {
       const contract = await readContract(required(flags, "contract"));
       const mock = mockFromContract(contract);
@@ -90,7 +101,7 @@ async function main(): Promise<void> {
     }
 
     default:
-      console.error("usage: mcp-contract <snapshot|verify|diff|mock> [options]");
+      console.error("usage: mcp-contract <snapshot|verify|diff|mock|auth> [options]");
       process.exit(1);
   }
 }

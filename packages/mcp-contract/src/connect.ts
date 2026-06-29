@@ -7,6 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { captureContract, type Contract } from "./contract.js";
+import { captureProvider } from "./oauth.js";
 
 export interface ConnectOptions {
   /** Local server: command to spawn (stdio). */
@@ -25,7 +26,13 @@ export interface ConnectOptions {
 export function buildTransport(opts: ConnectOptions): Transport {
   if (opts.url) {
     const headers = opts.headers && Object.keys(opts.headers).length ? opts.headers : undefined;
-    return new StreamableHTTPClientTransport(new URL(opts.url), headers ? { requestInit: { headers } } : undefined);
+    const hasAuthHeader = !!headers && Object.keys(headers).some((k) => k.toLowerCase() === "authorization");
+    const init: ConstructorParameters<typeof StreamableHTTPClientTransport>[1] = {};
+    if (headers) init.requestInit = { headers };
+    // No explicit token → use the cached OAuth provider (auto-refresh; or a friendly
+    // "run mcp-contract auth" if nothing is cached). An explicit --bearer/--header wins.
+    if (!hasAuthHeader) init.authProvider = captureProvider(opts.url);
+    return new StreamableHTTPClientTransport(new URL(opts.url), init);
   }
   if (opts.command) {
     return new StdioClientTransport({ command: opts.command, args: opts.args ? opts.args.split(" ").filter(Boolean) : [] });

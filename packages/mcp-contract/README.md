@@ -59,10 +59,29 @@ HTTP** (a hosted endpoint). Everywhere a command above takes `--command`, it als
 --header "X-Tenant: acme"               # arbitrary header(s), repeatable
 ```
 
+The same `--url`/`--bearer`/`--header` flags work for `mcp-lint` and `mcp-docs`.
+
+### OAuth-protected servers
+
 Hosted MCP servers are commonly **OAuth-protected** — an unauthenticated capture returns
-`401`. Supply a token via `--bearer` (or the full header via `--header`); interactive OAuth
-(dynamic client registration + browser consent) isn't handled by the CLI. The same
-`--url`/`--bearer`/`--header` flags work for `mcp-lint` and `mcp-docs`.
+`401`. Two ways to authenticate:
+
+```bash
+# A) you already have a token
+mcp-contract snapshot --url https://host/mcp --bearer "$TOKEN" --out api.contract.json
+
+# B) browser-consent flow (dynamic client registration + PKCE) — run once
+mcp-contract auth --url https://host/mcp [--scope "a b c"]
+#   → registers a client, opens the authorize URL (or prints it), you log in + approve;
+#     the token is cached at ~/.mcp-query/oauth/<host>.json
+mcp-contract verify --url https://host/mcp --contract api.contract.json   # just works now
+```
+
+`auth` runs the full OAuth 2.1 flow itself — it never sees your password (you log in on the
+server's own page). The token is cached per-host and **auto-refreshed** by the capture tools
+(`contract`/`lint`/`docs`) on later runs; if nothing is cached they tell you to run `auth`
+first. If your browser is on another machine, paste the redirected `localhost/callback?code=…`
+URL back at the prompt.
 
 ## What counts as breaking — the variance rules
 
