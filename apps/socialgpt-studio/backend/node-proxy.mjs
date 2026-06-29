@@ -121,8 +121,41 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-// ── in-app login (OAuth 2.1: DCR + PKCE; callback on this same port) ──────────
+// ── in-app login (OAuth 2.1: DCR + PKCE) ──────────────────────────────────────
 let pending = null;
+
+// An ephemeral callback listener started per-login on an OS-assigned port, so the OAuth
+// redirect_uri targets a reachable socket. (In Node web mode :8787 is already reachable, so
+// the same-port /auth/callback below also works — this keeps parity with backend/main.ts, where
+// it's load-bearing for the packaged desktop app.)
+let callbackServer = null;
+
+function startCallbackServer() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      const url = new URL(req.url, "http://localhost");
+      if (url.pathname === "/auth/callback") {
+        completeLogin(url.searchParams.get("code"), url.searchParams.get("state")).then((result) =>
+          result.ok
+            ? htmlPage(res, "✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.")
+            : htmlPage(res, "Login failed", result.error),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+    srv.listen(0, "127.0.0.1", () => resolve({ port: srv.address().port, close: () => new Promise((r) => srv.close(() => r())) }));
+  });
+}
+
+async function closeCallbackServer() {
+  if (callbackServer) {
+    const cb = callbackServer;
+    callbackServer = null;
+    await cb.close().catch(() => {});
+  }
+}
 
 function openBrowser(url) {
   const cmd = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
@@ -150,7 +183,9 @@ async function authStatus(res) {
 async function authLogin(res) {
   try {
     const meta = await discover();
-    const redirectUri = `http://localhost:${PORT}/auth/callback`;
+    await closeCallbackServer();
+    callbackServer = await startCallbackServer();
+    const redirectUri = `http://localhost:${callbackServer.port}/auth/callback`;
     const scope = chooseScope(meta);
     const reg = await register(meta, redirectUri, scope);
     const { verifier, challenge } = await pkce();
@@ -164,24 +199,56 @@ async function authLogin(res) {
   }
 }
 
-async function authCallback(url, res) {
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
+/** Validate state, exchange code, persist tokens. Shared by the callback(s) and the paste fallback. */
+async function completeLogin(code, state) {
   if (!pending || !code || state !== pending.state) {
-    return htmlPage(res, "Login failed", "Invalid or expired login attempt — return to the app and try again.");
+    return { ok: false, error: "Invalid or expired login attempt — return to the app and try again." };
   }
   try {
     const tokens = await exchangeCode(pending.meta, { code, verifier: pending.verifier, clientId: pending.clientId, redirectUri: pending.redirectUri });
     await mkdir(TOKEN_DIR, { recursive: true });
     await writeFile(TOKEN_PATH, JSON.stringify(tokenFile({ clientId: pending.clientId, redirectUri: pending.redirectUri, verifier: pending.verifier, tokens }), null, 2));
     pending = null;
-    htmlPage(res, "✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.");
+    void closeCallbackServer();
+    return { ok: true };
   } catch (err) {
-    htmlPage(res, "Login failed", String(err));
+    return { ok: false, error: String(err) };
   }
 }
 
+async function authCallback(url, res) {
+  const result = await completeLogin(url.searchParams.get("code"), url.searchParams.get("state"));
+  return result.ok
+    ? htmlPage(res, "✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.")
+    : htmlPage(res, "Login failed", result.error);
+}
+
+/** Paste-the-URL fallback (POST /auth/complete): parse code+state from a pasted callback URL. */
+async function authComplete(req, res) {
+  let raw;
+  try {
+    const buf = await readBody(req);
+    raw = (JSON.parse(buf ? buf.toString("utf8") : "{}").url ?? "").trim();
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "invalid JSON body" });
+  }
+  if (!raw) return sendJson(res, 400, { ok: false, message: "missing url" });
+  let code = null;
+  let state = null;
+  try {
+    const u = new URL(raw);
+    code = u.searchParams.get("code");
+    state = u.searchParams.get("state");
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "could not parse a URL — paste the full http://localhost…/auth/callback?code=…&state=… address" });
+  }
+  const result = await completeLogin(code, state);
+  return result.ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { ok: false, message: result.error });
+}
+
 async function authLogout(res) {
+  await closeCallbackServer();
+  pending = null;
   await rm(TOKEN_PATH, { force: true }).catch(() => {});
   sendJson(res, 200, { ok: true });
 }
@@ -232,7 +299,8 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/auth/status") return void authStatus(res);
   if (url.pathname === "/auth/login" && req.method === "POST") return void authLogin(res);
-  if (url.pathname === "/auth/callback") return void authCallback(url, res);
+  if (url.pathname === "/auth/callback") return void authCallback(url, res); // same-port fallback (shares `pending`)
+  if (url.pathname === "/auth/complete" && req.method === "POST") return void authComplete(req, res);
   if (url.pathname === "/auth/logout" && req.method === "POST") return void authLogout(res);
   serveStatic(url.pathname, res);
 });

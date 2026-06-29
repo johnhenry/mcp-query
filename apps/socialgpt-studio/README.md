@@ -43,9 +43,18 @@ reverse-proxies `/mcp` to the live server and injects the OAuth bearer token.
 The app **facilitates its own login** — no CLI step needed. On launch it checks
 `/auth/status`; if you're not signed in it shows a **Connect SocialGPT** screen. Clicking it
 runs the full OAuth 2.1 flow from the backend (dynamic client registration + PKCE), opens
-your system browser to SocialGPT's sign-in page, captures the redirect on
-`http://localhost:8787/auth/callback`, exchanges the code, and caches the token at
+your system browser to SocialGPT's sign-in page, captures the redirect on a **short-lived local
+callback listener** (an ephemeral `127.0.0.1:<port>` server started just for the login;
+`redirect_uri` is built from its actual port), exchanges the code, and caches the token at
 `~/.mcp-query/oauth/mcp.gpt.social.json`. The UI polls `/auth/status` and proceeds once done.
+
+The callback uses its own listener (rather than the main `:8787`) because the packaged
+`deno desktop` build does **not** expose the backend on `:8787` — its webview↔backend channel
+listens on an internal port, so a redirect to `:8787` would hit nothing. A self-started listener
+binds a normal socket the system browser can always reach. If the redirect still can't get back
+(e.g. the browser is on another machine), the Login screen offers a **paste-the-URL fallback**:
+paste the `…/auth/callback?code=…&state=…` address the browser landed on and the backend
+(`POST /auth/complete`) completes the same exchange.
 
 This is exactly why a **desktop** app is the right home for it: the backend, the OAuth
 callback, and your browser are all on the same machine, so login needs **no SSH tunnel** (the
@@ -53,7 +62,8 @@ remote-server caveat that applies to the `mcp-contract auth` CLI). Sign-in happe
 SocialGPT's own page — the app never sees your password.
 
 Backend auth routes: `GET /auth/status`, `POST /auth/login` (→ `{ authorizeUrl }`),
-`GET /auth/callback`, `POST /auth/logout`. An existing token (e.g. from `mcp-contract auth`)
+`GET /auth/callback`, `POST /auth/complete` (paste-URL fallback → `{ ok }`), `POST /auth/logout`.
+An existing token (e.g. from `mcp-contract auth`)
 is reused and auto-refreshed; if it carries only `analysis:read`, the app shows a
 **"Reconnect for full access"** banner that re-runs login requesting `analysis:read:public`
 too (some tools like `get_creator` need it).
