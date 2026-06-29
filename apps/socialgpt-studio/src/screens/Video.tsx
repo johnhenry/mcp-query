@@ -84,7 +84,7 @@ function VideoMeta({ rec }: { rec: Record<string, unknown> }) {
   );
   return (
     <div>
-      {thumb && <img className="video-thumb" src={thumb} alt="" loading="lazy" />}
+      {thumb && <img className="video-thumb" src={thumb} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
       {handle && (
         <p className="muted small">
           by @{handle}

@@ -143,7 +143,7 @@ export function CreatorScreen({
                     disabled={!ref}
                     onClick={() => ref && go({ screen: "video", platform: ref.platform, postId: ref.postId, title: ref.title })}
                   >
-                    {thumb && <img className="card-thumb" src={thumb} alt="" loading="lazy" />}
+                    {thumb && <img className="card-thumb" src={thumb} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
                     <div className="card-title">{vtitle}</div>
                     {views && <div className="card-meta">{views} views</div>}
                     <div className="card-cta">{ref ? "View post →" : "no post id"}</div>
@@ -199,7 +199,7 @@ function ProfileCard({ rec, platform, username }: { rec: Record<string, unknown>
   return (
     <div className="profile">
       <div className="profile-head">
-        {pic && <img className="avatar" src={pic} alt="" width={56} height={56} loading="lazy" />}
+        {pic && <img className="avatar" src={pic} alt="" width={56} height={56} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
         <div>
           <div className="profile-handle">@{username.replace(/^@/, "")} {verified && <span title="verified">✓</span>}</div>
           <div className="muted small">{platform}{followers ? ` · ${followers} followers` : ""}</div>

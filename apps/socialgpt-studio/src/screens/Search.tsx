@@ -123,7 +123,7 @@ function ResultCard({
       <li>
         <button type="button" className="card" disabled={!ref} onClick={() => ref && onCreator(ref)}>
           <div className="card-row">
-            {pic && <img className="card-avatar" src={pic} alt="" loading="lazy" />}
+            {pic && <img className="card-avatar" src={pic} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
             <div className="card-title">
               {name} {verified && <span title="verified">✓</span>}
             </div>
@@ -145,7 +145,7 @@ function ResultCard({
   return (
     <li>
       <button type="button" className="card" disabled={!v} onClick={() => v && onVideo(v)}>
-        {thumb && <img className="card-thumb" src={thumb} alt="" loading="lazy" />}
+        {thumb && <img className="card-thumb" src={thumb} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
         <div className="card-title">{firstString(rec, ["title", "caption", "name", "text"]) ?? v?.title ?? name}</div>
         <div className="card-sub">
           {v?.platform ?? ""}
