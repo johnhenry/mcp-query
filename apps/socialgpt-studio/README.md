@@ -116,10 +116,15 @@ Requires **Deno ≥ 2.9** (the subcommand is experimental). Three things matter:
    Without them the `.app` fails at launch with
    `Requires env access to "HOME", specify … --allow-env`.
 
+3. **`--no-check`** — `deno desktop` type-checks the entry by default and can spuriously fail
+   (`TS2307: Cannot find module …/backend/main.ts`, environment-dependent). The app is already
+   type-checked by `npm run typecheck` (tsc), so the desktop task passes `--no-check`.
+
 ```bash
 npm run build -w @mcp-query/socialgpt-studio   # 1. build the SPA → dist/
 cd apps/socialgpt-studio
 deno task desktop                              # 2. → SocialGPT.app  (run: open SocialGPT.app)
+# = deno desktop -A --no-check --include dist --output SocialGPT.app backend/main.ts
 ```
 
 **Use `deno task desktop`, not bare `deno desktop`** — this app is a Vite SPA *plus* a Deno
