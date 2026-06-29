@@ -48,6 +48,22 @@ npx tsx packages/mcp-contract/src/cli.ts diff old.contract.json new.contract.jso
 npx tsx packages/mcp-contract/src/cli.ts mock --contract mcp.contract.json
 ```
 
+## Connecting: local or hosted
+
+A live server is reached either over **stdio** (a locally-spawned process) or **Streamable
+HTTP** (a hosted endpoint). Everywhere a command above takes `--command`, it also accepts:
+
+```bash
+--url https://host/mcp                 # Streamable HTTP endpoint
+--bearer "$TOKEN"                       # → Authorization: Bearer $TOKEN
+--header "X-Tenant: acme"               # arbitrary header(s), repeatable
+```
+
+Hosted MCP servers are commonly **OAuth-protected** — an unauthenticated capture returns
+`401`. Supply a token via `--bearer` (or the full header via `--header`); interactive OAuth
+(dynamic client registration + browser consent) isn't handled by the CLI. The same
+`--url`/`--bearer`/`--header` flags work for `mcp-lint` and `mcp-docs`.
+
 ## What counts as breaking — the variance rules
 
 Whether a schema change breaks depends on **direction**, and this is the engine's whole

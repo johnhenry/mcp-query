@@ -2,59 +2,51 @@
 // mcp-contract CLI — pin, verify, diff, and mock an MCP server's capability surface.
 //
 //   mcp-contract snapshot --command npx --args "-y server-everything" --out mcp.contract.json
-//   mcp-contract verify   --command npx --args "-y server-everything" --contract mcp.contract.json [--used "echo,add"] [--used-by src/mcp.gen.ts]
+//   mcp-contract snapshot --url https://host/mcp --bearer "$TOKEN" --out mcp.contract.json
+//   mcp-contract verify   --url https://host/mcp --contract mcp.contract.json [--used "a,b"] [--used-by src/mcp.gen.ts]
 //   mcp-contract diff      old.contract.json new.contract.json
 //   mcp-contract mock     --contract mcp.contract.json     # serve the contracted surface over stdio
 //
-// `verify` exits non-zero on any BREAKING change — the CI gate.
+// A live server is reached over stdio (--command) or Streamable HTTP (--url, with
+// optional --bearer / repeated --header "K: V"). `verify` exits non-zero on any BREAKING change.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { MCPClient } from "../../mcp-query/src/index.js";
 import { createGateway } from "../../mcp-query/src/server/index.js";
-import { captureContract, diffContract, type Contract } from "./contract.js";
+import { diffContract, type Contract } from "./contract.js";
+import { captureFrom, connectFromFlags } from "./connect.js";
 import { mockFromContract } from "./mock.js";
 import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
 
-function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string> } {
+function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[] } {
   const _: string[] = [];
   const flags: Record<string, string> = {};
+  const headers: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
+    if (a === "--header") headers.push(argv[++i] ?? "");
+    else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
     else _.push(a);
   }
-  return { _, flags };
-}
-
-async function captureFromStdio(command: string, argsStr?: string): Promise<Contract> {
-  const client = new Client({ name: "mcp-contract", version: "0.0.1" }, { capabilities: {} });
-  await client.connect(new StdioClientTransport({ command, args: argsStr ? argsStr.split(" ").filter(Boolean) : [] }));
-  const contract = await captureContract(client);
-  await client.close();
-  return contract;
+  return { _, flags, headers };
 }
 
 async function readContract(path: string): Promise<Contract> {
   return JSON.parse(await readFile(path, "utf8")) as Contract;
 }
 
-async function liveOrFile(flags: Record<string, string>, fileArg?: string): Promise<Contract> {
-  if (flags.command) return captureFromStdio(flags.command, flags.args);
-  if (fileArg) return readContract(fileArg);
-  throw new Error("provide --command <cmd> [--args ...] for a live server, or a contract file path");
-}
-
 async function main(): Promise<void> {
-  const { _, flags } = parseArgs(process.argv.slice(2));
+  const { _, flags, headers } = parseArgs(process.argv.slice(2));
   const cmd = _[0];
+  const isLive = !!(flags.url || flags.command);
+  const live = () => captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-contract" });
+  const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command for a live server, or a contract file path")));
 
   switch (cmd) {
     case "snapshot": {
-      const contract = await captureFromStdio(required(flags, "command"), flags.args);
+      const contract = await live();
       const json = JSON.stringify(contract, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");
@@ -67,17 +59,17 @@ async function main(): Promise<void> {
 
     case "verify": {
       const pinned = await readContract(required(flags, "contract"));
-      const live = await liveOrFile(flags, _[1]);
+      const candidate = await liveOrFile(_[1]);
       const used = await resolveUsed(flags, pinned);
-      const diff = diffContract(pinned, live, used ? { used } : {});
+      const diff = diffContract(pinned, candidate, used ? { used } : {});
       console.error(formatDiff(diff, { color: process.stderr.isTTY }));
       process.exit(diff.breaking ? 1 : 0);
       break;
     }
 
     case "diff": {
-      const a = _[1] ? await readContract(_[1]) : await liveOrFile(flags);
-      const b = _[2] ? await readContract(_[2]) : await liveOrFile(flags, _[1]);
+      const a = _[1] ? await readContract(_[1]) : await live();
+      const b = _[2] ? await readContract(_[2]) : await liveOrFile(_[1]);
       const diff = diffContract(a, b);
       console.error(formatDiff(diff, { color: process.stderr.isTTY }));
       break;

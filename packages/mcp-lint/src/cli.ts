@@ -2,44 +2,41 @@
 // mcp-lint CLI — quality-lint an MCP server's capability surface.
 //
 //   mcp-lint --command npx --args "-y @modelcontextprotocol/server-everything"
+//   mcp-lint --url https://host/mcp --bearer "$TOKEN"
 //   mcp-lint --contract mcp.contract.json [--max-warnings 0] [--off naming-consistency,no-open-input]
 //
-// Exits non-zero on any error-level finding, or when warnings exceed --max-warnings.
+// A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
+// --bearer / repeated --header "K: V"). Exits non-zero on any error, or warnings over --max-warnings.
 
 import { readFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { captureContract, type Contract } from "../../mcp-contract/src/contract.js";
+import { captureFrom, connectFromFlags, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
 
-function parseArgs(argv: string[]): Record<string, string> {
+function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
+  const headers: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
+    if (a === "--header") headers.push(argv[++i] ?? "");
+    else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
   }
-  return flags;
+  return { flags, headers };
 }
 
-async function loadContract(flags: Record<string, string>): Promise<Contract> {
+async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
   if (flags.contract) return JSON.parse(await readFile(flags.contract, "utf8")) as Contract;
-  if (!flags.command) throw new Error("provide --command <cmd> [--args ...] for a live server, or --contract <file.json>");
-  const client = new Client({ name: "mcp-lint", version: "0.0.1" }, { capabilities: {} });
-  await client.connect(new StdioClientTransport({ command: flags.command, args: flags.args ? flags.args.split(" ").filter(Boolean) : [] }));
-  const contract = await captureContract(client);
-  await client.close();
-  return contract;
+  return captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-lint" });
 }
 
 async function main(): Promise<void> {
-  const flags = parseArgs(process.argv.slice(2));
+  const { flags, headers } = parseArgs(process.argv.slice(2));
   if ("list-rules" in flags) {
     console.error(RULES.map((r) => `  ${r.id} (${r.defaultSeverity}) — ${r.description}`).join("\n"));
     return;
   }
-  const contract = await loadContract(flags);
+  const contract = await loadContract(flags, headers);
 
   const overrides: Record<string, Severity> = {};
   for (const id of (flags.off ?? "").split(",").map((s) => s.trim()).filter(Boolean)) overrides[id] = "off";

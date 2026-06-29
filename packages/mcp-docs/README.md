@@ -21,6 +21,9 @@ npx tsx packages/mcp-docs/src/cli.ts --contract mcp.contract.json --title "My Se
 With no `--out`, the Markdown is written to stdout (pipe it anywhere). See
 [`examples/everything.md`](examples/everything.md) for real generated output.
 
+A live server is reached over stdio (`--command`) **or Streamable HTTP** (`--url https://host/mcp`,
+with optional `--bearer "$TOKEN"` / repeated `--header "K: V"` for OAuth-protected hosts).
+
 ## What it renders
 
 ```markdown

@@ -1,0 +1,56 @@
+// Shared connection helper for the capture-based tools (contract / lint / docs):
+// connect to a live MCP server over stdio OR Streamable HTTP, capture its surface, close.
+// HTTP support lets these tools target *hosted* MCP servers, not just locally-spawned ones.
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { captureContract, type Contract } from "./contract.js";
+
+export interface ConnectOptions {
+  /** Local server: command to spawn (stdio). */
+  command?: string;
+  /** Space-separated args for `command`. */
+  args?: string;
+  /** Hosted server: Streamable HTTP endpoint URL. */
+  url?: string;
+  /** Extra HTTP headers (e.g. `Authorization: Bearer …`) for the `url` transport. */
+  headers?: Record<string, string>;
+  /** clientInfo.name sent during initialize. */
+  clientName?: string;
+}
+
+/** Build a client transport from connect options (url wins over command). */
+export function buildTransport(opts: ConnectOptions): Transport {
+  if (opts.url) {
+    const headers = opts.headers && Object.keys(opts.headers).length ? opts.headers : undefined;
+    return new StreamableHTTPClientTransport(new URL(opts.url), headers ? { requestInit: { headers } } : undefined);
+  }
+  if (opts.command) {
+    return new StdioClientTransport({ command: opts.command, args: opts.args ? opts.args.split(" ").filter(Boolean) : [] });
+  }
+  throw new Error("provide --url <https://…> or --command <cmd> [--args …] for a live server");
+}
+
+/** Connect, capture the capability surface, and close. */
+export async function captureFrom(opts: ConnectOptions): Promise<Contract> {
+  const client = new Client({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: {} });
+  await client.connect(buildTransport(opts));
+  try {
+    return await captureContract(client);
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/** Derive ConnectOptions from CLI flags + repeated `--header "K: V"` values. */
+export function connectFromFlags(flags: Record<string, string>, headerArgs: string[] = []): ConnectOptions {
+  const headers: Record<string, string> = {};
+  for (const item of headerArgs) {
+    const i = item.indexOf(":");
+    if (i > 0) headers[item.slice(0, i).trim()] = item.slice(i + 1).trim();
+  }
+  if (flags.bearer) headers["Authorization"] = `Bearer ${flags.bearer}`;
+  return { url: flags.url, command: flags.command, args: flags.args, headers };
+}

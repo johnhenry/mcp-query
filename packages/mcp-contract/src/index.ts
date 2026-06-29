@@ -16,6 +16,7 @@ export {
   type ContractDiff,
   type DiffOptions,
 } from "./contract.js";
+export { captureFrom, buildTransport, connectFromFlags, type ConnectOptions } from "./connect.js";
 export { mockFromContract } from "./mock.js";
 export { usedFromSource } from "./used.js";
 export { formatDiff } from "./report.js";

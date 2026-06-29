@@ -20,6 +20,9 @@ npx tsx packages/mcp-lint/src/cli.ts --contract mcp.contract.json --max-warnings
 npx tsx packages/mcp-lint/src/cli.ts --list-rules
 ```
 
+A live server is reached over stdio (`--command`) **or Streamable HTTP** (`--url https://host/mcp`,
+with optional `--bearer "$TOKEN"` / repeated `--header "K: V"` for OAuth-protected hosts).
+
 Exits non-zero on any **error**-level finding, or when warnings exceed `--max-warnings`
 (default: unbounded). Disable or escalate rules with `--off a,b` / `--error a,b`.
 

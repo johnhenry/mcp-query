@@ -3,36 +3,35 @@
 // contract. "Redoc for MCP".
 //
 //   mcp-docs --command npx --args "-y @modelcontextprotocol/server-everything" --out API.md
+//   mcp-docs --url https://host/mcp --bearer "$TOKEN" --out API.md
 //   mcp-docs --contract mcp.contract.json --title "My Server" > API.md
+//
+// A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
+// --bearer / repeated --header "K: V").
 
 import { readFile, writeFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { captureContract, type Contract } from "../../mcp-contract/src/contract.js";
+import { captureFrom, connectFromFlags, type Contract } from "../../mcp-contract/src/index.js";
 import { renderMarkdown } from "./render.js";
 
-function parseArgs(argv: string[]): Record<string, string> {
+function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
+  const headers: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
+    if (a === "--header") headers.push(argv[++i] ?? "");
+    else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
   }
-  return flags;
+  return { flags, headers };
 }
 
-async function loadContract(flags: Record<string, string>): Promise<Contract> {
+async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
   if (flags.contract) return JSON.parse(await readFile(flags.contract, "utf8")) as Contract;
-  if (!flags.command) throw new Error("provide --command <cmd> [--args ...] for a live server, or --contract <file.json>");
-  const client = new Client({ name: "mcp-docs", version: "0.0.1" }, { capabilities: {} });
-  await client.connect(new StdioClientTransport({ command: flags.command, args: flags.args ? flags.args.split(" ").filter(Boolean) : [] }));
-  const contract = await captureContract(client);
-  await client.close();
-  return contract;
+  return captureFrom({ ...connectFromFlags(flags, headers), clientName: "mcp-docs" });
 }
 
 async function main(): Promise<void> {
-  const flags = parseArgs(process.argv.slice(2));
-  const contract = await loadContract(flags);
+  const { flags, headers } = parseArgs(process.argv.slice(2));
+  const contract = await loadContract(flags, headers);
   const md = renderMarkdown(contract, flags.title ? { title: flags.title } : {});
   if (flags.out) {
     await writeFile(flags.out, md, "utf8");
