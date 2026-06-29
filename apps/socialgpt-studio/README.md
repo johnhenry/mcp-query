@@ -98,22 +98,33 @@ Then open http://localhost:8787 — the backend serves the built SPA and proxies
 `deno task desktop` runs:
 
 ```bash
-deno desktop backend/main.ts
+deno desktop -A --output SocialGPT.app backend/main.ts
 ```
 
-`deno desktop` is an **experimental** subcommand and requires **Deno ≥ 2.9**. This machine
-has **Deno 2.7.4**, so `deno desktop` is **not available here** — on this version Deno
-doesn't recognize `desktop` as a subcommand and instead tries to *run a module* named
-`desktop` (errors: `Module not found ".../desktop"`). When on Deno ≥ 2.9:
+Requires **Deno ≥ 2.9** (the subcommand is experimental). Two things matter:
+
+1. **Build `dist/` first** — `deno desktop` embeds the built SPA; without it you get
+   `Including …/dist: No such file or directory`.
+2. **Permissions must be baked in** — unlike `deno task dev` (`deno run -A`), a *compiled*
+   binary only has the permissions you pass at compile time. `backend/main.ts` reads `HOME`
+   and the token cache, writes refreshed tokens, serves + fetches over the network, and
+   opens the system browser → it needs `env + read + write + net + run`. `-A` (all) is the
+   simplest; otherwise `--allow-env --allow-read --allow-write --allow-net --allow-run`.
+   Without them the `.app` fails at launch with
+   `Requires env access to "HOME", specify … --allow-env`.
 
 ```bash
-npm run build -w @mcp-query/socialgpt-studio   # build the SPA first
-deno task desktop                              # = deno desktop backend/main.ts
+npm run build -w @mcp-query/socialgpt-studio   # 1. build the SPA → dist/
+cd apps/socialgpt-studio
+deno task desktop                              # 2. → SocialGPT.app  (run: open SocialGPT.app)
 ```
 
-The backend already serves `dist/` for non-`/mcp` paths, so the same `backend/main.ts`
-is the desktop entrypoint. Until Deno 2.9 is available, use the **Node fallback** path
-above (`node backend/node-proxy.mjs` + a browser) for the same experience.
+**Use `deno task desktop`, not bare `deno desktop`** — this app is a Vite SPA *plus* a Deno
+backend (the `/mcp` reverse-proxy + `/auth` OAuth login); the task points at `backend/main.ts`
+so both ship. Bare `deno desktop` would bundle only the static SPA and `/mcp` + `/auth` would 404.
+
+**Reliable fallback** (works on any Deno, no packaging): `deno run -A backend/main.ts` (or
+`node backend/node-proxy.mjs`) then open `http://localhost:8787` — the identical app, login included.
 
 ---
 
