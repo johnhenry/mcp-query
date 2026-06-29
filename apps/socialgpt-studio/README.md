@@ -101,10 +101,13 @@ Then open http://localhost:8787 — the backend serves the built SPA and proxies
 deno desktop -A --output SocialGPT.app backend/main.ts
 ```
 
-Requires **Deno ≥ 2.9** (the subcommand is experimental). Two things matter:
+Requires **Deno ≥ 2.9** (the subcommand is experimental). Three things matter:
 
-1. **Build `dist/` first** — `deno desktop` embeds the built SPA; without it you get
-   `Including …/dist: No such file or directory`.
+1. **Build `dist/` first** — and embed it with `--include dist`. The backend serves `dist/`
+   via a *runtime* `Deno.readFile`, which `deno compile` can't see statically, so it isn't
+   bundled unless you pass `--include dist`. Symptoms if you skip it: the window loads but
+   shows `not found (build the app first)` (dist not embedded), or — with bare `deno desktop`
+   — `Including …/dist: No such file or directory` at compile (dist not built).
 2. **Permissions must be baked in** — unlike `deno task dev` (`deno run -A`), a *compiled*
    binary only has the permissions you pass at compile time. `backend/main.ts` reads `HOME`
    and the token cache, writes refreshed tokens, serves + fetches over the network, and
