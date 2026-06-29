@@ -21,6 +21,16 @@ export function InteractionCard({ interaction, resolve }: Props) {
   const { id, type, phase, server, payload, manual } = interaction;
   const [reason, setReason] = useState("");
 
+  // A "confirm" is modeled as an elicitation with no fields (see simulate.ts) — label it as
+  // such so the badge matches the allow/deny UI the operator actually sees.
+  const isConfirm =
+    type === "elicitation" &&
+    (() => {
+      const s = (payload as { requestedSchema?: { properties?: Record<string, unknown> } }).requestedSchema;
+      return !s?.properties || Object.keys(s.properties).length === 0;
+    })();
+  const kindLabel = isConfirm ? "confirm" : type;
+
   // Sampling request payload → editable messages.
   const samplingMessages: SamplingMessage[] =
     type === "sampling" && phase === "request"
@@ -48,10 +58,10 @@ export function InteractionCard({ interaction, resolve }: Props) {
   const age = ago(interaction.createdAt);
 
   return (
-    <article className="card" data-type={type}>
+    <article className="card" data-type={isConfirm ? "confirm" : type}>
       <header className="card-head">
         <div className="card-title">
-          <span className={`pill pill-${type}`}>{type}</span>
+          <span className={`pill pill-${kindLabel}`}>{kindLabel}</span>
           {phase === "response" && <span className="pill pill-phase">response review</span>}
           {manual && <span className="pill pill-manual">manual</span>}
         </div>
