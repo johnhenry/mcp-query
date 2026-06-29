@@ -30,8 +30,9 @@ import { registryVerbs, subcommandVerbs } from "./registry-verbs.js";
 import { formatResult } from "./format.js";
 import * as client from "./invoke.js";
 import type { InvokeFlags } from "./invoke.js";
+import { session } from "./session.js";
 
-const CLIENT_VERBS = ["tools", "call", "read", "prompt", "ping"] as const;
+const CLIENT_VERBS = ["tools", "call", "read", "prompt", "ping", "session"] as const;
 const REGISTRY_VERBS: Record<string, string> = {
   add: "Register a server (stdio command or http/sse url)",
   servers: "List registered servers (alias: ls)",
@@ -47,6 +48,7 @@ const CLIENT_DESCRIBE: Record<string, string> = {
   read: "Read a resource by URI",
   prompt: "Get a prompt by name",
   ping: "Check that a server is reachable",
+  session: "Open an interactive REPL holding one live connection",
 };
 
 // ── generic flag parsing for the registry/client layers ─────────────────────────
@@ -314,6 +316,8 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
       return client.tools(serverRef, f);
     case "ping":
       return client.ping(serverRef, f);
+    case "session":
+      return session(serverRef, f);
     case "call": {
       // For a function-call string `'tool(args)'` the tool name comes from the expr, so the
       // single token is BOTH the name source and arg source → leave it in argTokens.

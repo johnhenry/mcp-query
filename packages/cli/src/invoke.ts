@@ -2,13 +2,16 @@
 // read a resource, get a prompt, ping. Every verb resolves a server reference the same way:
 //   • a positional `serverRef` = a registered name OR a URL          → resolveServer
 //   • no positional, inline flags (--command/--url/--bearer/--header) → resolveConnect
-// and ALWAYS closes the connection in `finally`.
+//
+// The per-operation logic lives in `op*(client, …)` functions that act on an ALREADY-connected
+// client, so the same code backs the one-shot verbs, the `session` REPL, and the daemon.
 //
 // `call` is the interesting one: it accepts both flag-style args (`--title "Bug"`, `team=ENG`)
 // and a function-call string (`'create_issue(title: "Bug", team: "ENG")'`), coerces each value
 // by the tool's inputSchema, confirms destructive calls, and renders via formatResult.
 
 import { createInterface } from "node:readline";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { connectClient, resolveServer, resolveConnect, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../mcp-contract/src/schema.js";
 import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
@@ -66,11 +69,16 @@ function inlineHeaders(f: InvokeFlags): Record<string, string> {
   return headers;
 }
 
+/** Resolve + connect; caller owns close(). Shared by one-shot verbs, the REPL, and the daemon. */
+export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcpq"): Promise<{ client: Client; close: () => Promise<void> }> {
+  return connectClient(resolve(serverRef, f, clientName));
+}
+
 // ── failure classification (for --json error reports) ─────────────────────────
 
 type Issue = "auth_required" | "offline" | "http_error" | "error";
 
-function classify(err: unknown): { issue: Issue; message: string } {
+export function classify(err: unknown): { issue: Issue; message: string } {
   const message = err instanceof Error ? err.message : String(err);
   const m = message.toLowerCase();
   if (m.includes("401") || m.includes("unauthor") || m.includes("oauth") || m.includes("auth")) return { issue: "auth_required", message };
@@ -264,133 +272,108 @@ async function confirm(question: string): Promise<boolean> {
   });
 }
 
-// ── verbs ──────────────────────────────────────────────────────────────────────
+// ── ops: operate on an already-connected client; print; throw on error ──────────
 
-/** List a server's tools as signatures (or --json / --schema / --resources / --prompts). */
-export async function tools(serverRef: string | undefined, f: InvokeFlags): Promise<void> {
+export async function opTools(client: Client, f: InvokeFlags): Promise<void> {
   const mode = modeOf(f);
-  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline" };
-  const { client, close } = await connectClient(resolve(serverRef, f, "mcpq")).catch((e) => fail(e, ctx, mode) as never);
-  try {
-    if (f.resources) {
-      const { resources } = await client.listResources();
-      if (mode === "json" || mode === "raw") return log(JSON.stringify(resources, null, 2));
-      log(formatResult(resources.map((r) => ({ uri: r.uri, name: r.name, mimeType: r.mimeType ?? "" })), "human"));
-      return;
-    }
-    if (f.prompts) {
-      const { prompts } = await client.listPrompts();
-      if (mode === "json" || mode === "raw") return log(JSON.stringify(prompts, null, 2));
-      log(formatResult(prompts.map((p) => ({ name: p.name, description: p.description ?? "" })), "human"));
-      return;
-    }
-    const { tools: list } = await client.listTools();
-    if (f.schema) return log(JSON.stringify(list, null, 2));
-    if (mode === "json" || mode === "raw") {
-      return log(JSON.stringify(list.map((t) => ({ name: t.name, description: t.description })), null, 2));
-    }
-    log(list.map((t) => toolSignature(t as ToolLike)).join("\n\n"));
-  } catch (e) {
-    fail(e, ctx, mode);
-  } finally {
-    await close();
+  if (f.resources) {
+    const { resources } = await client.listResources();
+    if (mode === "json" || mode === "raw") return log(JSON.stringify(resources, null, 2));
+    return log(formatResult(resources.map((r) => ({ uri: r.uri, name: r.name, mimeType: r.mimeType ?? "" })), "human"));
   }
+  if (f.prompts) {
+    const { prompts } = await client.listPrompts();
+    if (mode === "json" || mode === "raw") return log(JSON.stringify(prompts, null, 2));
+    return log(formatResult(prompts.map((p) => ({ name: p.name, description: p.description ?? "" })), "human"));
+  }
+  const { tools: list } = await client.listTools();
+  if (f.schema) return log(JSON.stringify(list, null, 2));
+  if (mode === "json" || mode === "raw") return log(JSON.stringify(list.map((t) => ({ name: t.name, description: t.description })), null, 2));
+  log(list.map((t) => toolSignature(t as ToolLike)).join("\n\n"));
 }
 
-/** Call a tool. `argTokens` carries both arg styles; the tool name may come from a call-expr. */
-export async function call(serverRef: string | undefined, toolName: string | undefined, argTokens: string[], f: InvokeFlags): Promise<void> {
+export async function opCall(client: Client, toolName: string | undefined, argTokens: string[], f: InvokeFlags): Promise<void> {
   const mode = modeOf(f);
-  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline", tool: toolName };
-  const { client, close } = await connectClient(resolve(serverRef, f, "mcpq")).catch((e) => fail(e, ctx, mode) as never);
-  try {
-    const { tools: list } = await client.listTools();
-    const parsed = parseCallArgs(toolName, argTokens);
-    const name = parsed.tool;
-    if (!name) throw new Error("no tool name — pass `<tool>` or a function-call string `tool(arg: …)`");
-    ctx.tool = name;
-    const def = list.find((t) => t.name === name);
-    const schema = def?.inputSchema as JSONSchema | undefined;
-    const args: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(parsed.args)) args[k] = coerce(k, v, schema);
+  const { tools: list } = await client.listTools();
+  const parsed = parseCallArgs(toolName, argTokens);
+  const name = parsed.tool;
+  if (!name) throw new Error("no tool name — pass `<tool>` or a function-call string `tool(arg: …)`");
+  const def = list.find((t) => t.name === name);
+  const schema = def?.inputSchema as JSONSchema | undefined;
+  const args: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(parsed.args)) args[k] = coerce(k, v, schema);
 
-    if (def?.annotations?.destructiveHint && !f.yes) {
-      const ok = await confirm(`Tool "${name}" is marked destructive. Proceed?`);
-      if (!ok) {
-        console.error("aborted");
-        process.exit(1);
-      }
-    }
-
-    const result = await client.callTool({ name, arguments: args });
-    if (mode === "raw") return log(formatResult(result, "raw"));
-    if (mode === "json") return log(formatResult(result.content, "json"));
-    log(formatResult(result.content, "human"));
-  } catch (e) {
-    fail(e, ctx, mode);
-  } finally {
-    await close();
+  if (def?.annotations?.destructiveHint && !f.yes) {
+    const ok = await confirm(`Tool "${name}" is marked destructive. Proceed?`);
+    if (!ok) throw new Error("aborted");
   }
+
+  const result = await client.callTool({ name, arguments: args });
+  if (mode === "raw") return log(formatResult(result, "raw"));
+  if (mode === "json") return log(formatResult(result.content, "json"));
+  log(formatResult(result.content, "human"));
 }
 
-/** Read a resource by URI. */
-export async function read(serverRef: string | undefined, uri: string, f: InvokeFlags): Promise<void> {
+export async function opRead(client: Client, uri: string, f: InvokeFlags): Promise<void> {
   const mode = modeOf(f);
-  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline" };
-  const { client, close } = await connectClient(resolve(serverRef, f, "mcpq")).catch((e) => fail(e, ctx, mode) as never);
-  try {
-    const result = await client.readResource({ uri });
-    if (mode === "raw") return log(formatResult(result, "raw"));
-    if (mode === "json") return log(formatResult(result.contents, "json"));
-    log(result.contents.map((c) => ("text" in c && c.text !== undefined ? c.text : `[blob: ${c.mimeType ?? "binary"}]`)).join("\n"));
-  } catch (e) {
-    fail(e, ctx, mode);
-  } finally {
-    await close();
-  }
+  const result = await client.readResource({ uri });
+  if (mode === "raw") return log(formatResult(result, "raw"));
+  if (mode === "json") return log(formatResult(result.contents, "json"));
+  log(result.contents.map((c) => ("text" in c && c.text !== undefined ? c.text : `[blob: ${c.mimeType ?? "binary"}]`)).join("\n"));
 }
 
-/** Get a prompt by name (with optional args, both styles). */
-export async function prompt(serverRef: string | undefined, name: string, argTokens: string[], f: InvokeFlags): Promise<void> {
+export async function opPrompt(client: Client, name: string, argTokens: string[], f: InvokeFlags): Promise<void> {
   const mode = modeOf(f);
-  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline", tool: name };
-  const { client, close } = await connectClient(resolve(serverRef, f, "mcpq")).catch((e) => fail(e, ctx, mode) as never);
-  try {
-    const parsed = parseCallArgs(name, argTokens);
-    const args: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed.args)) args[k] = typeof v === "string" ? v : JSON.stringify(v);
-    const result = await client.getPrompt({ name, arguments: args });
-    if (mode === "raw") return log(formatResult(result, "raw"));
-    if (mode === "json") return log(formatResult(result.messages, "json"));
-    log(
-      result.messages
-        .map((m) => {
-          const c = m.content as { type: string; text?: string };
-          const body = c.type === "text" ? (c.text ?? "") : `[${c.type}]`;
-          return `${m.role}: ${body}`;
-        })
-        .join("\n"),
-    );
-  } catch (e) {
-    fail(e, ctx, mode);
-  } finally {
-    await close();
-  }
+  const parsed = parseCallArgs(name, argTokens);
+  const args: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed.args)) args[k] = typeof v === "string" ? v : JSON.stringify(v);
+  const result = await client.getPrompt({ name, arguments: args });
+  if (mode === "raw") return log(formatResult(result, "raw"));
+  if (mode === "json") return log(formatResult(result.messages, "json"));
+  log(
+    result.messages
+      .map((m) => {
+        const c = m.content as { type: string; text?: string };
+        const body = c.type === "text" ? (c.text ?? "") : `[${c.type}]`;
+        return `${m.role}: ${body}`;
+      })
+      .join("\n"),
+  );
 }
 
-/** Liveness check. */
-export async function ping(serverRef: string | undefined, f: InvokeFlags): Promise<void> {
+export async function opPing(client: Client, f: InvokeFlags): Promise<void> {
   const mode = modeOf(f);
-  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline" };
-  const { client, close } = await connectClient(resolve(serverRef, f, "mcpq")).catch((e) => fail(e, ctx, mode) as never);
   const started = Date.now();
+  await client.ping();
+  const ms = Date.now() - started;
+  if (mode === "json") return log(JSON.stringify({ ok: true, ms }, null, 2));
+  log(`ok (${ms}ms)`);
+}
+
+// ── one-shot verbs: connect → op → close (fail() classifies in --json mode) ─────
+
+async function oneShot(serverRef: string | undefined, f: InvokeFlags, ctxTool: string | undefined, run: (client: Client) => Promise<void>): Promise<void> {
+  const mode = modeOf(f);
+  const ctx = { server: serverRef ?? f.url ?? f.command ?? "inline", tool: ctxTool };
+  let conn: { client: Client; close: () => Promise<void> };
   try {
-    await client.ping();
-    const ms = Date.now() - started;
-    if (mode === "json") return log(JSON.stringify({ server: ctx.server, ok: true, ms }, null, 2));
-    log(`ok (${ms}ms)`);
+    conn = await connectFor(serverRef, f);
+  } catch (e) {
+    return fail(e, ctx, mode);
+  }
+  try {
+    await run(conn.client);
   } catch (e) {
     fail(e, ctx, mode);
   } finally {
-    await close();
+    await conn.close();
   }
 }
+
+export const tools = (serverRef: string | undefined, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opTools(c, f));
+export const call = (serverRef: string | undefined, toolName: string | undefined, argTokens: string[], f: InvokeFlags): Promise<void> =>
+  oneShot(serverRef, f, toolName, (c) => opCall(c, toolName, argTokens, f));
+export const read = (serverRef: string | undefined, uri: string, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opRead(c, uri, f));
+export const prompt = (serverRef: string | undefined, name: string, argTokens: string[], f: InvokeFlags): Promise<void> =>
+  oneShot(serverRef, f, name, (c) => opPrompt(c, name, argTokens, f));
+export const ping = (serverRef: string | undefined, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opPing(c, f));

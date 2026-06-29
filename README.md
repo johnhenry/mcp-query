@@ -87,6 +87,7 @@ mcpq tools everything                              # list tools as typed signatu
 mcpq call everything echo --message hi             # flag style …
 mcpq call everything 'get-sum(a: 2, b: 40)'        # … or function-call style (coerced by inputSchema)
 mcpq read everything file:///x   ·   mcpq ping everything
+mcpq session everything                            # interactive REPL on ONE live connection
 
 # every tool is a verb — and accepts a registered name
 mcpq lint everything   ·   mcpq docs linear --out API.md   ·   mcpq bench everything --call echo:'{}'
