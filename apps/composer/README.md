@@ -89,7 +89,7 @@ Everything is stored in `localStorage` only — there is no backend.
 
 | Provider     | Config        | Notes                                                        |
 |--------------|---------------|-------------------------------------------------------------|
-| **Ollama**   | base URL      | **Default, zero-config.** `/ollama` (Vite proxies → :11434), model `qwen2.5:3b` (already pulled on this box). |
+| **Ollama**   | base URL      | **Default, zero-config.** `/ollama` (Vite proxies → :11434), default model `qwen2.5:3b` (`ollama pull qwen2.5:3b` if not present). The picker lists the models actually installed locally and warns if the selected one isn't pulled. |
 | OpenAI       | API key       | hosted                                                      |
 | Anthropic    | API key       | hosted; sends the dangerous-direct-browser-access header    |
 | Groq         | API key       | hosted                                                      |

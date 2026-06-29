@@ -1,7 +1,7 @@
 // Header control: choose a provider, a model, and the provider's config (apiKey/baseURL).
 // All state lives in localStorage (no server). Ollama-local is the zero-config default.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   PROVIDERS,
   getProvider,
@@ -19,6 +19,31 @@ export function ModelPicker({
   const provider = getProvider(config.providerId);
   const saved = config.byProvider[provider.id] ?? {};
   const model = saved.model || provider.defaultModel || "";
+  const baseURL = saved.baseURL ?? provider.defaultBaseURL ?? "";
+
+  // For Ollama, list the models actually installed locally (GET <baseURL>/api/tags) so the
+  // picker reflects reality — the hardcoded defaults are just suggestions and may not be pulled.
+  const [installed, setInstalled] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!open || provider.id !== "ollama") return;
+    let cancelled = false;
+    setInstalled(null);
+    fetch(`${baseURL.replace(/\/$/, "")}/api/tags`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { models?: Array<{ name?: string }> }) => {
+        if (!cancelled) setInstalled((d.models ?? []).map((m) => m.name ?? "").filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setInstalled([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, provider.id, baseURL]);
+
+  const isOllama = provider.id === "ollama";
+  const suggestions = isOllama && installed && installed.length ? installed : provider.defaultModels ?? [];
+  const notInstalled = isOllama && installed !== null && model !== "" && !installed.includes(model);
 
   function patchProvider(patch: { apiKey?: string; baseURL?: string; model?: string }) {
     onChange({
@@ -61,11 +86,23 @@ export function ModelPicker({
               onChange={(e) => patchProvider({ model: e.target.value })}
             />
             <datalist id={`models-${provider.id}`}>
-              {(provider.defaultModels ?? []).map((m) => (
+              {suggestions.map((m) => (
                 <option key={m} value={m} />
               ))}
             </datalist>
           </label>
+          {isOllama && installed !== null && (
+            installed.length === 0 ? (
+              <p className="muted small">No local Ollama models found — pull one (e.g. <code>ollama pull {provider.defaultModel}</code>) or check the base URL.</p>
+            ) : notInstalled ? (
+              <p className="model-warn small">
+                ⚠ <b>{model}</b> isn't installed. Pick an installed model{" "}
+                ({installed.slice(0, 4).join(", ")}{installed.length > 4 ? "…" : ""}) or run <code>ollama pull {model}</code>.
+              </p>
+            ) : (
+              <p className="muted small">{installed.length} local model{installed.length === 1 ? "" : "s"} available.</p>
+            )
+          )}
 
           {provider.configFields.includes("baseURL") && (
             <label className="field">

@@ -396,6 +396,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   z-index: 40;
   box-shadow: 0 12px 32px rgba(0,0,0,.4);
 }
+.model-panel .model-warn { color: #f0b429; margin: 2px 0 0; line-height: 1.4; }
+.model-panel .model-warn code, .model-panel .muted code { background: var(--bg-3); padding: 0 4px; border-radius: 4px; }
 
 /* ── server manager ── */
 .server-manager { position: relative; }
