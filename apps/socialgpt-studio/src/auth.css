@@ -66,6 +66,39 @@
   word-break: break-word;
 }
 
+.auth-paste {
+  margin-top: 1.25rem;
+  text-align: left;
+}
+.auth-paste label {
+  display: block;
+  color: var(--muted, #9aa3b6);
+  font-size: 0.8rem;
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+}
+.auth-paste input {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  border: 1px solid var(--border, #272b38);
+  border-radius: 10px;
+  background: var(--surface, #161922);
+  color: inherit;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.6rem;
+}
+.auth-paste input:focus {
+  outline: none;
+  border-color: var(--accent, #6c8cff);
+}
+.auth-paste .auth-btn {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+}
+
 .scope-banner {
   display: flex;
   flex-wrap: wrap;

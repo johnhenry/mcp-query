@@ -21,6 +21,7 @@ function Login({ onConnected }: { onConnected: () => void }) {
   const [authorizeUrl, setAuthorizeUrl] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [pastedUrl, setPastedUrl] = useState("");
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearInterval(timer.current), []);
@@ -51,6 +52,24 @@ function Login({ onConnected }: { onConnected: () => void }) {
     }
   }
 
+  // Paste-the-URL fallback: if the browser's redirect couldn't reach the app, the user pastes the
+  // address it landed on; the backend parses code+state and completes the same exchange. On success
+  // the /auth/status poll started in connect() flips to authenticated and calls onConnected().
+  async function complete() {
+    setError(undefined);
+    try {
+      const res = await fetch("/auth/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: pastedUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.message ?? "could not complete sign-in");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div className="auth-screen">
       <div className="auth-card">
@@ -65,6 +84,24 @@ function Login({ onConnected }: { onConnected: () => void }) {
             A sign-in tab should have opened. Didn't see it?{" "}
             <a href={authorizeUrl} target="_blank" rel="noreferrer">Open it manually</a>.
           </p>
+        )}
+        {authorizeUrl && (
+          <div className="auth-paste">
+            <label htmlFor="auth-paste-url">
+              Browser didn't return you to the app? Paste the address it landed on
+              (http://localhost…/auth/callback?…) here:
+            </label>
+            <input
+              id="auth-paste-url"
+              type="text"
+              placeholder="http://localhost:…/auth/callback?code=…&state=…"
+              value={pastedUrl}
+              onChange={(e) => setPastedUrl(e.target.value)}
+            />
+            <button className="auth-btn" onClick={complete} disabled={!pastedUrl.trim()}>
+              Complete sign-in
+            </button>
+          </div>
         )}
         {error && <p className="auth-error">{error}</p>}
         <p className="auth-foot">Sign-in happens on SocialGPT's own page — the app never sees your password.</p>

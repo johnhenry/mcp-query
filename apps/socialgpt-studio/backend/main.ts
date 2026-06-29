@@ -221,6 +221,41 @@ interface Pending {
 }
 let pending: Pending | null = null;
 
+// An ephemeral, *explicit* callback listener started per-login. The packaged `deno desktop`
+// build wires the webview↔backend over an internal channel, so the embedded backend may not be
+// reachable on an external port by the system browser — but a listener we start ourselves binds
+// a normal OS TCP socket the local browser CAN reach at localhost:<port>. We register the OAuth
+// redirect_uri against THIS port, then tear it down once the code lands. (Mirrors
+// startCallbackServer in packages/mcp-contract/src/oauth.ts.)
+let callbackServer: { port: number; close: () => Promise<void> } | null = null;
+
+function startCallbackServer(): Promise<{ port: number; close: () => Promise<void> }> {
+  return new Promise((resolve) => {
+    const ac = new AbortController();
+    const server = Deno.serve(
+      {
+        hostname: "127.0.0.1",
+        port: 0, // OS-assigned free port; the real one arrives via onListen
+        signal: ac.signal,
+        onListen: ({ port }) => resolve({ port, close: async () => { ac.abort(); await server.finished.catch(() => {}); } }),
+      },
+      (req: Request) => {
+        const u = new URL(req.url);
+        if (u.pathname === "/auth/callback") return authCallback(u);
+        return new Response("not found", { status: 404 });
+      },
+    );
+  });
+}
+
+async function closeCallbackServer(): Promise<void> {
+  if (callbackServer) {
+    const cb = callbackServer;
+    callbackServer = null;
+    await cb.close().catch(() => {});
+  }
+}
+
 function openBrowser(url: string): void {
   const os = Deno.build.os;
   const [cmd, ...args] = os === "darwin" ? ["open", url] : os === "windows" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
@@ -250,7 +285,11 @@ async function authStatus(): Promise<Response> {
 async function authLogin(): Promise<Response> {
   try {
     const meta = await discover();
-    const redirectUri = `http://localhost:${PORT}/auth/callback`;
+    // Start (or restart) the ephemeral callback listener and register the redirect against its
+    // real port, so an external system browser can reach the callback even in the packaged app.
+    await closeCallbackServer();
+    callbackServer = await startCallbackServer();
+    const redirectUri = `http://localhost:${callbackServer.port}/auth/callback`;
     const scope = chooseScope(meta);
     const reg = await register(meta, redirectUri, scope);
     const { verifier, challenge } = await pkce();
@@ -264,24 +303,64 @@ async function authLogin(): Promise<Response> {
   }
 }
 
-async function authCallback(url: URL): Promise<Response> {
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
+/**
+ * Validate `state`, exchange `code` for tokens, and persist them. Shared by the GET callback
+ * (`authCallback`), the side-server callback, and the paste fallback (`authComplete`).
+ */
+async function completeLogin(code: string | null, state: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!pending || !code || state !== pending.state) {
-    return htmlPage("Login failed", "Invalid or expired login attempt — return to the app and try again.");
+    return { ok: false, error: "Invalid or expired login attempt — return to the app and try again." };
   }
   try {
     const tokens = await exchangeCode(pending.meta, { code, verifier: pending.verifier, clientId: pending.clientId, redirectUri: pending.redirectUri });
     await Deno.mkdir(TOKEN_DIR, { recursive: true });
     await Deno.writeTextFile(TOKEN_PATH, JSON.stringify(tokenFile({ clientId: pending.clientId, redirectUri: pending.redirectUri, verifier: pending.verifier, tokens }), null, 2));
     pending = null;
-    return htmlPage("✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.");
+    void closeCallbackServer(); // tear down the ephemeral listener; we're done with it
+    return { ok: true };
   } catch (err) {
-    return htmlPage("Login failed", String(err));
+    return { ok: false, error: String(err) };
   }
 }
 
+async function authCallback(url: URL): Promise<Response> {
+  const result = await completeLogin(url.searchParams.get("code"), url.searchParams.get("state"));
+  return result.ok
+    ? htmlPage("✓ Connected", "You're signed in to SocialGPT. Close this tab and return to the app.")
+    : htmlPage("Login failed", result.error);
+}
+
+/**
+ * Paste-the-URL fallback: the user pastes the full `…/auth/callback?code=…&state=…` address their
+ * browser landed on (used when the external redirect can't reach the ephemeral listener — e.g. a
+ * sandboxed packaged build, or the browser is on another machine). Parses code+state and runs the
+ * same exchange as the live callback. Mirrors the stdin paste fallback in mcp-contract's oauth.ts.
+ */
+async function authComplete(req: Request): Promise<Response> {
+  let body: { url?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return json(400, { ok: false, message: "invalid JSON body" });
+  }
+  const raw = (body.url ?? "").trim();
+  if (!raw) return json(400, { ok: false, message: "missing url" });
+  let code: string | null = null;
+  let state: string | null = null;
+  try {
+    const u = new URL(raw);
+    code = u.searchParams.get("code");
+    state = u.searchParams.get("state");
+  } catch {
+    return json(400, { ok: false, message: "could not parse a URL — paste the full http://localhost…/auth/callback?code=…&state=… address" });
+  }
+  const result = await completeLogin(code, state);
+  return result.ok ? json(200, { ok: true }) : json(400, { ok: false, message: result.error });
+}
+
 async function authLogout(): Promise<Response> {
+  await closeCallbackServer();
+  pending = null;
   try {
     await Deno.remove(TOKEN_PATH);
   } catch {
@@ -352,14 +431,19 @@ async function serveStatic(pathname: string): Promise<Response> {
   }
 }
 
-Deno.serve({ port: PORT }, (req: Request) => {
-  const url = new URL(req.url);
-  if (url.pathname === "/mcp") return handleMcp(req);
-  if (url.pathname === "/auth/status") return authStatus();
-  if (url.pathname === "/auth/login" && req.method === "POST") return authLogin();
-  if (url.pathname === "/auth/callback") return authCallback(url);
-  if (url.pathname === "/auth/logout" && req.method === "POST") return authLogout();
-  return serveStatic(url.pathname);
-});
-
-console.log(`socialgpt-studio backend listening on http://localhost:${PORT}  (/mcp → ${UPSTREAM})`);
+Deno.serve(
+  {
+    port: PORT,
+    onListen: ({ hostname, port }) => console.log(`socialgpt-studio backend listening on http://${hostname}:${port}  (/mcp → ${UPSTREAM})`),
+  },
+  (req: Request) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/mcp") return handleMcp(req);
+    if (url.pathname === "/auth/status") return authStatus();
+    if (url.pathname === "/auth/login" && req.method === "POST") return authLogin();
+    if (url.pathname === "/auth/callback") return authCallback(url); // same-port fallback (shares `pending`)
+    if (url.pathname === "/auth/complete" && req.method === "POST") return authComplete(req);
+    if (url.pathname === "/auth/logout" && req.method === "POST") return authLogout();
+    return serveStatic(url.pathname);
+  },
+);
