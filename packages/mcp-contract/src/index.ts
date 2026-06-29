@@ -16,7 +16,7 @@ export {
   type ContractDiff,
   type DiffOptions,
 } from "./contract.js";
-export { captureFrom, buildTransport, connectFromFlags, type ConnectOptions } from "./connect.js";
+export { captureFrom, connectClient, buildTransport, connectFromFlags, type ConnectOptions } from "./connect.js";
 export { authenticate, FileOAuthProvider, captureProvider, tokenCachePath, hasCachedAuth, type AuthenticateOptions } from "./oauth.js";
 export { mockFromContract } from "./mock.js";
 export { usedFromSource } from "./used.js";

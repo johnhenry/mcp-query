@@ -13,14 +13,14 @@ and they stack:
  your app / agent host ──▶│                 mcp-query                    │──▶ MCP servers
                           │   reactive client · cache · codegen · core   │
                           └─────────────────────────────────────────────┘
-                                            ▲
-        ┌──────────────┬──────────────┬─────┴────────┬──────────────┐
-   ┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-   │ mcp-gate│   │ contract │   │  lint    │   │  docs    │   │  record  │
-   │ govern  │   │ guard    │   │ lint     │   │ generate │   │ freeze   │
-   │ runtime │   │ drift    │   │ quality  │   │ ref docs │   │ traffic  │
-   └─────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
-                  └──────── share captureContract (the surface) ───────┘
+                                              ▲
+      ┌──────────┬──────────┬──────────┬───────┴──┬──────────┬──────────┐
+ ┌─────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+ │ mcp-gate│ │contract│ │  lint  │ │  docs  │ │  bench │ │ record │
+ │ govern  │ │ guard  │ │ lint   │ │generate│ │ measure│ │ freeze │
+ │ runtime │ │ drift  │ │ quality│ │ref docs│ │ latency│ │ traffic│
+ └─────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
+              └──────── share capture / connect (the surface) ───────┘
 ```
 
 ## Packages
@@ -32,6 +32,7 @@ and they stack:
 | **[@mcp-query/contract](packages/mcp-contract)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
 | **[@mcp-query/lint](packages/mcp-lint)** | **Quality lint** (ESLint for MCP). Check a single surface against design rules — descriptions, annotations, typed inputs, naming — and gate CI on it. | You're **authoring** an MCP server and want a quality bar enforced in CI. |
 | **[@mcp-query/docs](packages/mcp-docs)** | **Reference docs** (Redoc for MCP). Render Markdown docs from a live server or a contract: tool arg tables, annotation badges, resources, prompts. | You want **always-current reference docs** for an MCP server, generated not hand-written. |
+| **[@mcp-query/bench](packages/mcp-bench)** | **Benchmarking.** Latency (p50/p95/p99) + throughput per tool, with perf budgets that fail CI. Local or hosted servers. | You want to **track an MCP server's performance** or gate on a latency budget. |
 | **[@mcp-query/record](packages/mcp-record)** | **Record / replay** (VCR for MCP). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
 
 Plus **[apps/inspector](apps/inspector)** — a flagship MCP Inspector (Web Components + Vite +
@@ -73,9 +74,9 @@ emits a `dist/` for publishing.
 
 ## Status
 
-`mcp-query` is the publishable core (`0.0.1`); the gate / contract / lint / docs / record
-packages and the inspector are MVPs (`private`) tracking it. See each package's README for
-specifics.
+`mcp-query` is the publishable core (`0.0.1`); the gate / contract / lint / docs / bench /
+record packages and the inspector are MVPs (`private`) tracking it. See each package's README
+for specifics.
 
 ## License
 

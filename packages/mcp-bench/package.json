@@ -1,0 +1,25 @@
+{
+  "name": "@mcp-query/bench",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Latency/throughput benchmarking for MCP servers, with optional perf budgets for CI. Reuses mcp-contract's connect path (local stdio or hosted HTTP/OAuth).",
+  "bin": {
+    "mcp-bench": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "mcp-query": "*",
+    "@mcp-query/contract": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

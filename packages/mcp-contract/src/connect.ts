@@ -40,14 +40,20 @@ export function buildTransport(opts: ConnectOptions): Transport {
   throw new Error("provide --url <https://…> or --command <cmd> [--args …] for a live server");
 }
 
-/** Connect, capture the capability surface, and close. */
-export async function captureFrom(opts: ConnectOptions): Promise<Contract> {
+/** Connect a live SDK client from connect options; caller is responsible for `close()`. */
+export async function connectClient(opts: ConnectOptions): Promise<{ client: Client; close: () => Promise<void> }> {
   const client = new Client({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: {} });
   await client.connect(buildTransport(opts));
+  return { client, close: () => client.close().catch(() => {}) };
+}
+
+/** Connect, capture the capability surface, and close. */
+export async function captureFrom(opts: ConnectOptions): Promise<Contract> {
+  const { client, close } = await connectClient(opts);
   try {
     return await captureContract(client);
   } finally {
-    await client.close().catch(() => {});
+    await close();
   }
 }
 
