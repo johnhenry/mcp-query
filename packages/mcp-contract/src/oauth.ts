@@ -106,8 +106,8 @@ export function hasCachedAuth(url: string): boolean {
   }
 }
 
-function startCallbackServer(): Promise<{ port: number; code: Promise<string>; close: () => void }> {
-  return new Promise((resolve) => {
+function startCallbackServer(fixedPort?: number): Promise<{ port: number; code: Promise<string>; close: () => void }> {
+  return new Promise((resolve, reject) => {
     let resolveCode: (c: string) => void;
     const code = new Promise<string>((r) => (resolveCode = r));
     const server = createServer((req, res) => {
@@ -117,7 +117,9 @@ function startCallbackServer(): Promise<{ port: number; code: Promise<string>; c
       res.end(`<!doctype html><body style="font-family:sans-serif"><h2>${c ? "✓ Authorized" : "No code received"}</h2><p>You may close this tab and return to the terminal.</p>`);
       if (c) resolveCode(c);
     });
-    server.listen(0, "127.0.0.1", () => {
+    server.on("error", reject);
+    // A fixed port (0 → ephemeral) lets a remote box be reached via `ssh -L PORT:localhost:PORT`.
+    server.listen(fixedPort ?? 0, "127.0.0.1", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
       resolve({ port, code, close: () => server.close() });
@@ -154,13 +156,15 @@ export interface AuthenticateOptions {
   out?: string;
   /** Attempt to open the authorize URL in a local browser. Default true. */
   open?: boolean;
+  /** Fixed callback port (default ephemeral). Set this to forward it over `ssh -L`. */
+  port?: number;
   /** Overall wait for consent (ms). Default 5 min. */
   timeoutMs?: number;
 }
 
 /** Run the interactive browser-consent flow and return the obtained tokens. */
 export async function authenticate(url: string, opts: AuthenticateOptions = {}): Promise<OAuthTokens> {
-  const cb = await startCallbackServer();
+  const cb = await startCallbackServer(opts.port);
   const redirectUrl = `http://localhost:${cb.port}/callback`;
   const provider = new FileOAuthProvider(tokenCachePath(url), { redirectUrl, scope: opts.scope, interactive: true });
   const transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider });
@@ -183,7 +187,11 @@ export async function authenticate(url: string, opts: AuthenticateOptions = {}):
     cb.close();
     throw new Error("authorization URL was not produced by the SDK");
   }
-  console.error(`\nDynamic client registered. Open this URL, log in to the server, and approve:\n\n  ${authUrl}\n`);
+  console.error(`\nDynamic client registered. Open this URL in the browser where you're logged in, and approve:\n\n  ${authUrl}\n`);
+  console.error(`Waiting for the callback on ${redirectUrl} —`);
+  console.error(`  • browser on THIS machine → it just works`);
+  console.error(`  • browser on another machine → forward the port:  ssh -L ${cb.port}:localhost:${cb.port} <this-host>`);
+  console.error(`  • or just paste the redirected URL at the prompt below.\n`);
   if (opts.open ?? true) openInBrowser(authUrl);
 
   const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timed out waiting for authorization")), opts.timeoutMs ?? 300_000).unref());

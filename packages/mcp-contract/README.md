@@ -80,8 +80,25 @@ mcp-contract verify --url https://host/mcp --contract api.contract.json   # just
 `auth` runs the full OAuth 2.1 flow itself — it never sees your password (you log in on the
 server's own page). The token is cached per-host and **auto-refreshed** by the capture tools
 (`contract`/`lint`/`docs`) on later runs; if nothing is cached they tell you to run `auth`
-first. If your browser is on another machine, paste the redirected `localhost/callback?code=…`
-URL back at the prompt.
+first.
+
+**Browser on a different machine (e.g. the tool runs on a remote box you SSH into).** The
+callback is `http://localhost:PORT/callback` on the *box*, but your logged-in browser is on
+your laptop. Two ways to bridge it:
+
+```bash
+# A) SSH local-forward the callback port, then the redirect "just works":
+ssh -L 41234:localhost:41234 you@box           # forward laptop:41234 → box:41234
+# on the box:
+mcp-contract auth --url https://host/mcp --port 41234 --open false
+# open the printed URL in your laptop browser, approve → redirect tunnels back to the box.
+
+# B) No tunnel: approve in your browser, copy the failed localhost/callback?code=… URL
+#    from the address bar, and paste it at the "paste the redirected URL" prompt.
+```
+
+`--port` fixes the callback port so you can set up `-L` in advance; `--open false` skips
+launching a browser on the (headless) box.
 
 ## What counts as breaking — the variance rules
 

@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 
     case "auth": {
       const url = required(flags, "url");
-      const tokens = await authenticate(url, { scope: flags.scope, out: flags.out, open: flags.open !== "false" });
+      const tokens = await authenticate(url, { scope: flags.scope, out: flags.out, open: flags.open !== "false", port: flags.port ? Number(flags.port) : undefined });
       console.error(`\n✓ authorized ${url}`);
       console.error(`  token cached: ${tokenCachePath(url)}${flags.out ? ` (also → ${flags.out})` : ""}`);
       console.error(`  scopes: ${tokens.scope ?? "(server default)"}${tokens.refresh_token ? " · refresh token obtained" : ""}`);
