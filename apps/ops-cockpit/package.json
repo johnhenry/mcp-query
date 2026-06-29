@@ -5,7 +5,7 @@
   "type": "module",
   "description": "React + Vite mcp-query example app (operations cockpit) with the shared WS proxy.",
   "scripts": {
-    "dev": "concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev": "WEB_PORT=5175 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
     "build": "vite build",

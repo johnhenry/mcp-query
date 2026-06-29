@@ -20,6 +20,9 @@ export default defineConfig({
     ],
   },
   server: {
+    // Pinned port (matches WEB_PORT in the `dev` script) so the proxy's printed URL is correct.
+    port: Number(process.env.WEB_PORT) || 5178,
+    strictPort: true,
     fs: { allow: [resolve(here, "../../")] },
     // Proxy Ollama to avoid browser CORS in dev (the box runs Ollama on :11434).
     proxy: { "/ollama": { target: "http://localhost:11434", changeOrigin: true, rewrite: (p) => p.replace(/^\/ollama/, "") } },

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A chat composer where the USER drives MCP tools to assemble grounded input, with a pluggable model picker (ai.matey).",
   "scripts": {
-    "dev": "concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev": "WEB_PORT=5178 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
     "dev:web": "vite",
     "build": "vite build",

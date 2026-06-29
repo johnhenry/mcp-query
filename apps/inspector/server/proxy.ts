@@ -18,7 +18,7 @@ interface TargetSpec {
 }
 
 const PORT = Number(process.env.PROXY_PORT ?? 6280);
-const WEB = process.env.WEB_URL ?? "http://localhost:5173";
+const WEB = process.env.WEB_URL ?? `http://localhost:${process.env.WEB_PORT ?? 5173}`;
 const TOKEN = process.env.PROXY_TOKEN ?? randomUUID();
 
 function makeTarget(spec: TargetSpec): Transport {

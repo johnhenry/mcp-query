@@ -15,6 +15,7 @@ export default defineConfig({
       { find: "mcp-query", replacement: resolve(lib, "index.ts") },
     ],
   },
+  // Pinned port (matches WEB_PORT in the `dev` script) so the proxy's printed URL is correct.
   // Allow importing source from the monorepo root.
-  server: { fs: { allow: [resolve(here, "../../")] } },
+  server: { port: Number(process.env.WEB_PORT) || 5173, strictPort: true, fs: { allow: [resolve(here, "../../")] } },
 });

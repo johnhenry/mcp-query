@@ -20,6 +20,7 @@ export default defineConfig({
       { find: "@app-shared", replacement: resolve(shared, "react/index.tsx") },
     ],
   },
+  // Pinned port (matches WEB_PORT in the `dev` script) so the proxy's printed URL is correct.
   // Allow importing source from the monorepo root.
-  server: { fs: { allow: [resolve(here, "../../")] } },
+  server: { port: Number(process.env.WEB_PORT) || 5176, strictPort: true, fs: { allow: [resolve(here, "../../")] } },
 });

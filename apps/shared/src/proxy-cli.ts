@@ -4,13 +4,14 @@
 //
 //   tsx ../shared/src/proxy-cli.ts
 //
-// Reads PROXY_PORT / PROXY_TOKEN / WEB_URL from the environment and prints the connect URL
-// (with ?proxyToken / ?proxyPort) so you can open the app pre-wired to this proxy.
+// Reads PROXY_PORT / PROXY_TOKEN / WEB_URL / WEB_PORT from the environment and prints the
+// connect URL (with ?proxyToken / ?proxyPort) so you can open the app pre-wired to this proxy.
+// WEB_PORT lets each app pin its Vite port (see its `dev` script) so the printed URL is correct.
 
 import { startProxy } from "./proxy.js";
 
 const port = Number(process.env.PROXY_PORT ?? 6280);
-const webUrl = process.env.WEB_URL ?? "http://localhost:5173";
+const webUrl = process.env.WEB_URL ?? `http://localhost:${process.env.WEB_PORT ?? 5173}`;
 
 const proxy = await startProxy({
   port,

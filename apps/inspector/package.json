@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A flagship MCP Inspector built on mcp-query — Web Components + Vite, with a local stdio/HTTP proxy.",
   "scripts": {
-    "dev": "concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev": "WEB_PORT=5173 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:proxy": "tsx server/proxy.ts",
     "build": "vite build",

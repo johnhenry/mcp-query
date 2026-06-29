@@ -25,12 +25,12 @@ npm run dev -w @mcp-query/notebook
 - **proxy** — `tsx ../shared/src/proxy-cli.ts`, the browser↔MCP WebSocket bridge. It spawns
   `npx -y @modelcontextprotocol/server-filesystem <abs path to sample-notes>` over stdio when
   the browser connects. It prints a **connect URL** with `?proxyToken=…&proxyPort=…`.
-- **web** — Vite on http://localhost:5173.
+- **web** — Vite on http://localhost:5177.
 
 **Open the URL the proxy printed** (it carries the token + port the client needs), e.g.
 
 ```
-http://localhost:5173/?proxyToken=<token>&proxyPort=6280
+http://localhost:5177/?proxyToken=<token>&proxyPort=6280
 ```
 
 > The absolute path to `sample-notes/` is baked in at build time (Vite `define`
