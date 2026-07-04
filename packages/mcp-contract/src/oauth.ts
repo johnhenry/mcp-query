@@ -23,6 +23,39 @@ interface CacheState {
   codeVerifier?: string;
 }
 
+/**
+ * Some servers return `"refresh_token": null` (and other null-valued optional fields) from
+ * the token endpoint. OAuth semantics say null ≡ absent, but the SDK's zod schema
+ * (`z.string().optional()`) rejects null outright — so strip null-valued keys from any
+ * token-endpoint-shaped JSON body. Exported for tests.
+ */
+export function normalizeTokenJson(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
+  if (!("access_token" in parsed)) return parsed;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(parsed)) if (v !== null) out[k] = v;
+  return out;
+}
+
+/** A fetch that rewrites token-endpoint responses through `normalizeTokenJson`. */
+export const tokenNormalizingFetch: typeof fetch = async (input, init) => {
+  const res = await fetch(input, init);
+  if (!(res.headers.get("content-type") ?? "").includes("json")) return res;
+  const body = await res.text();
+  let rewritten = body;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    const normalized = normalizeTokenJson(parsed);
+    if (normalized !== parsed) rewritten = JSON.stringify(normalized);
+  } catch {
+    /* non-JSON despite the header — pass through untouched */
+  }
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(rewritten, { status: res.status, statusText: res.statusText, headers });
+};
+
 /** Where a server's OAuth state is cached, keyed by host. */
 export function tokenCachePath(url: string): string {
   const host = new URL(url).host.replace(/[^a-z0-9.-]/gi, "_");
@@ -85,7 +118,13 @@ export class FileOAuthProvider implements OAuthClientProvider {
   }
   redirectToAuthorization(authorizationUrl: URL): void {
     if (!this.opts.interactive) {
-      throw new Error(`authorization required — run:  mcp-contract auth --url <server>`);
+      // Name the command the user actually ran: under the mcpq umbrella the fix is
+      // `mcpq login`, standalone it's `mcp-contract auth` (mcpq sets MCPQ_UMBRELLA).
+      throw new Error(
+        process.env.MCPQ_UMBRELLA === "1"
+          ? `authorization required — run:  mcpq login <name|url>`
+          : `authorization required — run:  mcp-contract auth --url <server>`,
+      );
     }
     this.lastAuthorizationUrl = authorizationUrl;
   }
@@ -142,12 +181,33 @@ function pasteFallback(redirectUrl: string): Promise<string> {
   });
 }
 
+/** Platform-appropriate launcher; candidates after the first are Linux fallbacks. */
+function browserCommands(): string[] {
+  if (process.platform === "darwin") return ["open"];
+  if (process.platform === "win32") return ["explorer"];
+  return ["xdg-open", "google-chrome-stable", "chromium"];
+}
+
 function openInBrowser(url: URL): void {
-  try {
-    spawn("google-chrome-stable", [url.toString()], { env: { ...process.env, DISPLAY: process.env.DISPLAY || ":0" }, stdio: "ignore", detached: true }).unref();
-  } catch {
-    /* best-effort; the printed URL is the fallback */
-  }
+  // Best-effort on every path: spawn() throws synchronously on some invalid inputs, but a
+  // missing binary surfaces as an async 'error' event — without a listener that event is
+  // fatal and would kill the login flow, whose printed URL / paste prompt IS the fallback.
+  const tryOpen = (cmds: string[]): void => {
+    const [cmd, ...rest] = cmds;
+    if (!cmd) return;
+    try {
+      const child = spawn(cmd, [url.toString()], {
+        env: { ...process.env, DISPLAY: process.env.DISPLAY || ":0" },
+        stdio: "ignore",
+        detached: true,
+      });
+      child.on("error", () => tryOpen(rest));
+      child.unref();
+    } catch {
+      tryOpen(rest);
+    }
+  };
+  tryOpen(browserCommands());
 }
 
 export interface AuthenticateOptions {
@@ -167,7 +227,7 @@ export async function authenticate(url: string, opts: AuthenticateOptions = {}):
   const cb = await startCallbackServer(opts.port);
   const redirectUrl = `http://localhost:${cb.port}/callback`;
   const provider = new FileOAuthProvider(tokenCachePath(url), { redirectUrl, scope: opts.scope, interactive: true });
-  const transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider });
+  const transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider, fetch: tokenNormalizingFetch });
   const client = new Client({ name: "mcp-contract-auth", version: "0.0.1" }, { capabilities: {} });
 
   try {
