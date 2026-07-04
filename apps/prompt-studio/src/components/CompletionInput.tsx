@@ -23,6 +23,7 @@ export function CompletionInput({ server, refFor, argName, value, onChange, plac
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -36,7 +37,10 @@ export function CompletionInput({ server, refFor, argName, value, onChange, plac
         setSuggestions([]); // server may not support completions for this ref
       }
     }, 150);
-    return () => clearTimeout(timer.current);
+    return () => {
+      clearTimeout(timer.current);
+      clearTimeout(blurTimer.current);
+    };
   }, [client, server, argName, value, JSON.stringify(refFor), JSON.stringify(contextArgs)]);
 
   return (
