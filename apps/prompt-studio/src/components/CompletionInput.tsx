@@ -51,8 +51,14 @@ export function CompletionInput({ server, refFor, argName, value, onChange, plac
         required={required}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => {
+          clearTimeout(blurTimer.current);
+          setOpen(true);
+        }}
+        onBlur={() => {
+          clearTimeout(blurTimer.current);
+          blurTimer.current = setTimeout(() => setOpen(false), 150);
+        }}
       />
       {open && suggestions.length > 0 && (
         <ul className="suggestions" role="listbox">
