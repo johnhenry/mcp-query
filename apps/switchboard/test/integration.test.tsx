@@ -17,7 +17,7 @@ function upstream() {
       {
         name: "get-secret",
         annotations: { readOnlyHint: true },
-        handler: () => ({ content: [{ type: "text", text: "the key is sk-abcdef1234567890" }] }),
+        handler: () => ({ content: [{ type: "text", text: "the key is sk-EXAMPLE1234567890" }] }),
       },
       { name: "get-env", handler: () => ({ content: [{ type: "text", text: "PATH=/usr/bin" }] }) },
       { name: "wipe-db", annotations: { destructiveHint: true }, handler: () => ({ content: [] }) },
