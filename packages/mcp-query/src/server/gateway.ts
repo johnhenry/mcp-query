@@ -46,7 +46,14 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const [s, tool] = split(req.params.name, servers(), namespace);
-    return (await client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {})) as never;
+    // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
+    // the gateway — without this, multi-tenant _meta dies at the gate.
+    const meta = req.params._meta as Record<string, unknown> | undefined;
+    return (await client.callTool(
+      `${s}.${tool}`,
+      (req.params.arguments as Record<string, unknown>) ?? {},
+      meta ? { context: { meta } } : {},
+    )) as never;
   });
 
   // ── resources (URIs are global; route reads back through the client's resolver) ──

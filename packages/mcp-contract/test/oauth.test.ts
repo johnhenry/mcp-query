@@ -40,3 +40,23 @@ describe("FileOAuthProvider", () => {
     expect(hasCachedAuth("https://nope.example/mcp")).toBe(false);
   });
 });
+
+describe("token response normalization", () => {
+  // Some live servers (e.g. SocialGPT) return `"refresh_token": null` from the token
+  // endpoint; the SDK's zod schema (z.string().optional()) rejects null — regression for
+  // the fix that strips null-valued fields from token-endpoint-shaped bodies.
+  it("strips null-valued fields from token responses", async () => {
+    const { normalizeTokenJson } = await import("../src/oauth.js");
+    expect(
+      normalizeTokenJson({ access_token: "abc", token_type: "Bearer", refresh_token: null, scope: null, expires_in: 3600 }),
+    ).toEqual({ access_token: "abc", token_type: "Bearer", expires_in: 3600 });
+  });
+
+  it("leaves non-token JSON (and non-objects) untouched", async () => {
+    const { normalizeTokenJson } = await import("../src/oauth.js");
+    const body = { error: "invalid_grant", detail: null };
+    expect(normalizeTokenJson(body)).toBe(body); // no access_token → pass through as-is
+    expect(normalizeTokenJson([1, null])).toEqual([1, null]);
+    expect(normalizeTokenJson("x")).toBe("x");
+  });
+});

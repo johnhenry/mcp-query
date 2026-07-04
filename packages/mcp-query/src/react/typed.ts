@@ -10,11 +10,17 @@ import { useTool as useToolBase } from "./useTool.js";
 import { useToolResult as useToolResultBase, type UseToolResultOptions } from "./useToolResult.js";
 import type { CallToolOpts } from "../core/client.js";
 
-export interface ToolMapShape {
-  [name: string]: { args: Record<string, unknown>; result: unknown };
-}
+/**
+ * Constraint for a generated tool map. Mapped over M's own keys (rather than demanding a
+ * string index signature) so codegen's plain `interface GeneratedToolMap` satisfies it —
+ * an interface has no implicit index signature, which made the documented pairing above
+ * fail to compile before.
+ */
+export type ToolMapShape<M = Record<string, { args: Record<string, unknown>; result: unknown }>> = {
+  [K in keyof M]: { args: Record<string, unknown>; result: unknown };
+};
 
-export function createTypedHooks<M extends ToolMapShape>() {
+export function createTypedHooks<M extends ToolMapShape<M>>() {
   return {
     useTool: <K extends keyof M & string>(name: K, opts?: Omit<CallToolOpts<M[K]["args"], M[K]["result"]>, "signal">) =>
       useToolBase<M[K]["args"], M[K]["result"]>(name, opts),

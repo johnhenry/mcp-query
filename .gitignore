@@ -3,5 +3,8 @@ dist/
 *.log
 .DS_Store
 *.gen.ts
+# prompt-studio's generated tool map is committed on purpose — it's the codegen demo
+# (regen with: npm run codegen -w @mcp-query/prompt-studio)
+!apps/prompt-studio/src/mcp.gen.ts
 coverage/
 apps/socialgpt-studio/backend/dist-embed.json

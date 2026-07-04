@@ -10,7 +10,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { MCPClient, type ClientInfo, type InteractionBroker } from "mcp-query";
+import { MCPClient, type ClientInfo, type InteractionBroker, type RequestInterceptor } from "mcp-query";
 import type { DevtoolsHub } from "mcp-query/devtools";
 import { MCPProvider } from "mcp-query/react";
 import { WebSocketProxyTransport } from "../transport.js";
@@ -48,6 +48,8 @@ export interface MakeProxyClientOptions {
   clientInfo?: ClientInfo;
   /** Durable audit callback for every read/call/query. */
   onCall?: OnCall;
+  /** Request interceptors (auth, tracing, rate-limit, …) wrapping every read/call/query. */
+  interceptors?: RequestInterceptor[];
 }
 
 /**
@@ -66,6 +68,7 @@ export function makeProxyClient(opts: MakeProxyClientOptions): MCPClient {
     devtools: opts.hub,
     clientInfo: opts.clientInfo,
     onCall: opts.onCall,
+    interceptors: opts.interceptors,
   });
 }
 

@@ -50,6 +50,34 @@ describe("createGateway", () => {
     expect(prompt.messages).toHaveLength(1);
   });
 
+  it("forwards the caller's _meta through to the upstream tool (tenant/principal propagation)", async () => {
+    const seen: unknown[] = [];
+    const meta = new MockMCPServer({
+      tools: [
+        {
+          name: "whoami",
+          handler: (_a, ctx) => {
+            seen.push(ctx.meta);
+            return { content: [{ type: "text", text: String((ctx.meta as { tenant?: string })?.tenant ?? "anon") }] };
+          },
+        },
+      ],
+    });
+    const upstream = new MCPClient({ servers: { m: { transport: meta.transport } } });
+    await upstream.connect();
+    const gateway = createGateway(upstream);
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await gateway.connect(serverT);
+    const consumer = new Client({ name: "consumer", version: "1" }, { capabilities: {} });
+    await consumer.connect(clientT);
+
+    const out = (await consumer.callTool({ name: "m.whoami", arguments: {}, _meta: { tenant: "acme" } })) as {
+      content: Array<{ text: string }>;
+    };
+    expect(out.content[0]!.text).toBe("acme");
+    expect(seen[0]).toMatchObject({ tenant: "acme" });
+  });
+
   it("propagates upstream list_changed to the gateway consumer", async () => {
     const { consumer, b } = await setup();
     let notified = false;
