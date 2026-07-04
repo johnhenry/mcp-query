@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "inspector", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/inspector"], "port": 5173 },
+    { "name": "console", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/console"], "port": 5174 },
+    { "name": "ops-cockpit", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/ops-cockpit"], "port": 5175 },
+    { "name": "approvals", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/approvals"], "port": 5176 },
+    { "name": "notebook", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/notebook"], "port": 5177 },
+    { "name": "composer", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/composer"], "port": 5178 },
+    { "name": "prompt-studio", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/prompt-studio"], "port": 5179 },
+    { "name": "switchboard", "runtimeExecutable": "env", "runtimeArgs": ["PROXY_TOKEN=devtoken", "npm", "run", "dev", "-w", "@mcp-query/switchboard"], "port": 5180 }
+  ]
+}
