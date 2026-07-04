@@ -1,0 +1,186 @@
+---
+title: "mcp-contract"
+---
+
+**Contract testing & breaking-change detection for MCP servers.** Pin an MCP server's
+capability surface — its tools (with input/output JSON Schemas + annotations), resources,
+templates, and prompts — to a versioned `mcp.contract.json`, then fail CI the moment a
+live server **drifts incompatibly**.
+
+It's the **dual of [mcp-query](../../README.md) codegen**: codegen turns a server into
+types at dev time; `mcp-contract` verifies the server still *honors* those types at every
+build. Same role `buf breaking` plays for protobuf, GraphQL schema checks for GraphQL, and
+Pact for REST.
+
+```
+   dev time                         CI / runtime
+  ┌──────────┐  codegen   types    ┌──────────────┐  verify   ┌──────────────┐
+  │  server  │ ─────────▶ .ts  ──▶ │ your consumer │ ────────▶ │ mcp-contract │ ✗ breaking → exit 1
+  └──────────┘                     └──────────────┘           └──────────────┘
+       └──────────── snapshot ──▶ mcp.contract.json ──────────────┘  (the pinned surface)
+```
+
+## The gap it fills
+
+mcp-query's codegen snapshots a server's tools *once*. But MCP servers are dynamic —
+`list_changed`, tools appearing/vanishing, an argument quietly becoming required, a
+read-only tool turning destructive. Nothing otherwise catches the moment the server you
+generated (and wrote policy) against no longer matches. `mcp-contract` is that safety net.
+
+## Install / use
+
+Runs from source via `tsx` in this monorepo:
+
+```bash
+# 1. Pin the surface (commit mcp.contract.json to your repo)
+npx tsx packages/mcp-contract/src/cli.ts snapshot \
+  --command npx --args "-y @modelcontextprotocol/server-everything" \
+  --out mcp.contract.json
+
+# 2. In CI: fail the build if the live server drifted in a breaking way
+npx tsx packages/mcp-contract/src/cli.ts verify \
+  --contract mcp.contract.json \
+  --command npx --args "-y @modelcontextprotocol/server-everything"
+#   → exits 1 on any BREAKING change, 0 otherwise
+
+# 3. Human-readable diff between two pinned snapshots
+npx tsx packages/mcp-contract/src/cli.ts diff old.contract.json new.contract.json
+
+# 4. Serve the contracted surface as a mock MCP server over stdio (for consumer tests)
+npx tsx packages/mcp-contract/src/cli.ts mock --contract mcp.contract.json
+```
+
+## Connecting: local or hosted
+
+A live server is reached either over **stdio** (a locally-spawned process) or **Streamable
+HTTP** (a hosted endpoint). Everywhere a command above takes `--command`, it also accepts:
+
+```bash
+--url https://host/mcp                 # Streamable HTTP endpoint
+--bearer "$TOKEN"                       # → Authorization: Bearer $TOKEN
+--header "X-Tenant: acme"               # arbitrary header(s), repeatable
+```
+
+The same `--url`/`--bearer`/`--header` flags work for `mcp-lint` and `mcp-docs`.
+
+### OAuth-protected servers
+
+Hosted MCP servers are commonly **OAuth-protected** — an unauthenticated capture returns
+`401`. Two ways to authenticate:
+
+```bash
+# A) you already have a token
+mcp-contract snapshot --url https://host/mcp --bearer "$TOKEN" --out api.contract.json
+
+# B) browser-consent flow (dynamic client registration + PKCE) — run once
+mcp-contract auth --url https://host/mcp [--scope "a b c"]
+#   → registers a client, opens the authorize URL (or prints it), you log in + approve;
+#     the token is cached at ~/.mcp-query/oauth/<host>.json
+mcp-contract verify --url https://host/mcp --contract api.contract.json   # just works now
+```
+
+`auth` runs the full OAuth 2.1 flow itself — it never sees your password (you log in on the
+server's own page). The token is cached per-host and **auto-refreshed** by the capture tools
+(`contract`/`lint`/`docs`) on later runs; if nothing is cached they tell you to run `auth`
+first.
+
+**Browser on a different machine (e.g. the tool runs on a remote box you SSH into).** The
+callback is `http://localhost:PORT/callback` on the *box*, but your logged-in browser is on
+your laptop. Two ways to bridge it:
+
+```bash
+# A) SSH local-forward the callback port, then the redirect "just works":
+ssh -L 41234:localhost:41234 you@box           # forward laptop:41234 → box:41234
+# on the box:
+mcp-contract auth --url https://host/mcp --port 41234 --open false
+# open the printed URL in your laptop browser, approve → redirect tunnels back to the box.
+
+# B) No tunnel: approve in your browser, copy the failed localhost/callback?code=… URL
+#    from the address bar, and paste it at the "paste the redirected URL" prompt.
+```
+
+`--port` fixes the callback port so you can set up `-L` in advance; `--open false` skips
+launching a browser on the (headless) box.
+
+## What counts as breaking — the variance rules
+
+Whether a schema change breaks depends on **direction**, and this is the engine's whole
+point (`src/schema.ts`):
+
+- **Tool input is contravariant.** The provider may safely accept *more* (widen). Accepting
+  *less* or demanding *more* breaks callers.
+- **Tool output is covariant.** The provider must keep producing *at least* what it did, so
+  consumers' reads stay valid.
+
+| Change | Verdict |
+|---|---|
+| Tool / resource / prompt **removed** | **breaking** |
+| New **required** input arg, or optional → required | **breaking** |
+| Input type narrowed (`number`→`integer`, enum shrinks, base→enum) | **breaking** |
+| **Output** field removed, or a produced type widened (`integer`→`number`) | **breaking** |
+| Tool gains `destructiveHint`, or loses `readOnlyHint` | **breaking** (policy-relevant) |
+| New tool / resource / prompt | compatible |
+| New **optional** input arg; output gains a field | compatible |
+| Input widened (enum grows, `integer`→`number`); description changes | compatible |
+
+## Consumer-driven contracts
+
+You rarely use a server's *whole* surface. Scope `verify` to only what you actually call,
+and the provider can churn everything else freely:
+
+```bash
+# explicit list
+mcp-contract verify --contract mcp.contract.json --command … --used "echo,get-sum"
+
+# …or infer it by scanning your generated client / source for referenced ids
+mcp-contract verify --contract mcp.contract.json --command … --used-by src/mcp.gen.ts
+```
+
+`--used-by` reads a source file and keeps only changes touching ids that appear as string
+literals in it (via `usedFromSource`) — so drift on tools you never call won't fail your build.
+
+## Programmatic API
+
+```ts
+import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@mcp-query/contract";
+
+const pinned = JSON.parse(await readFile("mcp.contract.json", "utf8"));
+const live = await captureContract(connectedSdkClient);     // drain a live server
+const diff = diffContract(pinned, live, { used: ["echo"] }); // classify drift
+if (diff.breaking) throw new Error(formatDiff(diff));
+
+// low-level: classify a single schema change under a variance
+diffSchema(prevInputSchema, nextInputSchema, "in");   // → SchemaChange[]
+
+// turn a contract into a runnable test double (mcp-query MockMCPServer)
+const mock = mockFromContract(pinned);
+```
+
+## How it reuses mcp-query
+
+- **Capture** drains the same surface mcp-query's codegen introspects.
+- **`mock`** builds an mcp-query `MockMCPServer` from the contract and re-serves it via
+  `createGateway` (namespace off) — the contract becomes a zero-upstream test double.
+- The only net-new code is the **JSON Schema variance engine** (`schema.ts`) and the CLI.
+
+## Family
+
+| Project | Role |
+|---|---|
+| **mcp-query** | consume MCP (reactive client + codegen) |
+| **mcp-gate** | govern MCP at runtime (policy, DLP, audit) |
+| **mcp-contract** | guard the MCP interface in CI (drift detection) |
+
+## Tests
+
+```bash
+npx vitest run   # variance engine (in/out), capture, diff classification, scoping, mock, used-scan
+```
+
+All tests run headless against an in-memory `MockMCPServer` — no network, no subprocess.
+
+## Status
+
+MVP (`private: true`). Roadmap: richer JSON Schema coverage (`anyOf`/`oneOf`/`$ref`,
+`additionalProperties`), `--format json` for machine consumption, a GitHub Action wrapper,
+and snapshotting over Streamable HTTP transports (today the CLI captures over stdio).
