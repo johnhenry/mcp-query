@@ -45,7 +45,7 @@ describe("subscriber storm", () => {
     expect(fresh.contents[0]?.text).toBe(`v${BURSTS}`);
     // Each subscriber saw at least one notification; exact counts depend on coalescing.
     expect(notifications).toBeGreaterThanOrEqual(SUBSCRIBERS);
-    expect(elapsed).toBeLessThan(BUDGET.stormMs);
+    expect(elapsed).toBeLessThan(BUDGET.fanout1kMs);
 
     for (const u of unsubs) u();
     await tick(50);
