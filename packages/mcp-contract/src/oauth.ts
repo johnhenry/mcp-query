@@ -32,9 +32,16 @@ interface CacheState {
 export function normalizeTokenJson(parsed: unknown): unknown {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
   if (!("access_token" in parsed)) return parsed;
+  let changed = false;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(parsed)) if (v !== null) out[k] = v;
-  return out;
+  for (const [k, v] of Object.entries(parsed)) {
+    if (v === null) {
+      changed = true;
+      continue;
+    }
+    out[k] = v;
+  }
+  return changed ? out : parsed;
 }
 
 /** A fetch that rewrites token-endpoint responses through `normalizeTokenJson`. */
