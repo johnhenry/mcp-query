@@ -152,7 +152,7 @@ function startCallbackServer(fixedPort?: number): Promise<{ port: number; code: 
     const server = createServer((req, res) => {
       const u = new URL(req.url ?? "/", "http://localhost");
       const c = u.searchParams.get("code");
-      res.writeHead(200, { "content-type": "text/html" });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(`<!doctype html><body style="font-family:sans-serif"><h2>${c ? "✓ Authorized" : "No code received"}</h2><p>You may close this tab and return to the terminal.</p>`);
       if (c) resolveCode(c);
     });
