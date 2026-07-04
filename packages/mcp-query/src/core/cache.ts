@@ -113,6 +113,38 @@ export class MCPCache {
     };
   }
 
+  // ── eviction ─────────────────────────────────────────────────────────────
+  /**
+   * Evict one entry immediately (aborts any in-flight fetch, clears its gc timer, drops
+   * its tag index entries). Subscribers are notified — their next snapshot is undefined.
+   */
+  remove(key: CacheKey): void {
+    const k = serializeKey(key);
+    const e = this.entries.get(k);
+    if (!e) return;
+    e.abort?.abort();
+    if (e.gcTimer) clearTimeout(e.gcTimer);
+    for (const tag of e.tags) this.tagIndex.get(tag)?.delete(e.key);
+    this.entries.delete(k);
+    for (const fn of this.listeners.get(k) ?? []) fn();
+    for (const fn of this.globalListeners) fn();
+    // Keep the listener set: live subscribers (e.g. a mounted hook) still observe the key.
+    if (!this.listeners.get(k)?.size) this.listeners.delete(k);
+  }
+
+  /**
+   * Evict everything, or everything matching a filter — e.g. `clear({ server })` after
+   * removing a server, `clear({ partition })` when a tenant session ends.
+   */
+  clear(filter: { server?: string; partition?: string } = {}): void {
+    for (const e of [...this.entries.values()]) {
+      const key = e.cacheKey as { server?: string; partition?: string };
+      if (filter.server && key.server !== filter.server) continue;
+      if (filter.partition && key.partition !== filter.partition) continue;
+      this.remove(e.cacheKey);
+    }
+  }
+
   // ── writes ───────────────────────────────────────────────────────────────
   setFetching(key: CacheKey): void {
     const e = this.ensure(key);
@@ -135,6 +167,9 @@ export class MCPCache {
     if (opts.staleTime != null) e.staleTime = opts.staleTime;
     if (opts.gcTime != null) e.gcTime = opts.gcTime;
     this.reindexTags(e, opts.tags);
+    // Unobserved entries must not linger forever: give them a gc deadline at write time
+    // (previously only un-subscribe armed the timer, so imperative reads leaked entries).
+    if (e.subscribers === 0) this.scheduleGc(e);
     if (!unchanged) this.emit(e.key);
   }
 
@@ -286,12 +321,15 @@ export class MCPCache {
 
   private scheduleGc(e: CacheEntry): void {
     if (e.protocolSubscribed) return; // never gc a live subscription
+    if (e.gcTimer) clearTimeout(e.gcTimer); // re-arm (fresh write extends the deadline)
     e.gcTimer = setTimeout(() => {
       if (e.subscribers > 0) return;
       for (const tag of e.tags) this.tagIndex.get(tag)?.delete(e.key);
       this.entries.delete(e.key);
       this.listeners.delete(e.key);
     }, e.gcTime);
+    // Don't hold the (Node) process open for cache housekeeping; no-op in browsers.
+    (e.gcTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private emit(key: string): void {

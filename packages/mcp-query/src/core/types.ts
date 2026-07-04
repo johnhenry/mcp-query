@@ -7,9 +7,11 @@ import type {
   ResourceTemplate,
   Prompt,
   ServerCapabilities,
+  Task,
+  TaskStatus,
 } from "@modelcontextprotocol/sdk/types.js";
 
-export type { Tool, Resource, ResourceTemplate, Prompt, ServerCapabilities };
+export type { Tool, Resource, ResourceTemplate, Prompt, ServerCapabilities, Task, TaskStatus };
 export type { Tag } from "./tags.js";
 
 /**
@@ -43,12 +45,24 @@ export type ServerState =
  *  - "tool":     a successful call whose *result* carried `isError: true` — surfaced as data.
  *  - "transport"/"timeout"/"cancelled": connection-level failures.
  */
-export interface MCPError {
-  kind: "protocol" | "tool" | "transport" | "timeout" | "cancelled";
-  message: string;
-  server?: string;
-  code?: number;
-  data?: unknown;
+export type MCPErrorKind = "protocol" | "tool" | "transport" | "timeout" | "cancelled";
+
+/**
+ * A real Error subclass (so `instanceof Error`, stacks, and String(e) all behave) that
+ * still carries the structured fields consumers match on. Historically this was a plain
+ * object — field access is unchanged, only the prototype gained Error semantics.
+ */
+export class MCPError extends Error {
+  constructor(
+    readonly kind: MCPErrorKind,
+    message: string,
+    readonly server?: string,
+    readonly code?: number,
+    readonly data?: unknown,
+  ) {
+    super(message);
+    this.name = "MCPError";
+  }
 }
 
 export type ListKind = "tools" | "resources" | "prompts";

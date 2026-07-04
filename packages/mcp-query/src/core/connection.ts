@@ -11,6 +11,7 @@ import {
   ResourceUpdatedNotificationSchema,
   PromptListChangedNotificationSchema,
   LoggingMessageNotificationSchema,
+  TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import type { MCPCache } from "./cache.js";
@@ -235,6 +236,15 @@ export class ServerConnection {
     this.client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => {
       this.deps.onLog?.(this.name, { level: n.params.level, logger: n.params.logger, data: n.params.data });
     });
+    // Task status pushes (notifications/tasks/status) — the params ARE a Task snapshot;
+    // write it into the cache so task observers (useTask / TaskHandle.subscribe) react.
+    this.client.setNotificationHandler(TaskStatusNotificationSchema, (n) => {
+      const { _meta, ...task } = n.params;
+      void _meta;
+      this.cache.write({ kind: "task", server: this.name, taskId: task.taskId }, task, {
+        tags: [serverTag(this.name)],
+      });
+    });
   }
 
   async relist(kind: "tools" | "resources" | "prompts"): Promise<void> {
@@ -310,8 +320,9 @@ export class ServerConnection {
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
-  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe"): boolean {
+  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks"): boolean {
     if (feature === "resources.subscribe") return !!this.capabilities.resources?.subscribe;
+    if (feature === "tasks") return !!(this.capabilities as { tasks?: unknown }).tasks;
     return !!this.capabilities[feature];
   }
 
