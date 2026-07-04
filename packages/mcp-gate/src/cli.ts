@@ -12,6 +12,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createGate, type GateConfig } from "./index.js";
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  // mcp-gate takes no flags — reject any so a typo isn't silently ignored.
+  const stray = argv.filter((a) => a.startsWith("--"));
+  if (stray.length) {
+    throw new Error(`unknown flag${stray.length > 1 ? "s" : ""} ${stray.join(", ")} for mcp-gate (it takes only a config path: mcp-gate <config.{ts,js}>)`);
+  }
   const path = argv[0];
   if (!path) {
     console.error("usage: mcp-gate <config.{ts,js}>  (config default-exports a GateConfig)");
