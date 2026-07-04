@@ -12,6 +12,7 @@
     "build": "npm run build -w mcp-query",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:coverage": "npm run test:coverage -w mcp-query"
+    "test:coverage": "npm run test:coverage -w mcp-query",
+    "test:stress": "npm run test:stress -w mcp-query"
   }
 }

@@ -63,6 +63,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:stress": "NODE_OPTIONS=--expose-gc vitest run -c vitest.stress.config.ts",
     "codegen": "tsx src/codegen/cli.ts",
     "inspect": "tsx src/cli/inspect.ts",
     "example:node": "tsx examples/node-everything.ts",
