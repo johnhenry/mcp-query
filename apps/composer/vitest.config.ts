@@ -9,9 +9,9 @@ const shared = resolve(here, "../shared/src");
 export default defineConfig({
   resolve: {
     alias: [
-      { find: "mcp-query/react", replacement: resolve(lib, "react/index.ts") },
-      { find: "mcp-query/testing", replacement: resolve(lib, "testing/mockServer.ts") },
-      { find: "mcp-query", replacement: resolve(lib, "index.ts") },
+      { find: "mcpq/react", replacement: resolve(lib, "react/index.ts") },
+      { find: "mcpq/testing", replacement: resolve(lib, "testing/mockServer.ts") },
+      { find: "mcpq", replacement: resolve(lib, "index.ts") },
       { find: /^@app-shared\/(.*)$/, replacement: resolve(shared, "$1") },
       { find: "@app-shared", replacement: resolve(shared, "react/index.tsx") },
     ],

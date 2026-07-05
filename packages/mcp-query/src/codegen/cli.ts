@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Codegen CLI. Connects to an MCP server (stdio), drains tools/list, and writes a
 // typed module. Usage:
-//   mcp-query-codegen --command mcp-server-filesystem --args "/work" --out src/mcp.gen.ts
+//   mcpq-codegen --command mcp-server-filesystem --args "/work" --out src/mcp.gen.ts
 //
 // The pure generator (generate.ts) is what carries the test weight; this is the
 // thin I/O wrapper around it.
@@ -57,10 +57,10 @@ function parseArgs(argv: string[]): Record<string, string> {
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const a = parseArgs(argv);
   if (!a.command) {
-    console.error("usage: mcp-query-codegen --command <cmd> [--args <space-separated>] --out <file.ts>");
+    console.error("usage: mcpq-codegen --command <cmd> [--args <space-separated>] --out <file.ts>");
     process.exit(1);
   }
-  const client = new Client({ name: "mcp-query-codegen", version: "0.0.1" }, { capabilities: {} });
+  const client = new Client({ name: "mcpq-codegen", version: "0.0.1" }, { capabilities: {} });
   await client.connect(
     new StdioClientTransport({ command: a.command, args: a.args ? a.args.split(" ").filter(Boolean) : [] }),
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useServerState } from "mcp-query/react";
+import { useServerState } from "mcpq/react";
 import { TENANTS, type Tenant } from "./tenants.js";
 import { activeTenant } from "./trace.js";
 import { TenantSwitcher } from "./components/TenantSwitcher.js";

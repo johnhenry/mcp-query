@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from "vitest";
-import { instrumentAuthProvider, type AuthStep } from "mcp-query";
+import { instrumentAuthProvider, type AuthStep } from "mcpq";
 import { BrowserOAuthProvider } from "../src/lib/oauth.js";
 
 beforeEach(() => sessionStorage.clear());

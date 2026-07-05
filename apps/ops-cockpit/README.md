@@ -141,7 +141,7 @@ required for the default experience.
 
 - **`test/helpers.test.ts`** — pure helpers: the `health → tile-status` mapping, the
   rolling latency history + SVG sparkline geometry, and the activity filter.
-- **`test/integration.test.ts`** — two `MockMCPServer`s ("mcp-query/testing") behind one
+- **`test/integration.test.ts`** — two `MockMCPServer`s ("mcpq/testing") behind one
   `MCPClient` over `InMemoryTransport`, asserting tile data (state + capability counts +
   health→status), read-only tool detection, and that the `ActivityStore` captures the
   `onCall` audit stream.

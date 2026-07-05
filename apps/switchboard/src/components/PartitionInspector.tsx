@@ -1,7 +1,7 @@
 // Proof of tenant isolation: the cache dehydrated and grouped by partition. The same
 // tool + args called by two tenants appear as two distinct entries; nothing is shared.
 import { useSyncExternalStore } from "react";
-import { useMCPClient } from "mcp-query/react";
+import { useMCPClient } from "mcpq/react";
 import { TENANTS } from "../tenants.js";
 
 export function PartitionInspector() {

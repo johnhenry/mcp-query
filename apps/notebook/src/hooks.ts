@@ -13,7 +13,7 @@
 // flash the same "live" indicator when the on-disk bytes change.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useTool } from "mcp-query/react";
+import { useTool } from "mcpq/react";
 import { parseDirectory, parseSearch, toolText, type FileEntry } from "./fs.js";
 
 const SERVER = "fs";

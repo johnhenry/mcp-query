@@ -12,10 +12,10 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "mcp-query": ["../../packages/mcp-query/src/index.ts"],
-      "mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
-      "mcp-query/react": ["../../packages/mcp-query/src/react/index.ts"],
-      "mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"],
+      "mcpq": ["../../packages/mcp-query/src/index.ts"],
+      "mcpq/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
+      "mcpq/react": ["../../packages/mcp-query/src/react/index.ts"],
+      "mcpq/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"],
       "@app-shared": ["../shared/src/react/index.tsx"],
       "@app-shared/*": ["../shared/src/*"]
     }

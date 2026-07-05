@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { useToolResult, useServerState } from "mcp-query/react";
+import { useToolResult, useServerState } from "mcpq/react";
 import { SERVER, useNav } from "../nav.js";
 import {
   asList,

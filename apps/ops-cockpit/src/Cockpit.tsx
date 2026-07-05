@@ -3,7 +3,7 @@
 // tile grid + drill-down + activity stream. Stays up even when individual servers fail.
 
 import { useCallback, useState, useSyncExternalStore } from "react";
-import type { MCPClient } from "mcp-query";
+import type { MCPClient } from "mcpq";
 import { WebSocketProxyTransport } from "@app-shared/transport.js";
 import { useHealthPoll } from "./hooks/useHealthPoll.js";
 import { ServerTile } from "./components/ServerTile.js";

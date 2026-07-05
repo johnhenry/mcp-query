@@ -88,7 +88,7 @@ gate, a `maxTokensCeiling` decline, and an `approve` human-in-the-loop hook. Reg
 it advertises the `sampling` capability.
 
 ```ts
-import { MCPClient, chromeBuiltinAISampling } from "mcp-query";
+import { MCPClient, chromeBuiltinAISampling } from "mcpq";
 
 const client = new MCPClient({
   servers: { /* … */ },

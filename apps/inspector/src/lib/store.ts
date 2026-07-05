@@ -2,8 +2,8 @@
 // human-in-the-loop, a devtools hub for the message log, and small signals the panels
 // react to (active server, editable roots).
 
-import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "mcp-query";
-import { DevtoolsHub } from "mcp-query/devtools";
+import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "mcpq";
+import { DevtoolsHub } from "mcpq/devtools";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";

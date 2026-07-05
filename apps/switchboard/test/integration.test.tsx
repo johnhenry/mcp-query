@@ -5,9 +5,9 @@
 
 import { describe, it, expect } from "vitest";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { MCPClient } from "mcp-query";
-import { rateLimit } from "mcp-query/server";
-import { MockMCPServer } from "mcp-query/testing";
+import { MCPClient } from "mcpq";
+import { rateLimit } from "mcpq/server";
+import { MockMCPServer } from "mcpq/testing";
 import { createGate } from "../../../packages/mcp-gate/src/index.js";
 import { traceBus, traceInterceptor, tenantMetaInterceptor, activeTenant } from "../src/trace.js";
 

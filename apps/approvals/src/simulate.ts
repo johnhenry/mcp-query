@@ -8,7 +8,7 @@
 // drive the broker's public entry points directly so the UI is still demonstrable.
 
 import { broker, client, EVERYTHING_SERVER } from "./broker.js";
-import type { InteractionType } from "mcp-query";
+import type { InteractionType } from "mcpq";
 
 const SAMPLING_TOOL = "trigger-sampling-request";
 const ELICITATION_TOOL = "trigger-elicitation-request";

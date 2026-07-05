@@ -2,7 +2,7 @@
 // chain and publishes it to a tiny event bus the TraceWaterfall renders; the tenant-meta
 // interceptor stamps the active tenant onto every call's context so the server (and the
 // gate's audit line) can see the principal.
-import type { RequestInterceptor } from "mcp-query";
+import type { RequestInterceptor } from "mcpq";
 
 export interface TraceRow {
   id: number;

@@ -8,9 +8,9 @@ const lib = resolve(here, "../../packages/mcp-query/src");
 export default defineConfig({
   resolve: {
     alias: [
-      { find: "mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
-      { find: "mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
-      { find: "mcp-query", replacement: resolve(lib, "index.ts") },
+      { find: "mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
+      { find: "mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "mcpq", replacement: resolve(lib, "index.ts") },
     ],
   },
   test: {

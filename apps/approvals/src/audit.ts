@@ -1,6 +1,6 @@
 // Audit helpers — formatting + NDJSON export for the audit timeline.
 
-import type { AuditEntry } from "mcp-query";
+import type { AuditEntry } from "mcpq";
 
 /** Serialize audit entries as newline-delimited JSON (one object per line). */
 export function toNDJSON(entries: readonly AuditEntry[]): string {

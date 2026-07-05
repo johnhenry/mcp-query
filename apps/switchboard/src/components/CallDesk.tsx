@@ -2,9 +2,9 @@
 // governed/direct toggle sends the same Context7 call to the ungoverned remote instead,
 // so you can watch policy (deny/redact) make the difference.
 import { useMemo, useState } from "react";
-import { useMCPClient, useTools } from "mcp-query/react";
+import { useMCPClient, useTools } from "mcpq/react";
 import { SchemaForm, ResultView, type JSONSchemaLike } from "@app-shared";
-import { isReadOnly, type Tool } from "mcp-query";
+import { isReadOnly, type Tool } from "mcpq";
 import type { Tenant } from "../tenants.js";
 
 export function CallDesk({ tenant }: { tenant: Tenant }) {

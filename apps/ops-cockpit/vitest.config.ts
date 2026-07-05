@@ -11,11 +11,11 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
-      { find: "mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
-      { find: "mcp-query/testing", replacement: resolve(lib, "testing/mockServer.ts") },
-      { find: "mcp-query/react", replacement: resolve(lib, "react/index.ts") },
-      { find: "mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
-      { find: "mcp-query", replacement: resolve(lib, "index.ts") },
+      { find: "mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
+      { find: "mcpq/testing", replacement: resolve(lib, "testing/mockServer.ts") },
+      { find: "mcpq/react", replacement: resolve(lib, "react/index.ts") },
+      { find: "mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "mcpq", replacement: resolve(lib, "index.ts") },
       { find: /^@app-shared\/(.*)$/, replacement: resolve(shared, "$1") },
       { find: "@app-shared", replacement: resolve(shared, "react/index.tsx") },
     ],

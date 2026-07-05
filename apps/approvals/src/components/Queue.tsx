@@ -1,6 +1,6 @@
 // Queue screen — a card per pending interaction.
 
-import { useInteractions } from "mcp-query/react";
+import { useInteractions } from "mcpq/react";
 import { InteractionCard } from "./InteractionCard.js";
 
 export function Queue() {

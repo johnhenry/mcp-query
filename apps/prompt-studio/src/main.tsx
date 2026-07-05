@@ -14,7 +14,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { makeProxyClient, AppProvider } from "@app-shared";
-import { persistCache } from "mcp-query";
+import { persistCache } from "mcpq";
 import { App } from "./App.js";
 import "./styles.css";
 

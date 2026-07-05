@@ -74,7 +74,7 @@ npm run build     -w @mcp-query/approvals
 ## How it's wired
 
 ```ts
-import { InteractionBroker } from "mcp-query";
+import { InteractionBroker } from "mcpq";
 import { makeProxyClient, AppProvider } from "@app-shared";
 
 const broker = new InteractionBroker({
