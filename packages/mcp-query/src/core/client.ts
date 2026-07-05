@@ -12,7 +12,8 @@ import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
-import type { ClientInfo, HostHandlers, MCPError, ServerState, Tool } from "./types.js";
+import { MCPError, type ClientInfo, type HostHandlers, type ServerState, type Task, type Tool } from "./types.js";
+import type { TaskCreationParams } from "@modelcontextprotocol/sdk/types.js";
 
 export interface MCPClientConfig {
   servers: Record<string, ConnectionConfig>;
@@ -74,6 +75,8 @@ export interface ReadResourceOpts {
   server?: string;
   subscribe?: boolean;
   staleTime?: number;
+  /** ms an unobserved entry lingers before eviction (per-entry gc). Default 5 min. */
+  gcTime?: number;
   /** Extra tags this entry provides — a list, or a function of the result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
@@ -82,10 +85,40 @@ export interface ReadResourceOpts {
 
 export interface QueryToolOpts {
   server?: string;
+  /** ms an unobserved entry lingers before eviction (per-entry gc). Default 5 min. */
+  gcTime?: number;
   /** Extra tags this cached result provides — list or function of result (entity layer). */
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
+}
+
+/** Options for task-augmented tool calls (callToolTask). */
+export interface TaskCallOpts {
+  server?: string;
+  /** Task creation parameters (ttl, …) sent with the request. Default {}. */
+  task?: TaskCreationParams;
+  signal?: AbortSignal;
+  requestOptions?: RequestTimeoutOpts;
+  context?: CallContext;
+}
+
+/**
+ * A live handle on a task-augmented tool call. Status snapshots are cache-backed —
+ * `subscribe` fires on both the SDK's status polling and server `notifications/tasks/status`
+ * pushes, and `useTask` observes the same entries.
+ */
+export interface TaskHandle<R = unknown> {
+  taskId: string;
+  server: string;
+  /** Latest known status snapshot (undefined only before the first write lands). */
+  task(): Task | undefined;
+  /** Observe live status updates. Returns unsubscribe. */
+  subscribe(fn: (task: Task) => void): () => void;
+  /** Resolves with the tool result when the task completes; rejects on failure/cancel. */
+  result(): Promise<R>;
+  /** Ask the server to cancel this task (tasks/cancel). */
+  cancel(): Promise<void>;
 }
 
 export interface CallToolOpts<A, R> {
@@ -341,7 +374,7 @@ export class MCPClient {
         );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         const tags = [resourceTag(server, uri), serverTag(server), ...extra];
-        this.cache.write(key, res, { staleTime: opts.staleTime, tags });
+        this.cache.write(key, res, { staleTime: opts.staleTime, gcTime: opts.gcTime, tags });
         this.l2WriteThrough(key, res, tags);
         if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
         return res;
@@ -480,6 +513,146 @@ export class MCPClient {
     return res.completion?.values ?? [];
   }
 
+  // ── tasks (MCP 2025-11-25, SDK experimental): call-now, fetch-later tool calls ────
+
+  /**
+   * Start a task-augmented tool call (call-now, fetch-later). Resolves once the server
+   * acknowledges the task; the returned handle exposes the live status (cache-backed, so
+   * `useTask`/`subscribe` react to both polling and `notifications/tasks/status` pushes),
+   * the eventual result, and cancellation. The interceptor chain and audit wrap task
+   * INITIATION (authorize/rate-limit apply when the task starts, not per status poll).
+   */
+  async callToolTask<A extends Record<string, unknown>, R = unknown>(
+    name: string,
+    args: A,
+    opts: TaskCallOpts = {},
+  ): Promise<TaskHandle<R>> {
+    await this.wake(this.hint(name, opts.server));
+    const { server, def } = this.router.resolveTool(name, opts.server);
+    const op: Operation = { kind: "call", server, target: def.name, def, args, context: opts.context, state: {} };
+    return this.run(op, (o) =>
+      this.execCallToolTask<R>(server, def, o.args as Record<string, unknown>, { ...opts, context: o.context }),
+    ) as Promise<TaskHandle<R>>;
+  }
+
+  private async execCallToolTask<R>(
+    server: string,
+    def: Tool,
+    args: Record<string, unknown>,
+    opts: TaskCallOpts,
+  ): Promise<TaskHandle<R>> {
+    const conn = this.req(server);
+    if (!conn.supports("tasks")) {
+      throw this.toError(new Error(`server "${server}" does not advertise the tasks capability`), server, "protocol");
+    }
+    // Tool-level augmentation flag (spec: execution.taskSupport = forbidden|optional|required).
+    const taskSupport = (def as { execution?: { taskSupport?: string } }).execution?.taskSupport;
+    if (taskSupport === "forbidden") {
+      throw this.toError(
+        new Error(`tool "${def.name}" forbids task-augmented execution (execution.taskSupport: "forbidden") — use callTool`),
+        server,
+        "protocol",
+      );
+    }
+    const meta = opts.context?.meta;
+    const key = (taskId: string): CacheKey => ({
+      kind: "task",
+      server,
+      taskId,
+      partition: opts.context?.partition,
+    });
+
+    let resolveCreated!: (t: Task) => void;
+    let rejectCreated!: (e: unknown) => void;
+    const created = new Promise<Task>((res, rej) => ((resolveCreated = res), (rejectCreated = rej)));
+    let resolveResult!: (r: R) => void;
+    let rejectResult!: (e: unknown) => void;
+    const result = new Promise<R>((res, rej) => ((resolveResult = res), (rejectResult = rej)));
+    result.catch(() => {}); // handle() callers may never ask for the result
+
+    const stream = conn.sdk.experimental.tasks.callToolStream(
+      { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) },
+      undefined,
+      { task: opts.task ?? {}, signal: opts.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+    );
+    // Drain the stream in the background: every status snapshot lands in the cache
+    // (driving subscribers), the terminal message settles the result promise.
+    void (async () => {
+      try {
+        for await (const msg of stream) {
+          if (msg.type === "taskCreated" || msg.type === "taskStatus") {
+            const task = msg.task as Task;
+            this.cache.write(key(task.taskId), task, { tags: [serverTag(server)] });
+            if (msg.type === "taskCreated") resolveCreated(task);
+          } else if (msg.type === "result") {
+            resolveResult(msg.result as R);
+          } else if (msg.type === "error") {
+            const err = this.toError(msg.error, server, "protocol");
+            rejectCreated(err);
+            rejectResult(err);
+          }
+        }
+      } catch (err) {
+        const e = this.toError(err, server, "protocol");
+        rejectCreated(e);
+        rejectResult(e);
+      }
+    })();
+
+    const task = await created;
+    const snapshot = () => this.cache.getSnapshot(key(task.taskId))?.data as Task | undefined;
+    return {
+      taskId: task.taskId,
+      server,
+      task: snapshot,
+      subscribe: (fn) =>
+        this.cache.subscribe(key(task.taskId), () => {
+          const t = snapshot();
+          if (t) fn(t);
+        }),
+      result: () => result,
+      cancel: () => this.cancelTask(task.taskId, server, opts.context),
+    };
+  }
+
+  /** Fetch a task's current status (tasks/get) and refresh the cached snapshot. */
+  async getTask(taskId: string, server: string, context?: CallContext): Promise<Task> {
+    await this.wake(server);
+    const task = (await this.req(server).sdk.experimental.tasks.getTask(taskId)) as Task;
+    this.cache.write({ kind: "task", server, taskId, partition: context?.partition }, task, {
+      tags: [serverTag(server)],
+    });
+    return task;
+  }
+
+  /** List the server's tasks (tasks/list), draining pagination. */
+  async listTasks(server: string): Promise<Task[]> {
+    await this.wake(server);
+    const sdkTasks = this.req(server).sdk.experimental.tasks;
+    const out: Task[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await sdkTasks.listTasks(cursor);
+      out.push(...((page.tasks ?? []) as Task[]));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return out;
+  }
+
+  /** Retrieve a completed task's result (tasks/result). */
+  async getTaskResult<R = unknown>(taskId: string, server: string): Promise<R> {
+    await this.wake(server);
+    const { CallToolResultSchema } = await import("@modelcontextprotocol/sdk/types.js");
+    return (await this.req(server).sdk.experimental.tasks.getTaskResult(taskId, CallToolResultSchema)) as R;
+  }
+
+  /** Cancel a running task (tasks/cancel) and refresh the cached snapshot. */
+  async cancelTask(taskId: string, server: string, context?: CallContext): Promise<void> {
+    await this.wake(server);
+    await this.req(server).sdk.experimental.tasks.cancelTask(taskId);
+    await this.getTask(taskId, server, context).catch(() => {});
+  }
+
   /** Notify every connected server that the client's roots changed (roots/list_changed). */
   async notifyRootsChanged(): Promise<void> {
     await Promise.allSettled(this.connections().map((c) => c.sdk.sendRootsListChanged()));
@@ -538,7 +711,7 @@ export class MCPClient {
         )) as R;
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
         const tags = [serverTag(server), ...extra];
-        this.cache.write(key, result, { tags });
+        this.cache.write(key, result, { gcTime: opts.gcTime, tags });
         this.l2WriteThrough(key, result, tags);
         return result;
       } catch (err) {
@@ -598,7 +771,14 @@ export class MCPClient {
   }
 
   private toError(err: unknown, server: string, kind: MCPError["kind"]): MCPError {
-    const e = err as { message?: string; code?: number; data?: unknown };
-    return { kind, server, message: e?.message ?? String(err), code: e?.code, data: e?.data };
+    if (err instanceof MCPError) return err; // don't re-wrap (scoped/idempotent paths)
+    const e = err as { message?: string; code?: number; data?: unknown; name?: string };
+    const message = e?.message ?? String(err);
+    // Classify aborts as "cancelled" — callers gate retry/toast logic on the kind.
+    const resolved: MCPError["kind"] =
+      e?.name === "AbortError" || /\babort(ed)?\b|\bcancell?ed\b/i.test(message) ? "cancelled" : kind;
+    const out = new MCPError(resolved, message, server, e?.code, e?.data);
+    if (err instanceof Error && err.stack) out.stack = err.stack;
+    return out;
   }
 }

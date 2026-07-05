@@ -5,7 +5,7 @@ import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { registryVerbs } from "../src/registry-verbs.js";
 import { formatResult, toolSignature } from "../src/format.js";
 import { parseCallExpr, parseCallArgs } from "../src/invoke.js";
-import { helpText, run } from "../src/cli.js";
+import { helpText, run, rewriteToolArgs } from "../src/cli.js";
 
 // Coercion mirrors invoke.ts (kept local so the test doesn't reach into private helpers):
 // the public surface we assert against is parseCallArgs (parsing) + formatResult (rendering)
@@ -162,5 +162,55 @@ describe("(d) function-call arg parser", () => {
     const r = parseCallArgs("create_issue", ["--title", "Bug", "team=ENG", "--draft"]);
     expect(r.tool).toBe("create_issue");
     expect(r.args).toEqual({ title: "Bug", team: "ENG", draft: true });
+  });
+});
+
+describe("(e) registry-name rewrite for tool verbs", () => {
+  const isReg = (n: string) => n === "everything";
+
+  it("rewrites a registered name after contract snapshot/verify and record record into --server", () => {
+    expect(rewriteToolArgs("contract", ["snapshot", "everything"], isReg)).toEqual(["snapshot", "--server", "everything"]);
+    expect(rewriteToolArgs("contract", ["verify", "everything", "--contract", "pin.json"], isReg)).toEqual([
+      "verify",
+      "--server",
+      "everything",
+      "--contract",
+      "pin.json",
+    ]);
+    expect(rewriteToolArgs("record", ["record", "everything", "--out", "tape.json"], isReg)).toEqual([
+      "record",
+      "--server",
+      "everything",
+      "--out",
+      "tape.json",
+    ]);
+  });
+
+  it("rewrites a URL the same way", () => {
+    expect(rewriteToolArgs("record", ["record", "https://host/mcp"], isReg)).toEqual(["record", "--server", "https://host/mcp"]);
+  });
+
+  it("leaves file positionals, unregistered words, and non-live subcommands untouched", () => {
+    expect(rewriteToolArgs("record", ["inspect", "tape.json"], isReg)).toEqual(["inspect", "tape.json"]);
+    expect(rewriteToolArgs("contract", ["diff", "old.json", "new.json"], isReg)).toEqual(["diff", "old.json", "new.json"]);
+    expect(rewriteToolArgs("record", ["replay", "everything"], isReg)).toEqual(["replay", "everything"]);
+  });
+
+  it("keeps the classic first-token rewrite for non-subcommand verbs", () => {
+    expect(rewriteToolArgs("lint", ["everything", "--max-warnings", "0"], isReg)).toEqual(["--server", "everything", "--max-warnings", "0"]);
+    expect(rewriteToolArgs("lint", ["--command", "npx"], isReg)).toEqual(["--command", "npx"]);
+  });
+});
+
+describe("(f) unknown-flag rejection on registry verbs", () => {
+  it("rejects a typo'd flag, naming the verb and its known flags", async () => {
+    await expect(run(["servers", "--jsonx"])).rejects.toThrow(/unknown flag --jsonx for mcpq servers \(known: --json, --config\)/);
+  });
+
+  it("still accepts the verb's own flags", async () => {
+    const out: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((m?: unknown) => void out.push(String(m)));
+    await run(["servers", "--json", "--config", "/nonexistent/servers.json"]);
+    expect(JSON.parse(out.join("\n"))).toEqual([]);
   });
 });

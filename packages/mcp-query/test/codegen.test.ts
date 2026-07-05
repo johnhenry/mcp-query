@@ -54,6 +54,19 @@ describe("generateToolTypes", () => {
       },
     },
     { name: "fs.read", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+    {
+      name: "get-structured-content",
+      description: "Returns structured weather data",
+      inputSchema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
+      outputSchema: {
+        type: "object",
+        properties: {
+          temperature: { type: "number", description: "Temperature in celsius" },
+          conditions: { type: "string" },
+        },
+        required: ["temperature", "conditions"],
+      },
+    },
   ]);
 
   it("emits a tool map, a name union, and arg helpers", () => {
@@ -61,6 +74,22 @@ describe("generateToolTypes", () => {
     expect(code).toContain('"github.create_issue"');
     expect(code).toContain("export type ToolName =");
     expect(code).toContain("export type ToolArgs<N extends ToolName>");
+  });
+
+  it("keeps result: unknown for tools without an outputSchema", () => {
+    expect(code).toContain("result: unknown;");
+  });
+
+  it("types result.structuredContent from the tool's outputSchema", () => {
+    expect(code).toContain("structuredContent: {");
+    expect(code).toContain("/** Temperature in celsius */");
+    expect(code).toContain("temperature: number;");
+    expect(code).toContain("conditions: string;");
+    // structuredContent sits alongside content on a CallToolResult, so the full
+    // result shape is emitted (with extra fields still reachable as unknown).
+    expect(code).toContain("content: unknown[];");
+    expect(code).toContain("isError?: boolean;");
+    expect(code).toContain("} & Record<string, unknown>;");
   });
 
   it("produces output that compiles as valid TypeScript under --strict", () => {

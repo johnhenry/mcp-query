@@ -12,8 +12,12 @@
 
 import { createInterface } from "node:readline";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { connectClient, resolveServer, resolveConnect, type ConnectOptions } from "../../mcp-contract/src/index.js";
+import { connectClient, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../mcp-contract/src/schema.js";
+
+// The function-call / literal parsing now lives in mcp-contract (shared with
+// `mcp-bench --call` / `mcp-record --call`); re-exported here for existing importers.
+export { parseCallExpr } from "../../mcp-contract/src/index.js";
 import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
 
 const log = (s: string): void => console.log(s);
@@ -145,96 +149,6 @@ function coerce(key: string, raw: unknown, schema: JSONSchema | undefined): unkn
       }
       return raw;
     }
-  }
-}
-
-/**
- * Parse a `name(a: 1, b: "x", c: true, d: [1,2])` function-call string into `{ name, args }`.
- * Values are parsed as JSON where possible (so numbers/booleans/objects keep their type);
- * bareword values fall back to strings. Returns undefined if `s` isn't a call expression.
- */
-export function parseCallExpr(s: string): { name: string; args: Record<string, unknown> } | undefined {
-  const m = /^\s*([A-Za-z_][\w.-]*)\s*\(([\s\S]*)\)\s*$/.exec(s);
-  if (!m) return undefined;
-  const name = m[1]!;
-  const inner = m[2]!.trim();
-  const args: Record<string, unknown> = {};
-  if (!inner) return { name, args };
-  for (const part of splitTopLevel(inner)) {
-    const eq = splitKeyValue(part);
-    if (!eq) continue;
-    args[eq.key] = parseLiteral(eq.value);
-  }
-  return { name, args };
-}
-
-/** Split on top-level commas, respecting quotes and bracket/brace nesting. */
-function splitTopLevel(s: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let quote: string | null = null;
-  let buf = "";
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
-    if (quote) {
-      buf += c;
-      if (c === quote && s[i - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      buf += c;
-      continue;
-    }
-    if (c === "[" || c === "{" || c === "(") depth++;
-    else if (c === "]" || c === "}" || c === ")") depth--;
-    if (c === "," && depth === 0) {
-      out.push(buf);
-      buf = "";
-      continue;
-    }
-    buf += c;
-  }
-  if (buf.trim()) out.push(buf);
-  return out;
-}
-
-/** Split `key: value` or `key=value` on the first top-level separator. */
-function splitKeyValue(part: string): { key: string; value: string } | undefined {
-  const trimmed = part.trim();
-  let quote: string | null = null;
-  let depth = 0;
-  for (let i = 0; i < trimmed.length; i++) {
-    const c = trimmed[i]!;
-    if (quote) {
-      if (c === quote && trimmed[i - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (c === '"' || c === "'") quote = c;
-    else if (c === "[" || c === "{" || c === "(") depth++;
-    else if (c === "]" || c === "}" || c === ")") depth--;
-    else if (depth === 0 && (c === ":" || c === "=")) {
-      return { key: trimmed.slice(0, i).trim(), value: trimmed.slice(i + 1).trim() };
-    }
-  }
-  return undefined;
-}
-
-/** Parse a single literal: JSON if it parses, else a bareword/quoted string. */
-function parseLiteral(v: string): unknown {
-  const s = v.trim();
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    const body = s.slice(1, -1);
-    try {
-      return JSON.parse(`"${body.replace(/"/g, '\\"')}"`);
-    } catch {
-      return body;
-    }
-  }
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s; // bareword → string (keep as-is, coerce() may retype it from the schema)
   }
 }
 

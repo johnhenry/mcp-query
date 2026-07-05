@@ -68,10 +68,10 @@ describe("cancellation + progress storm", () => {
     expect(okOnes.length).toBe(TOTAL - ABORTED);
     expect(failed.length).toBe(ABORTED);
     for (const f of failed) {
-      // Documented contract: rejections are MCPError-shaped objects (kind/message/…).
-      // See findings — they are NOT Error instances, and aborts surface as kind
-      // "protocol" (the "cancelled" kind is currently never produced).
+      // MCPError is a real Error subclass and aborts classify as kind "cancelled".
       const err = (f as { e: { kind?: string; message?: string } }).e;
+      expect(err).toBeInstanceOf(Error);
+      expect(err.kind).toBe("cancelled");
       expect(String(err.message).toLowerCase()).toMatch(/abort|cancel/);
     }
 

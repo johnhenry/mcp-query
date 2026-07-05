@@ -47,7 +47,19 @@ export interface GeneratedToolMap {
       /** Choose city */
       location: "New York" | "Chicago" | "Los Angeles";
     };
-    result: unknown;
+    result: {
+      /** Typed from the tool's outputSchema. */
+      structuredContent: {
+        /** Temperature in celsius */
+        temperature: number;
+        /** Weather conditions description */
+        conditions: string;
+        /** Humidity percentage */
+        humidity: number;
+      };
+      content: unknown[];
+      isError?: boolean;
+    } & Record<string, unknown>;
   };
   /** Returns the sum of two numbers */
   "get-sum": {

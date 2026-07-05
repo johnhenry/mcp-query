@@ -17,7 +17,8 @@ export type CacheKey =
   | ({ kind: "toolList"; server: string } & Partitioned)
   | ({ kind: "promptList"; server: string } & Partitioned)
   | ({ kind: "toolResult"; server: string; tool: string; argsHash: string } & Partitioned)
-  | ({ kind: "prompt"; server: string; name: string; argsHash: string } & Partitioned);
+  | ({ kind: "prompt"; server: string; name: string; argsHash: string } & Partitioned)
+  | ({ kind: "task"; server: string; taskId: string } & Partitioned);
 
 /**
  * Stable string form, used only as a Map key and a devtools label. Code never
@@ -32,6 +33,8 @@ export function serializeKey(k: CacheKey): string {
       return `${p}toolResult ${k.server} ${k.tool} ${k.argsHash}`;
     case "prompt":
       return `${p}prompt ${k.server} ${k.name} ${k.argsHash}`;
+    case "task":
+      return `${p}task ${k.server} ${k.taskId}`;
     default:
       return `${p}${k.kind} ${k.server}`;
   }

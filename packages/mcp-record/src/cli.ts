@@ -3,32 +3,41 @@
 // offline as a deterministic mock.
 //
 //   mcp-record record  --command npx --args "-y server-everything" --out tape.json \
-//                      --call echo:'{"message":"hi"}' --call get-sum:'{"a":1,"b":2}'
+//                      --call 'echo(message: "hi")' --call get-sum:'{"a":1,"b":2}'
+//   mcp-record record  --url https://host/mcp --out tape.json   # hosted (Streamable HTTP)
 //   mcp-record replay  --cassette tape.json          # serve the cassette over stdio
 //   mcp-record inspect tape.json                     # summarize a cassette
 //
-// `record` always captures the capability surface (tools/resources/prompts listings);
-// each --call additionally records that tool's real result.
+// `record` reaches a live server over stdio (--command), Streamable HTTP (--url, with
+// optional --bearer / repeated --header "K: V"), or a registered name (--server).
+// Replay is always stdio — it's a local mock server. `record` always captures the
+// capability surface (tools/resources/prompts listings); each --call additionally
+// records that tool's real result. --call accepts colon+JSON ('tool:{"a":1}') or a
+// function-call string ('tool(a: 1)').
 
 import { readFile, writeFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import { createCassette, type Cassette } from "./cassette.js";
 import { recordTransport } from "./record.js";
 import { replayServer } from "./replay.js";
 
-function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; calls: string[] } {
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette"] as const;
+
+function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[] } {
   const _: string[] = [];
   const flags: Record<string, string> = {};
+  const headers: string[] = [];
   const calls: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--call") calls.push(argv[++i] ?? "");
+    else if (a === "--header") headers.push(argv[++i] ?? "");
     else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
     else _.push(a);
   }
-  return { _, flags, calls };
+  return { _, flags, headers, calls };
 }
 
 function required(flags: Record<string, string>, name: string): string {
@@ -37,10 +46,12 @@ function required(flags: Record<string, string>, name: string): string {
   return v;
 }
 
-async function recordSession(command: string, argsStr: string | undefined, calls: string[]): Promise<Cassette> {
+/** Connect (stdio or Streamable HTTP), capture the surface + any --call results, close. */
+export async function recordSession(opts: ConnectOptions, calls: string[]): Promise<Cassette> {
+  const parsedCalls = calls.map((spec) => parseCallSpec(spec)); // fail fast, before connecting
   const cassette = createCassette();
-  const inner = new StdioClientTransport({ command, args: argsStr ? argsStr.split(" ").filter(Boolean) : [] });
-  const client = new Client({ name: "mcp-record", version: "0.0.1" }, { capabilities: {} });
+  const inner = buildTransport(opts);
+  const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: {} });
   await client.connect(recordTransport(inner, cassette)); // initialize captured here
 
   const caps = client.getServerCapabilities() ?? {};
@@ -51,10 +62,7 @@ async function recordSession(command: string, argsStr: string | undefined, calls
   }
   if (caps.prompts) await client.listPrompts().catch(() => {});
 
-  for (const spec of calls) {
-    const i = spec.indexOf(":");
-    const name = i === -1 ? spec : spec.slice(0, i);
-    const args = i === -1 ? {} : (JSON.parse(spec.slice(i + 1)) as Record<string, unknown>);
+  for (const { name, args } of parsedCalls) {
     await client.callTool({ name, arguments: args }).catch((e) => console.error(`  call ${name} failed: ${e instanceof Error ? e.message : e}`));
   }
 
@@ -75,10 +83,13 @@ function summarize(c: Cassette): string {
 }
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
-  const { _, flags, calls } = parseArgs(argv);
+  const { _, flags, headers, calls } = parseArgs(argv);
+  rejectUnknownFlags("mcp-record", flags, KNOWN_FLAGS);
   switch (_[0]) {
     case "record": {
-      const cassette = await recordSession(required(flags, "command"), flags.args, calls);
+      const opts: ConnectOptions = { ...resolveConnect(flags, headers), clientName: "mcp-record" };
+      if (opts.url) console.error("⚠  recording a hosted server sends real traffic — mind rate limits & ToS.\n");
+      const cassette = await recordSession(opts, calls);
       const json = JSON.stringify(cassette, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");

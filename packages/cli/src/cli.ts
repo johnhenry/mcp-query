@@ -23,6 +23,7 @@ import {
   authenticate,
   hasCachedAuth,
   tokenCachePath,
+  rejectUnknownFlags,
   type RegistryEntry,
   type Scope,
 } from "../../mcp-contract/src/index.js";
@@ -136,7 +137,23 @@ export function helpText(): string {
 
 // ── registry verbs ─────────────────────────────────────────────────────────────
 
+// Flags each registry verb accepts (`header` is collected separately but listed for the
+// error message). Client verbs are exempt: `call`/`prompt` pass unknown flags through
+// as tool arguments by design.
+const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
+  add: ["scope", "config", "description", "url", "command", "args", "header"],
+  servers: ["json", "config"],
+  ls: ["json", "config"],
+  remove: ["scope", "config"],
+  rm: ["scope", "config"],
+  get: ["json", "config"],
+  import: ["scope", "config"],
+  login: ["scope", "config"],
+  logout: ["config"],
+};
+
 async function runRegistry(verb: string, p: Parsed): Promise<void> {
+  rejectUnknownFlags(`mcpq ${verb}`, p.flags, REGISTRY_VERB_FLAGS[verb] ?? []);
   const scope = (str(p.flags.scope) as Scope | undefined) ?? "home";
   switch (verb) {
     case "add": {
@@ -368,6 +385,7 @@ function modeOf(f: InvokeFlags): OutputMode {
 }
 
 async function runDaemonVerb(sub: string | undefined, p: Parsed): Promise<void> {
+  rejectUnknownFlags(`mcpq daemon ${sub ?? "status"}`, p.flags, ["json"]);
   switch (sub ?? "status") {
     case "start": {
       await daemonStart();
@@ -498,10 +516,28 @@ function renderDaemonResult(verb: string, result: unknown, f: InvokeFlags): void
 /**
  * Nicety: for tool verbs WITHOUT their own subcommands (lint/docs/bench/codegen/inspect),
  * if the first token is a bare word (not a `-flag`), rewrite it to `--server <word>` so
- * `mcpq lint everything` works. contract/record own their subcommands → left untouched.
+ * `mcpq lint everything` works.
+ *
+ * contract/record own their subcommands, and their live-server subcommands take file
+ * positionals too — so the bare word AFTER the subcommand is rewritten only when it
+ * actually resolves (a registered name or a URL): `mcpq contract snapshot everything`
+ * becomes `snapshot --server everything`, while `mcpq record inspect tape.json` and
+ * `mcpq contract diff old.json new.json` pass through untouched.
  */
-function rewriteToolArgs(verb: string, rest: string[]): string[] {
-  if (subcommandVerbs.has(verb)) return rest;
+const SERVER_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
+  contract: new Set(["snapshot", "verify", "diff"]),
+  record: new Set(["record"]),
+};
+
+export function rewriteToolArgs(verb: string, rest: string[], isRegistered: (name: string) => boolean = (n) => !!getServer(n)): string[] {
+  if (subcommandVerbs.has(verb)) {
+    const subs = SERVER_SUBCOMMANDS[verb];
+    const [sub, word] = rest;
+    if (subs && sub && subs.has(sub) && word && !word.startsWith("-") && (/^https?:\/\//i.test(word) || isRegistered(word))) {
+      return [sub, "--server", word, ...rest.slice(2)];
+    }
+    return rest;
+  }
   const first = rest[0];
   if (first && !first.startsWith("-")) return ["--server", first, ...rest.slice(1)];
   return rest;
@@ -514,7 +550,7 @@ async function runTool(verb: string, rest: string[]): Promise<void> {
     console.log(`mcpq ${verb} — ${registryVerbs[verb]!.describe}\n`);
     console.log(
       subcommandVerbs.has(verb)
-        ? `usage: mcpq ${verb} <subcommand> [--command <c> [--args <a>] | --url <u>] [flags]`
+        ? `usage: mcpq ${verb} <subcommand> [<registered-name> | --command <c> [--args <a>] | --url <u>] [flags]`
         : `usage: mcpq ${verb} (<registered-name> | --command <c> [--args <a>] | --url <u>) [flags]`,
     );
     return;

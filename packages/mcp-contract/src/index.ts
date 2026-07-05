@@ -36,6 +36,8 @@ export {
   type Scope,
 } from "./registry.js";
 export { authenticate, FileOAuthProvider, captureProvider, tokenCachePath, hasCachedAuth, type AuthenticateOptions } from "./oauth.js";
+export { parseCallSpec, parseCallExpr, looksLikeCallExpr, splitKeyValue, parseLiteral, type ParsedCall } from "./callspec.js";
+export { rejectUnknownFlags } from "./flags.js";
 export { mockFromContract } from "./mock.js";
 export { usedFromSource } from "./used.js";
 export { formatDiff } from "./report.js";

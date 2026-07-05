@@ -10,6 +10,7 @@
 //   - resources/subscribe ref-counting
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental/tasks";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
@@ -49,6 +50,13 @@ export interface MockTool {
     args: Record<string, unknown>,
     ctx: MockToolContext,
   ) => { content: unknown[]; isError?: boolean } | unknown | Promise<unknown>;
+  /**
+   * Task-capable tool: a task-augmented call (params.task) creates a task, runs `handler`
+   * asynchronously (after `taskDelayMs`, default 20ms), and stores its return value as the
+   * task result. Plain calls still run the handler synchronously as usual.
+   */
+  task?: boolean;
+  taskDelayMs?: number;
 }
 export interface MockResource {
   uri: string;
@@ -89,6 +97,9 @@ export class MockMCPServer {
   subscribed = new Set<string>();
   callLog: Array<{ name: string; args: unknown }> = [];
 
+  /** Shared across reconnects so tasks survive a dropped connection (like a real server). */
+  readonly taskStore = new InMemoryTaskStore();
+
   private active: Server | null = null;
 
   constructor(spec: MockSpec) {
@@ -121,6 +132,10 @@ export class MockMCPServer {
   async notifyLog(level: string, data: unknown, logger?: string): Promise<void> {
     await this.active?.notification({ method: "notifications/message", params: { level, data, logger } });
   }
+  /** Push a task status snapshot (notifications/tasks/status). */
+  async notifyTaskStatus(task: Record<string, unknown>): Promise<void> {
+    await this.active?.notification({ method: "notifications/tasks/status", params: task });
+  }
   /** The identity (name/version/title) the connected client advertised during initialize. */
   clientInfo(): { name?: string; version?: string; title?: string } | undefined {
     return this.active?.getClientVersion();
@@ -135,6 +150,9 @@ export class MockMCPServer {
     if (this.spec.prompts) caps.prompts = { listChanged: true };
     if (this.spec.logging) caps.logging = {};
     if (this.spec.completions) caps.completions = {};
+    if (this.spec.tools?.some((t) => t.task)) {
+      (caps as { tasks?: unknown }).tasks = { list: {}, cancel: {}, requests: { tools: { call: {} } } };
+    }
     return caps;
   }
 
@@ -149,7 +167,11 @@ export class MockMCPServer {
 
   private build(): Server {
     const caps = this.capabilities();
-    const server = new Server({ name: "mock", version: "1.0.0" }, { capabilities: caps });
+    // Passing a taskStore auto-installs the tasks/get|result|list|cancel handlers.
+    const server = new Server(
+      { name: "mock", version: "1.0.0" },
+      { capabilities: caps, ...((caps as { tasks?: unknown }).tasks ? { taskStore: this.taskStore } : {}) },
+    );
     const s = () => this.spec;
 
     // Only register handlers for advertised capabilities — the SDK rejects handlers
@@ -188,6 +210,48 @@ export class MockMCPServer {
       const tool = (s().tools ?? []).find((t) => t.name === req.params.name);
       this.callLog.push({ name: req.params.name, args: req.params.arguments });
       if (!tool) throw new Error(`unknown tool ${req.params.name}`);
+
+      // Task-augmented call: acknowledge with a CreateTaskResult, run the handler
+      // asynchronously, and store its return value as the task result.
+      const taskParams = (req.params as { task?: { ttl?: number } }).task;
+      const taskExtra = extra as unknown as {
+        taskStore?: {
+          createTask(o: { ttl?: number | null }): Promise<{ taskId: string }>;
+          storeTaskResult(id: string, status: "completed" | "failed", result: unknown): Promise<void>;
+        };
+        taskRequestedTtl?: number;
+      };
+      if (tool.task && taskParams && taskExtra.taskStore) {
+        const store = taskExtra.taskStore;
+        const task = await store.createTask({ ttl: taskExtra.taskRequestedTtl ?? null });
+        void (async () => {
+          await new Promise((r) => setTimeout(r, tool.taskDelayMs ?? 20));
+          try {
+            const out = await tool.handler?.(req.params.arguments ?? {}, {
+              sample: () => Promise.reject(new Error("sampling unavailable in task context")),
+              elicit: () => Promise.reject(new Error("elicitation unavailable in task context")),
+              listRoots: () => Promise.reject(new Error("roots unavailable in task context")),
+              meta: req.params._meta as Record<string, unknown> | undefined,
+              progress: () => {},
+            });
+            const result =
+              out && typeof out === "object" && "content" in out
+                ? (out as Record<string, unknown>)
+                : { content: [{ type: "text", text: JSON.stringify(out ?? { ok: true }) }] };
+            // The task may have been cancelled while the handler ran — that's fine.
+            await store.storeTaskResult(task.taskId, "completed", result).catch(() => {});
+          } catch (e) {
+            await store
+              .storeTaskResult(task.taskId, "failed", {
+                content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }],
+                isError: true,
+              })
+              .catch(() => {});
+          }
+        })();
+        return { task } as Record<string, unknown>;
+      }
+
       const progressToken = (req.params._meta as { progressToken?: string | number } | undefined)?.progressToken;
       const ctx: MockToolContext = {
         sample: (params) => server.createMessage(params as never) as never,
