@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Record real MCP server traffic to a cassette and replay it offline as a deterministic mock — VCR/Polly/nock for MCP. Built on mcp-query's transport seam.",
+  "description": "Record real MCP server traffic (stdio or Streamable HTTP) to a cassette and replay it offline as a deterministic mock — VCR/Polly/nock for MCP. Built on mcp-query's transport seam.",
   "bin": {
     "mcp-record": "./src/cli.ts"
   },
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "mcp-query": "*",
+    "@mcp-query/contract": "*",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {

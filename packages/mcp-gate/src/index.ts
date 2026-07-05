@@ -6,12 +6,14 @@ import { MCPClient, type RequestInterceptor } from "../../mcp-query/src/index.js
 import { authorize, circuitBreaker, rateLimit, createGateway } from "../../mcp-query/src/server/index.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { redact } from "./redact.js";
-import { compilePolicy, policyListFilter, type GateConfig } from "./config.js";
+import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig } from "./config.js";
+import { validateGateConfig } from "./validate.js";
 
-export type { GateConfig, GatePolicy, GatePolicyRules } from "./config.js";
+export type { GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
-export { compilePolicy, policyListFilter } from "./config.js";
+export { compilePolicy, policyListFilter, resolveUpstream } from "./config.js";
+export { validateGateConfig } from "./validate.js";
 
 export interface Gate {
   /** The MCP server the gate exposes — connect it to a transport (stdio / Streamable HTTP). */
@@ -23,6 +25,8 @@ export interface Gate {
 
 /** Build (and connect) a gate from config. Connect `gate.server` to a transport to serve. */
 export async function createGate(config: GateConfig): Promise<Gate> {
+  validateGateConfig(config); // fail loudly on typo'd keys / malformed upstreams before anything connects
+
   // Order is the onion (outermost first): deny early, protect, then redact the result.
   const interceptors: RequestInterceptor[] = [];
   if (config.policy) interceptors.push(authorize(compilePolicy(config.policy)));
@@ -31,7 +35,8 @@ export async function createGate(config: GateConfig): Promise<Gate> {
   if (config.redact?.length) interceptors.push(redact(config.redact));
 
   const client = new MCPClient({
-    servers: config.upstreams,
+    // Declarative `{command}`/`{url}` specs get their transport factory built here.
+    servers: Object.fromEntries(Object.entries(config.upstreams).map(([name, up]) => [name, resolveUpstream(up)])),
     interceptors,
     onCall: config.audit ?? ((e) => console.error(`[gate] ${e.principal ?? "-"} ${e.kind} ${e.server}.${e.target} -> ${e.outcome}`)),
     clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.0.1", title: "MCP Gate" },

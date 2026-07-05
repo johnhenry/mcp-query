@@ -6,13 +6,16 @@
 //   mcp-lint --contract mcp.contract.json [--max-warnings 0] [--off naming-consistency,no-open-input]
 //
 // A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
-// --bearer / repeated --header "K: V"). Exits non-zero on any error, or warnings over --max-warnings.
+// --bearer / repeated --header "K: V"). Unknown flags are rejected. Exits non-zero on any
+// error, or warnings over --max-warnings.
 
 import { readFile } from "node:fs/promises";
-import { captureFrom, resolveConnect, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, rejectUnknownFlags, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
+
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "max-warnings", "off", "error", "list-rules"] as const;
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
@@ -32,6 +35,7 @@ async function loadContract(flags: Record<string, string>, headers: string[]): P
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { flags, headers } = parseArgs(argv);
+  rejectUnknownFlags("mcp-lint", flags, KNOWN_FLAGS);
   if ("list-rules" in flags) {
     console.error(RULES.map((r) => `  ${r.id} (${r.defaultSeverity}) — ${r.description}`).join("\n"));
     return;

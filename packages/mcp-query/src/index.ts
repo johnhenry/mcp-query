@@ -8,6 +8,8 @@ export type {
   RequestTimeoutOpts,
   CallContext,
   CallAuditEntry,
+  TaskCallOpts,
+  TaskHandle,
 } from "./core/client.js";
 export {
   isReadOnly,
@@ -47,7 +49,8 @@ export { resourceTag, capsTag, serverTag, entityTag } from "./core/tags.js";
 export type { Tag } from "./core/tags.js";
 export type { CacheKey } from "./core/keys.js";
 export { argsHash, serializeKey } from "./core/keys.js";
-export type { ServerState, MCPError, HostHandlers, Tool, Resource, Prompt, ClientInfo } from "./core/types.js";
+export { MCPError } from "./core/types.js";
+export type { ServerState, MCPErrorKind, HostHandlers, Tool, Resource, Prompt, ClientInfo, Task, TaskStatus } from "./core/types.js";
 export {
   chromeBuiltinAISampling,
   ModelUnavailableError,

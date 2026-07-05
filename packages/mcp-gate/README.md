@@ -16,7 +16,7 @@ file, enforced before anything reaches the agent.
 It's a thin assembly over [`mcp-query`](../../README.md): an `MCPClient` fronting the
 upstreams with a server-side interceptor stack, wrapped by `createGateway` so the whole
 multiplexed, policy-enforced set is served as one `Server`. The only net-new code here is
-**DLP redaction**, the **declarative policy compiler**, and the **CLI**.
+**DLP redaction**, the **declarative policy compiler**, **config validation**, and the **CLI**.
 
 ## Why
 
@@ -57,19 +57,23 @@ Wire it into an MCP host (e.g. Claude Desktop) in place of the raw upstream:
 
 ## Configuration
 
-Config is **code** — a `.ts`/`.js` module that default-exports a `GateConfig` — because
-transports are functions. The *policy*, though, is declarative.
+Config is **code** — a `.ts`/`.js` module that default-exports a `GateConfig` — but both
+the *policy* and the *upstreams* can be fully declarative. An upstream is either the
+`.mcp.json` shape (`{ command, args?, env? }` for stdio, `{ url, headers? }` for
+Streamable HTTP — the gate builds the transport) or a full mcp-query `ConnectionConfig`
+(`transport: () => Transport` factory) when you need custom transports or reconnect tuning.
+
+The config is **validated at load time**: unknown/typo'd keys, malformed upstreams, and
+wrong basic types make `createGate` throw with a message naming the bad key and the valid ones.
 
 ```ts
 import type { GateConfig } from "@mcp-query/gate";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const config: GateConfig = {
-  // 1. Upstreams to front (name → mcp-query ConnectionConfig). The name becomes the namespace.
+  // 1. Upstreams to front (name → declarative spec or ConnectionConfig). The name becomes the namespace.
   upstreams: {
-    everything: {
-      transport: () => new StdioClientTransport({ command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] }),
-    },
+    everything: { command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] },
+    context7: { url: "https://mcp.context7.com/mcp" },
   },
 
   // 2. Policy — declarative globs over `server.tool`, or a function for custom logic.
@@ -100,7 +104,7 @@ export default config;
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `upstreams` | `Record<string, ConnectionConfig>` | — | mcp-query connection configs; key = namespace. |
+| `upstreams` | `Record<string, GateUpstream>` | — | `{ command, args?, env? }` (stdio) \| `{ url, headers? }` (Streamable HTTP) \| mcp-query `ConnectionConfig`; key = namespace. |
 | `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"` | none (allow all) | Declarative rules or a custom function. |
 | `redact` | `RedactRule[]` | none | `{ pattern: RegExp\|string, replacement?: string }`. |
 | `rateLimit` | `{ concurrency?: number }` | none | Per-gate concurrency cap. |
@@ -148,8 +152,10 @@ await gate.server.connect(transport); // gate.server is an SDK Server; gate.clie
 await gate.close();
 ```
 
-Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(policy)`, and the
-`GateConfig` / `GatePolicy` / `RedactRule` types.
+Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(policy)`,
+`resolveUpstream(spec)` (declarative spec → `ConnectionConfig`), `validateGateConfig(config)`,
+and the `GateConfig` / `GatePolicy` / `GateUpstream` / `StdioUpstreamSpec` / `HttpUpstreamSpec` /
+`RedactRule` types.
 
 ## Tests
 

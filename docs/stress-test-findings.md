@@ -123,3 +123,34 @@ live remote upstream, and the `mcpq` daemon warms repeat calls (~20s → ~6.6s i
   `@mcp-query/gate` stdio sidecar fronting server-everything + live Context7, an
   interceptor trace waterfall, per-tenant cache partitions via `client.scope()`, a
   governed-vs-direct comparison, and a chaos hammer.
+
+## Round 2 (follow-up PR): the roadmap, addressed
+
+All seven roadmap items above landed in the follow-up branch:
+
+1. **Tasks capability (2025-11-25)** — `client.callToolTask()` returns a live `TaskHandle`
+   (cache-backed status via SDK polling AND `notifications/tasks/status` pushes,
+   `result()`, `cancel()`), plus `getTask`/`listTasks`/`getTaskResult`/`cancelTask`,
+   `supports("tasks")`, `useTask`/`useToolTask` React hooks, and MockMCPServer task
+   support (`task: true` tools over the SDK's `InMemoryTaskStore`). Interceptors/audit
+   wrap task *initiation*. Interop caveat: the SDK marks tasks experimental and means it —
+   `server-everything@2026-07` rejects/ignores task augmentation from SDK 1.29's client
+   (`Invalid task creation result`, reproduced with the raw SDK too); within one SDK
+   version (our client ↔ our mock/server helpers) the loop is verified end-to-end.
+2. **`MCPError extends Error`** — `instanceof Error`, stacks, readable `String(e)`;
+   fields unchanged; aborts now classify as `kind: "cancelled"` (previously a dead union
+   member).
+3. **Codegen result types** — `outputSchema` → typed `structuredContent` on `result`
+   (non-optional per spec), same schema→TS converter; prompt-studio's committed
+   `mcp.gen.ts` regenerated with a typed `get-structured-content`.
+4. **Cache eviction** — `cache.remove(key)` + `cache.clear({ server?/partition? })`;
+   `gcTime` exposed on read/query opts; write-time GC arming so imperative reads no
+   longer linger forever (timers unref'd).
+5. **HTTP recording** — `mcp-record record --url` (with the hosted-traffic warning);
+   `mcpq contract`/`record` now resolve registry names.
+6. **Gate config** — declarative `.mcp.json`-shape upstreams (`{command}`/`{url}`, no SDK
+   imports needed in configs) + full dependency-free validation naming bad keys (the
+   `replace`-vs-`replacement` class of typo now throws).
+7. **CLI ergonomics** — unknown flags rejected with the known-flag list across every tool
+   CLI; one call-spec grammar everywhere (`tool(k: v)` AND `tool:{"k":"v"}`), shared in
+   `mcp-contract/src/callspec.ts`; parse errors show both accepted forms.

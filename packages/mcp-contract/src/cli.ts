@@ -21,6 +21,9 @@ import { authenticate, tokenCachePath } from "./oauth.js";
 import { mockFromContract } from "./mock.js";
 import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
+import { rejectUnknownFlags } from "./flags.js";
+
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port"] as const;
 
 function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[] } {
   const _: string[] = [];
@@ -41,10 +44,11 @@ async function readContract(path: string): Promise<Contract> {
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { _, flags, headers } = parseArgs(argv);
+  rejectUnknownFlags("mcp-contract", flags, KNOWN_FLAGS);
   const cmd = _[0];
-  const isLive = !!(flags.url || flags.command);
+  const isLive = !!(flags.url || flags.command || flags.server);
   const live = () => captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-contract" });
-  const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command for a live server, or a contract file path")));
+  const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command/--server for a live server, or a contract file path")));
 
   switch (cmd) {
     case "snapshot": {

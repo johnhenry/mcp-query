@@ -3,13 +3,12 @@
 // Serve it with:  npx tsx packages/mcp-gate/src/cli.ts packages/mcp-gate/examples/gate.config.ts
 
 import type { GateConfig } from "../src/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const config: GateConfig = {
   upstreams: {
-    everything: {
-      transport: () => new StdioClientTransport({ command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] }),
-    },
+    // Declarative `.mcp.json` shape — the gate builds the stdio transport. (Factory-style
+    // `{ transport: () => Transport }` upstreams still work when you need full control.)
+    everything: { command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] },
   },
   policy: {
     denyDestructive: true, // block anything flagged destructiveHint

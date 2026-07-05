@@ -1,6 +1,11 @@
 // Gate configuration. Config is *code* (a .ts/.js module default-exporting a GateConfig),
-// because transports are functions — but the policy can be expressed declaratively.
+// but everything — policy AND upstreams — can be expressed declaratively: an upstream is
+// either a full ConnectionConfig (transport factory, for full control) or the `.mcp.json`
+// shape ({ command } / { url }), for which the gate builds the transport itself so config
+// files need no SDK imports.
 
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AuthzRequest, AuthzVerdict } from "../../mcp-query/src/server/index.js";
 import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "../../mcp-query/src/index.js";
 import type { RedactRule } from "./redact.js";
@@ -17,9 +22,45 @@ export interface GatePolicyRules {
 
 export type GatePolicy = ((req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict>) | GatePolicyRules;
 
+/** Declarative stdio upstream (the `.mcp.json` shape) — the gate spawns the command. */
+export interface StdioUpstreamSpec {
+  command: string;
+  args?: string[];
+  /** Extra environment for the spawned server (merged over the SDK's safe defaults). */
+  env?: Record<string, string>;
+}
+
+/** Declarative Streamable HTTP upstream (the `.mcp.json` shape). */
+export interface HttpUpstreamSpec {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * An upstream is either a full ConnectionConfig (`transport: () => Transport` factory,
+ * plus reconnect tuning) or a declarative spec the gate builds the transport for.
+ */
+export type GateUpstream = ConnectionConfig | StdioUpstreamSpec | HttpUpstreamSpec;
+
+/** Normalize an upstream to a ConnectionConfig, building the transport factory for declarative specs. */
+export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
+  if ("transport" in upstream) return upstream;
+  if ("command" in upstream) {
+    const { command, args = [], env } = upstream;
+    return {
+      transport: () =>
+        new StdioClientTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
+    };
+  }
+  const { url, headers } = upstream;
+  return {
+    transport: () => new StreamableHTTPClientTransport(new URL(url), headers ? { requestInit: { headers } } : undefined),
+  };
+}
+
 export interface GateConfig {
-  /** Upstream MCP servers to front (name → transport factory). */
-  upstreams: Record<string, ConnectionConfig>;
+  /** Upstream MCP servers to front (name → transport factory or declarative `{command}`/`{url}` spec). */
+  upstreams: Record<string, GateUpstream>;
   policy?: GatePolicy;
   redact?: RedactRule[];
   rateLimit?: { concurrency?: number };

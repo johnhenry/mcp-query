@@ -3,6 +3,7 @@
 //
 //   mcp-bench --command npx --args "-y @modelcontextprotocol/server-everything" \
 //             --call 'echo:{"message":"hi"}' --concurrency 4 --iterations 200
+//   mcp-bench --command … --call 'echo(message: "hi")'      # function-call form works too
 //   mcp-bench --url https://host/mcp --max-p95 250 --max-error-rate 0
 //
 // By default it benchmarks `tools/list` plus any --call ops. Destructive tools are never
@@ -11,9 +12,27 @@
 // ⚠  Benchmarking sends REAL traffic. Against a hosted server that means real load on
 //    someone else's infra — mind rate limits and terms of service.
 
-import { connectClient, resolveConnect, captureContract } from "../../mcp-contract/src/index.js";
+import { connectClient, resolveConnect, captureContract, parseCallSpec, rejectUnknownFlags } from "../../mcp-contract/src/index.js";
 import { benchmark, type BenchOp } from "./bench.js";
 import { evaluateReport, type Budget } from "./report.js";
+
+const KNOWN_FLAGS = [
+  "server",
+  "config",
+  "command",
+  "args",
+  "url",
+  "bearer",
+  "header",
+  "call",
+  "concurrency",
+  "iterations",
+  "duration",
+  "warmup",
+  "max-p95",
+  "max-error-rate",
+  "read-only",
+] as const;
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[]; calls: string[] } {
   const flags: Record<string, string> = {};
@@ -30,16 +49,17 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { flags, headers, calls } = parseArgs(argv);
+  rejectUnknownFlags("mcp-bench", flags, KNOWN_FLAGS);
+  // --call accepts colon+JSON ('tool:{"a":1}') or a function-call string ('tool(a: 1)');
+  // parse before connecting so a bad spec fails fast.
+  const parsedCalls = calls.map((spec) => parseCallSpec(spec));
   if (flags.url) console.error("⚠  benchmarking a hosted server sends real traffic — mind rate limits & ToS.\n");
 
   const { client, close } = await connectClient({ ...resolveConnect(flags, headers), clientName: "mcp-bench" });
   try {
     const ops: BenchOp[] = [{ label: "tools/list", invoke: () => client.listTools() }];
 
-    for (const spec of calls) {
-      const i = spec.indexOf(":");
-      const name = i === -1 ? spec : spec.slice(0, i);
-      const args = i === -1 ? {} : (JSON.parse(spec.slice(i + 1)) as Record<string, unknown>);
+    for (const { name, args } of parsedCalls) {
       ops.push({ label: `tool:${name}`, invoke: () => client.callTool({ name, arguments: args }) });
     }
 

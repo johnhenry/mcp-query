@@ -10,8 +10,10 @@
 // --bearer / repeated --header "K: V").
 
 import { readFile, writeFile } from "node:fs/promises";
-import { captureFrom, resolveConnect, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, rejectUnknownFlags, type Contract } from "../../mcp-contract/src/index.js";
 import { renderMarkdown } from "./render.js";
+
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "title", "out"] as const;
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
@@ -31,6 +33,7 @@ async function loadContract(flags: Record<string, string>, headers: string[]): P
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { flags, headers } = parseArgs(argv);
+  rejectUnknownFlags("mcp-docs", flags, KNOWN_FLAGS);
   const contract = await loadContract(flags, headers);
   const md = renderMarkdown(contract, flags.title ? { title: flags.title } : {});
   if (flags.out) {

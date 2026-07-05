@@ -6,6 +6,8 @@ export type { UseToolState } from "./useTool.js";
 export { useTools, useResourceList, usePromptList, usePrompt, useResourceTemplates } from "./capabilities.js";
 export { useToolResult } from "./useToolResult.js";
 export type { UseToolResultOptions } from "./useToolResult.js";
+export { useTask, useToolTask } from "./useTask.js";
+export type { UseTaskResult, UseToolTaskState } from "./useTask.js";
 export { useServerState } from "./useServerState.js";
 export type { UseServerStateResult } from "./useServerState.js";
 export { useInteractions, useAuditLog } from "./interactions.js";
