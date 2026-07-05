@@ -21,7 +21,7 @@ A complete catalog of the public surface. Conceptual background lives in
 ## Client construction
 
 ```ts
-import { MCPClient, InteractionBroker } from "mcpq";
+import { MCPClient, InteractionBroker } from "@johnhenry/mcpq";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const client = new MCPClient({
@@ -120,7 +120,7 @@ import {
   MCPProvider, useResource, useTool, useToolResult,
   useTools, useResourceList, usePromptList, useResourceTemplates, usePrompt,
   useServerState, useInteractions, useAuditLog,
-} from "mcpq/react";
+} from "@johnhenry/mcpq/react";
 
 <MCPProvider client={client}>…</MCPProvider>
 ```
@@ -181,7 +181,7 @@ const { state, isReady, supports } = useServerState("github");
 ## Cache
 
 ```ts
-import { resourceTag, capsTag, serverTag, entityTag } from "mcpq";
+import { resourceTag, capsTag, serverTag, entityTag } from "@johnhenry/mcpq";
 
 // invalidation (RTK-Query style)
 client.cache.invalidateTags([resourceTag("github", "github://issues")]);
@@ -202,7 +202,7 @@ rollback();
 **Persistence / hydration** (offline, SSR):
 
 ```ts
-import { persistCache } from "mcpq";
+import { persistCache } from "@johnhenry/mcpq";
 
 const stop = persistCache(client.cache, window.localStorage, { key: "myapp", debounce: 250 });
 // or manually: const snap = client.cache.dehydrate(); newCache.hydrate(snap);
@@ -211,7 +211,7 @@ const stop = persistCache(client.cache, window.localStorage, { key: "myapp", deb
 ## Annotations & structured output
 
 ```ts
-import { isReadOnly, isDestructive, isIdempotent, structuredContent, contentAnnotations, isToolError } from "mcpq";
+import { isReadOnly, isDestructive, isIdempotent, structuredContent, contentAnnotations, isToolError } from "@johnhenry/mcpq";
 
 if (isDestructive(tool)) confirmFirst();
 const data = structuredContent<{ total: number }>(result); // the structuredContent field
@@ -222,8 +222,8 @@ if (isToolError(result)) showToolError(result);
 ## Human-in-the-loop
 
 ```tsx
-import { InteractionBroker, chromeBuiltinAISampling } from "mcpq";
-import { useInteractions, useAuditLog } from "mcpq/react";
+import { InteractionBroker, chromeBuiltinAISampling } from "@johnhenry/mcpq";
+import { useInteractions, useAuditLog } from "@johnhenry/mcpq/react";
 
 const broker = new InteractionBroker({
   model: chromeBuiltinAISampling(),
@@ -258,7 +258,7 @@ Emits `GeneratedToolMap`, `ToolName`, `ToolArgs`/`ToolResult`, plus `GeneratedPr
 and `ResourceTemplateUri`. Feed the tool map to the typed hook factory:
 
 ```tsx
-import { createTypedHooks } from "mcpq/react";
+import { createTypedHooks } from "@johnhenry/mcpq/react";
 import type { GeneratedToolMap } from "./mcp.gen";
 
 const { useTool, useToolResult } = createTypedHooks<GeneratedToolMap>();
@@ -287,8 +287,8 @@ const client = new MCPClient({
 ## Devtools
 
 ```tsx
-import { DevtoolsHub } from "mcpq/devtools";
-import { MCPDevtools } from "mcpq/devtools";
+import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
+import { MCPDevtools } from "@johnhenry/mcpq/devtools";
 
 const hub = new DevtoolsHub();
 const client = new MCPClient({ servers, devtools: hub });

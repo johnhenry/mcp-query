@@ -13,7 +13,7 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
-    "mcpq": "*",
+    "@johnhenry/mcpq": "*",
     "@mcp-query/contract": "*",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },

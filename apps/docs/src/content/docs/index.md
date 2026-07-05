@@ -139,7 +139,7 @@ npm run build               # build the publishable mcp-query package (dist/)
 npm run typecheck           # typecheck all workspaces
 
 # work in one package
-npm test -w mcpq
+npm test -w @johnhenry/mcpq
 npm test -w @mcp-query/gate
 npm run dev -w @mcp-query/inspector
 ```

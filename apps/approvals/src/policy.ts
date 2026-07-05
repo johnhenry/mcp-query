@@ -7,9 +7,9 @@
 // This module is intentionally framework-free so it can be unit-tested and reused
 // from both the React UI and the broker wiring.
 
-import type { PolicyContext, PolicyVerdict, InteractionType } from "mcpq";
+import type { PolicyContext, PolicyVerdict, InteractionType } from "@johnhenry/mcpq";
 
-export type { PolicyVerdict, PolicyContext } from "mcpq";
+export type { PolicyVerdict, PolicyContext } from "@johnhenry/mcpq";
 
 /** A single policy rule. "*" matches anything for that dimension. */
 export interface PolicyRule {

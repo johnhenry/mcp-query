@@ -26,7 +26,7 @@ mcp-query becomes the bridge that lets a WebMCP agent reach your real servers. S
 with `tools/list_changed`; returns `stop()`.
 
 ```ts
-import { bridgeToWebMCP, isDestructive } from "mcpq/webmcp"; // (isDestructive from "mcpq")
+import { bridgeToWebMCP, isDestructive } from "@johnhenry/mcpq/webmcp"; // (isDestructive from "@johnhenry/mcpq")
 
 const stop = bridgeToWebMCP(client, "backend", {
   confirm: ({ tool, args }) => !isDestructive(tool) || window.confirm(`Run ${tool.name}?`),
@@ -43,7 +43,7 @@ caching, the broker, and devtools like any other server — unifying both direct
 client.
 
 ```ts
-import { webMcpToolServer } from "mcpq/webmcp";
+import { webMcpToolServer } from "@johnhenry/mcpq/webmcp";
 
 const client = new MCPClient({
   servers: {

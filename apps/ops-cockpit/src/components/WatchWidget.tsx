@@ -3,7 +3,7 @@
 // caching + the refetch timer; we just drive args + interval and render states.
 
 import { useState } from "react";
-import { useToolResult } from "mcpq/react";
+import { useToolResult } from "@johnhenry/mcpq/react";
 import { ResultView } from "@app-shared";
 import { SchemaForm, type JSONSchemaLike } from "@app-shared";
 

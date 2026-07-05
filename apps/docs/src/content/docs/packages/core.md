@@ -133,9 +133,9 @@ The MCP bonus: a chunk of the invalidation you'd hand-declare in RTK Query is
 ## Usage
 
 ```tsx
-import { MCPClient } from "mcpq";
-import { MCPProvider, useResource, useTool, useTools } from "mcpq/react";
-import { DevtoolsHub, MCPDevtools } from "mcpq/devtools";
+import { MCPClient } from "@johnhenry/mcpq";
+import { MCPProvider, useResource, useTool, useTools } from "@johnhenry/mcpq/react";
+import { DevtoolsHub, MCPDevtools } from "@johnhenry/mcpq/devtools";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 

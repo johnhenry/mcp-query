@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@mcp-query/app-shared": "*",
-    "mcpq": "*"
+    "@johnhenry/mcpq": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",

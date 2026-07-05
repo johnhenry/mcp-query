@@ -2,8 +2,8 @@
 // server calls client.addServer at runtime; removing calls client.removeServer.
 
 import { useState } from "react";
-import { useMCPClient } from "mcpq/react";
-import { useServerState } from "mcpq/react";
+import { useMCPClient } from "@johnhenry/mcpq/react";
+import { useServerState } from "@johnhenry/mcpq/react";
 import { WebSocketProxyTransport, type TargetSpec } from "@app-shared/transport";
 import { useProxyToken } from "@app-shared";
 import { specFromForm, type ServerEntry } from "../servers.js";

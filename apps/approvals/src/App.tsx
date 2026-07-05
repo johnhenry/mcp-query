@@ -2,7 +2,7 @@
 // screens (Queue / Audit / Policy).
 
 import { useState } from "react";
-import { useInteractions, useServerState } from "mcpq/react";
+import { useInteractions, useServerState } from "@johnhenry/mcpq/react";
 import { Queue } from "./components/Queue.js";
 import { Audit } from "./components/Audit.js";
 import { PolicyEditor } from "./components/PolicyEditor.js";

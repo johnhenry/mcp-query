@@ -10,11 +10,11 @@ export default defineConfig({
   // Aliases (most-specific first) so Vite/esbuild transpiles mcp-query + @app-shared source.
   resolve: {
     alias: [
-      { find: "mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
-      { find: "mcpq/testing", replacement: resolve(lib, "testing/mockServer.ts") },
-      { find: "mcpq/react", replacement: resolve(lib, "react/index.ts") },
-      { find: "mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
-      { find: "mcpq", replacement: resolve(lib, "index.ts") },
+      { find: "@johnhenry/mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
+      { find: "@johnhenry/mcpq/testing", replacement: resolve(lib, "testing/mockServer.ts") },
+      { find: "@johnhenry/mcpq/react", replacement: resolve(lib, "react/index.ts") },
+      { find: "@johnhenry/mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "@johnhenry/mcpq", replacement: resolve(lib, "index.ts") },
       // The WC console pulls the framework-agnostic modules (proxy/schema-form/reactive)
       // from @app-shared/* — it never imports the React glue at @app-shared.
       { find: /^@app-shared\/(.*)$/, replacement: resolve(shared, "$1") },

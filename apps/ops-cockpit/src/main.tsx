@@ -1,7 +1,7 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { makeProxyClient, AppProvider } from "@app-shared";
-import { DevtoolsHub } from "mcpq/devtools";
+import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
 import { Cockpit } from "./Cockpit.js";
 import { ActivityStore } from "./lib/activity.js";
 import { loadServers, toSpecMap, type ServerEntry } from "./lib/serverConfig.js";

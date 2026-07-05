@@ -4,8 +4,8 @@
 // the onCall audit stream. No DOM, no proxy: pure client-level wiring.
 
 import { describe, it, expect } from "vitest";
-import { MCPClient, isReadOnly } from "mcpq";
-import { MockMCPServer } from "mcpq/testing";
+import { MCPClient, isReadOnly } from "@johnhenry/mcpq";
+import { MockMCPServer } from "@johnhenry/mcpq/testing";
 import { healthToTileStatus } from "../src/lib/tile-status.js";
 import { ActivityStore } from "../src/lib/activity.js";
 

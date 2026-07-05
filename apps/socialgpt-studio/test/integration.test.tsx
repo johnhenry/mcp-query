@@ -4,9 +4,9 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
-import { MCPClient } from "mcpq";
-import { MCPProvider, useToolResult } from "mcpq/react";
-import { MockMCPServer } from "mcpq/testing";
+import { MCPClient } from "@johnhenry/mcpq";
+import { MCPProvider, useToolResult } from "@johnhenry/mcpq/react";
+import { MockMCPServer } from "@johnhenry/mcpq/testing";
 import { asList, asSeries, displayName } from "../src/lib/format.js";
 import { LineChart } from "../src/components/LineChart.js";
 

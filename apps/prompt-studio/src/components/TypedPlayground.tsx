@@ -2,7 +2,7 @@
 // live server; createTypedHooks<GeneratedToolMap> gives compile-time-checked tool calls —
 // `useTool("get-sum")` knows args are {a: number; b: number} without any manual typing.
 import { useState } from "react";
-import { createTypedHooks } from "mcpq/react";
+import { createTypedHooks } from "@johnhenry/mcpq/react";
 import { ResultView } from "@app-shared";
 import type { GeneratedToolMap } from "../mcp.gen.js";
 
