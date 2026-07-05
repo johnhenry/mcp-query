@@ -31,6 +31,29 @@ describe("completion", () => {
     expect(values).toEqual(["en", "es", "fr"]);
     await client.close();
   });
+
+  it("forwards context.arguments so servers can narrow dependent completions", async () => {
+    const mock = new MockMCPServer({
+      prompts: [{ name: "promote" }],
+      completions: (argName, _value, contextArgs) => {
+        if (argName === "department") return ["Engineering", "Sales"];
+        if (argName === "name") {
+          return contextArgs?.department === "Engineering" ? ["Alice", "Bob"] : ["David", "Eve"];
+        }
+        return [];
+      },
+    });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } } });
+    await client.connect();
+    const ref = { type: "ref/prompt", name: "promote" } as const;
+    expect(await client.complete(ref, { name: "name", value: "" }, "srv")).toEqual(["David", "Eve"]);
+    expect(
+      await client.complete(ref, { name: "name", value: "" }, "srv", {
+        context: { arguments: { department: "Engineering" } },
+      }),
+    ).toEqual(["Alice", "Bob"]);
+    await client.close();
+  });
 });
 
 describe("dynamic topology", () => {

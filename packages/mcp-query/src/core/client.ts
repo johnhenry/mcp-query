@@ -462,14 +462,19 @@ export class MCPClient {
     return this.req(server).sdk.ping();
   }
 
-  /** Argument autocompletion for a prompt or resource template (completion/complete). */
+  /**
+   * Argument autocompletion for a prompt or resource template (completion/complete).
+   * Pass `opts.context.arguments` (the values already filled in) so servers can narrow
+   * dependent completions — e.g. the second argument's candidates depend on the first.
+   */
   async complete(
     ref: { type: "ref/prompt"; name: string } | { type: "ref/resource"; uri: string },
     argument: { name: string; value: string },
     server: string,
+    opts: { context?: { arguments?: Record<string, string> } } = {},
   ): Promise<string[]> {
     await this.wake(server);
-    const res = (await this.req(server).sdk.complete({ ref, argument })) as {
+    const res = (await this.req(server).sdk.complete({ ref, argument, context: opts.context })) as {
       completion?: { values?: string[] };
     };
     return res.completion?.values ?? [];

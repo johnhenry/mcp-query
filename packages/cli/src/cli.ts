@@ -508,6 +508,17 @@ function rewriteToolArgs(verb: string, rest: string[]): string[] {
 }
 
 async function runTool(verb: string, rest: string[]): Promise<void> {
+  // `mcpq <tool> --help` used to fall through to the tool CLI, which errored with
+  // "provide --url or --command" — answer it at the umbrella instead.
+  if (rest.includes("--help") || rest.includes("-h")) {
+    console.log(`mcpq ${verb} — ${registryVerbs[verb]!.describe}\n`);
+    console.log(
+      subcommandVerbs.has(verb)
+        ? `usage: mcpq ${verb} <subcommand> [--command <c> [--args <a>] | --url <u>] [flags]`
+        : `usage: mcpq ${verb} (<registered-name> | --command <c> [--args <a>] | --url <u>) [flags]`,
+    );
+    return;
+  }
   const mod = await registryVerbs[verb]!.load();
   await mod.run(rewriteToolArgs(verb, rest));
 }
@@ -515,6 +526,7 @@ async function runTool(verb: string, rest: string[]): Promise<void> {
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  process.env.MCPQ_UMBRELLA = "1"; // delegated tool CLIs word their hints as mcpq verbs
   const verb = argv[0];
   const rest = argv.slice(1);
 
@@ -537,7 +549,10 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   run().catch((e) => {
-    console.error("[mcpq]", e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    // Some servers put the SDK's "MCP error <code>: " prefix in their message and the
+    // client-side McpError adds it again — collapse the duplicate for readable output.
+    console.error("[mcpq]", msg.replace(/^(MCP error -?\d+: )\1/, "$1"));
     process.exit(1);
   });
 }

@@ -71,6 +71,7 @@ export class ServerConnection {
   private retries = 0;
   private closing = false;
   private reconnectPending = false;
+  private relistGen: Partial<Record<"tools" | "resources" | "prompts", number>> = {};
   private idle = false; // slept by idle eviction (re-wakes on next use)
   private idleTimer?: ReturnType<typeof setTimeout>;
   private readyPromise?: Promise<void>;
@@ -198,7 +199,9 @@ export class ServerConnection {
       ]);
       this.retries = 0;
       this.setState(this.isDegraded() ? "degraded" : "ready");
-    } catch {
+    } catch (err) {
+      // Surface the failure — a silent retry loop is undebuggable from the outside.
+      console.warn(`[mcp-query] reconnect "${this.name}" failed (attempt ${this.retries}):`, err);
       this.scheduleReconnect();
     }
   }
@@ -235,15 +238,25 @@ export class ServerConnection {
   }
 
   async relist(kind: "tools" | "resources" | "prompts"): Promise<void> {
+    // Concurrent list_changed storms race their re-list responses: without ordering, a
+    // stale response can be applied AFTER the newest one and stick. Tag each re-list
+    // with a generation; only the response for the latest generation may apply.
+    const gen = (this.relistGen[kind] = (this.relistGen[kind] ?? 0) + 1);
     if (kind === "tools" && this.capabilities.tools) {
-      this.tools = indexBy(await paginate((c) => this.client.listTools(c), (r) => r.tools), "name");
+      const tools = indexBy(await paginate((c) => this.client.listTools(c), (r) => r.tools), "name");
+      if (gen !== this.relistGen[kind]) return; // superseded by a newer list_changed
+      this.tools = tools;
     } else if (kind === "resources" && this.capabilities.resources) {
-      this.resources = indexBy(
+      const resources = indexBy(
         await paginate((c) => this.client.listResources(c), (r) => r.resources),
         "uri",
       );
+      if (gen !== this.relistGen[kind]) return;
+      this.resources = resources;
     } else if (kind === "prompts" && this.capabilities.prompts) {
-      this.prompts = indexBy(await paginate((c) => this.client.listPrompts(c), (r) => r.prompts), "name");
+      const prompts = indexBy(await paginate((c) => this.client.listPrompts(c), (r) => r.prompts), "name");
+      if (gen !== this.relistGen[kind]) return;
+      this.prompts = prompts;
     }
     // Write the catalog into the cache (tagged) so list-observing hooks re-render and
     // tag-based invalidation has something to hit.
@@ -324,6 +337,10 @@ export class ServerConnection {
       return;
     }
     this.reconnectPending = true;
+    // A dropped live connection is not "ready" while we wait out the backoff — flip the
+    // state immediately so health UIs don't report a dead server as healthy for up to 30s.
+    // (Initial-connect failures keep their "failed" state until the retry actually runs.)
+    if (this.state === "ready" || this.state === "degraded") this.setState("reconnecting");
     const attempt = this.retries++;
     const delay = this.cfg.retryDelay?.(attempt) ?? Math.min(30_000, 500 * 2 ** attempt);
     setTimeout(() => {

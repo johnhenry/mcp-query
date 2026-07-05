@@ -69,8 +69,11 @@ export interface MockSpec {
   prompts?: MockPrompt[];
   /** Advertise the logging capability (enables notifyLog). */
   logging?: boolean;
-  /** Advertise completions; map of argument name → candidate values. */
-  completions?: Record<string, string[]>;
+  /** Advertise completions; map of argument name → candidate values, or a function of
+   *  (argName, value, context.arguments) for context-dependent completions. */
+  completions?:
+    | Record<string, string[]>
+    | ((argName: string, value: string, contextArgs?: Record<string, string>) => string[]);
   /** Override advertised capabilities; defaults are derived from which arrays are present. */
   capabilities?: ServerCapabilities;
   /** If set, list responses are chunked to exercise cursor pagination. */
@@ -155,9 +158,14 @@ export class MockMCPServer {
     if (caps.resources) this.installResources(server, s);
     if (caps.prompts) this.installPrompts(server, s);
     if (caps.completions) {
-      server.setRequestHandler(CompleteRequestSchema, (req) => ({
-        completion: { values: s().completions?.[req.params.argument.name] ?? [], hasMore: false },
-      }));
+      server.setRequestHandler(CompleteRequestSchema, (req) => {
+        const completions = s().completions;
+        const values =
+          typeof completions === "function"
+            ? completions(req.params.argument.name, req.params.argument.value, req.params.context?.arguments)
+            : completions?.[req.params.argument.name] ?? [];
+        return { completion: { values, hasMore: false } };
+      });
     }
     return server;
   }

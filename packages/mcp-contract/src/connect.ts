@@ -7,7 +7,7 @@ import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotoc
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { captureContract, type Contract } from "./contract.js";
-import { captureProvider } from "./oauth.js";
+import { captureProvider, tokenNormalizingFetch } from "./oauth.js";
 
 export interface ConnectOptions {
   /** Local server: command to spawn (stdio). */
@@ -35,7 +35,12 @@ export function buildTransport(opts: ConnectOptions): Transport {
     if (headers) init.requestInit = { headers };
     // No explicit token → use the cached OAuth provider (auto-refresh; or a friendly
     // "run mcp-contract auth" if nothing is cached). An explicit --bearer/--header wins.
-    if (!hasAuthHeader) init.authProvider = captureProvider(opts.url);
+    if (!hasAuthHeader) {
+      init.authProvider = captureProvider(opts.url);
+      // Token refresh runs through the transport's fetch — normalize null-valued token
+      // fields (some servers send "refresh_token": null, which the SDK schema rejects).
+      init.fetch = tokenNormalizingFetch;
+    }
     return new StreamableHTTPClientTransport(new URL(opts.url), init);
   }
   if (opts.command) {

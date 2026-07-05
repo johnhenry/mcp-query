@@ -1,0 +1,38 @@
+{
+  "name": "@mcp-query/switchboard",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "React + Vite mcp-query example app (governed multi-tenant gateway console) with the shared WS proxy fronting an @mcp-query/gate sidecar.",
+  "scripts": {
+    "dev": "WEB_PORT=5180 PROXY_PORT=6287 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mcp-query/app-shared": "*",
+    "@mcp-query/gate": "*",
+    "mcp-query": "*",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.0",
+    "happy-dom": "^20.10.6",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.9",
+    "ws": "^8.18.0"
+  }
+}
