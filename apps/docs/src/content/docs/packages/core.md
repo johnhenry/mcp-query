@@ -12,7 +12,8 @@ apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
 official `@modelcontextprotocol/sdk`.
 
 > Status: **working reference implementation.** `tsc --noEmit` is clean and the full
-> vitest suite (100 tests) passes, including end-to-end coverage of the cache,
+> vitest suite (180+ tests, plus an opt-in stress suite) passes, including end-to-end
+> coverage of the cache,
 > multiplexing, protocol-driven invalidation, dynamic registration, reconnect, the
 > human-in-the-loop broker, and Inspector-style tooling (message log, manual sampling,
 > auth recorder, CLI) — all driven against a *real* SDK server over an in-memory
@@ -25,7 +26,8 @@ official `@modelcontextprotocol/sdk`.
 ```bash
 npm install
 npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 128 tests
+npm test              # vitest run — 180+ tests
+npm run test:stress   # opt-in chaos/load suite (STRESS_REAL=1 spawns real servers)
 npm run build         # emit dist/ (ESM + .d.ts) — what `npm publish` ships
 npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
@@ -186,6 +188,45 @@ function Issues() {
 }
 ```
 
+## Tasks (call-now, fetch-later)
+
+MCP 2025-11-25 adds **tasks**: a tool call that returns immediately with a pollable task
+instead of blocking until the result. mcp-query maps the whole lifecycle onto the cache:
+
+```tsx
+// Imperative: start a task, observe it, await the result.
+const handle = await client.callToolTask("simulate-research-query", { query: "…" });
+handle.task();                        // latest Task snapshot (status, statusMessage, …)
+const unsub = handle.subscribe((t) => console.log(t.status));
+const result = await handle.result(); // resolves on completed; rejects on failed/cancelled
+await handle.cancel();                // tasks/cancel
+
+// Management: getTask / listTasks / getTaskResult / cancelTask (all per server).
+// Capability probe: client.connections()[0].supports("tasks").
+
+// React: useMutation-shaped start + live status, or observe any task by id.
+const [start, { task, isPending, data, cancel }] = useToolTask("simulate-research-query");
+const { task: watched } = useTask(taskId, { server: "everything" });
+```
+
+Status snapshots are ordinary cache entries (`{kind: "task"}` keys), fed by both the
+SDK's polling stream **and** server `notifications/tasks/status` pushes — so `useTask`
+renders live even for tasks started elsewhere. Tool-level `execution.taskSupport` is
+honored (`"forbidden"` → a clear client-side error), and the interceptor chain + audit
+wrap task *initiation*. `MockMCPServer` runs `task: true` tools asynchronously over the
+SDK's `InMemoryTaskStore`, so the whole loop is testable offline. (The SDK marks tasks
+*experimental*; cross-version server interop is still settling — see the findings doc.)
+
+## Errors & eviction
+
+- **`MCPError extends Error`** — rejections are real errors (`instanceof Error`, stacks,
+  readable `String(e)`) carrying `kind` / `server` / `code` / `data`. Aborted calls
+  classify as `kind: "cancelled"`.
+- **Eviction** — `cache.remove(key)` evicts one entry (subscribers are notified);
+  `cache.clear({ server?, partition? })` sweeps a server or a tenant partition;
+  `gcTime` on `readResource`/`queryTool` opts bounds how long an unobserved entry
+  lingers (writes arm the per-entry gc timer, so imperative reads don't accumulate).
+
 ## What's deliberately *not* here (and why)
 
 - **Normalized caching.** No global object identity in MCP results → impossible to do
@@ -200,13 +241,17 @@ implemented. See [docs/api.md](./docs/api.md) for every feature with an example.
 ## Feature coverage
 
 Reads/queries (`useResource`, `useToolResult`, `queryTool`) · mutations (`useTool` with
-optimistic + invalidation + progress + cancel) · capability lists + templates + prompts ·
-`useServerState` · in-flight dedup · structural sharing · polling · Suspense · persistence ·
-entity tags · structured output + annotation helpers · human-in-the-loop broker (sampling +
-elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
-ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
-log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
-per-request timeouts. **100 tests, green.**
+optimistic + invalidation + progress + cancel) · **tasks** (`callToolTask` → `TaskHandle`,
+`useTask`/`useToolTask`, `getTask`/`listTasks`/`getTaskResult`/`cancelTask`) · capability
+lists + templates + prompts · `useServerState` · in-flight dedup · structural sharing ·
+polling · Suspense · persistence · cache eviction (`remove`/`clear`, per-read `gcTime`) ·
+entity tags · structured output + annotation helpers (typed results from `outputSchema`
+via codegen) · human-in-the-loop broker (sampling + elicitation, trust policy, audit) ·
+Chrome built-in AI sampling · codegen + typed hooks · ping · completion (incl. dependent
+completions via `context.arguments`) · dynamic add/remove server · read retry · devtools ·
+raw JSON-RPC message log · manual (human-as-model) sampling · OAuth-debug recorder ·
+`mcp-query-inspect` CLI + per-request timeouts. **180+ tests, green** (plus the opt-in
+stress suite: `npm run test:stress`).
 
 ## File map
 

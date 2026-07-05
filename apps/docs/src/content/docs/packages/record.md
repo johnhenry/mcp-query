@@ -38,7 +38,11 @@ npx tsx packages/mcp-record/src/cli.ts record \
   --command npx --args "-y @modelcontextprotocol/server-everything" \
   --out everything.tape.json \
   --call 'echo:{"message":"hello"}' \
-  --call 'get-sum:{"a":2,"b":3}'
+  --call 'get-sum(a: 2, b: 3)'          # both call syntaxes work
+
+# Hosted servers too — record over Streamable HTTP (prints a real-traffic warning):
+npx tsx packages/mcp-record/src/cli.ts record \
+  --url https://mcp.context7.com/mcp --out context7.tape.json
 
 # 2. Replay: serve the cassette as an offline MCP server over stdio
 npx tsx packages/mcp-record/src/cli.ts replay --cassette everything.tape.json
@@ -49,7 +53,10 @@ npx tsx packages/mcp-record/src/cli.ts inspect everything.tape.json
 
 `record` always captures the listings (`tools/list`, `resources/list`,
 `resources/templates/list`, `prompts/list`) plus the `initialize` capabilities/identity;
-each `--call name:json` additionally records that tool's real result.
+each `--call` (colon+JSON `name:{"a":1}` **or** function-call `name(a: 1)`) additionally
+records that tool's real result. Under the `mcpq` umbrella, `mcpq record record <name>`
+resolves registered server names. Replay is stdio regardless of how the recording was
+made — an HTTP-recorded cassette still replays as a local offline mock.
 
 Drop the replay server into an MCP host (CI, a demo) exactly where the real one would go:
 

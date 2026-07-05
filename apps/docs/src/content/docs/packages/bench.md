@@ -34,7 +34,7 @@ npx tsx packages/mcp-bench/src/cli.ts --url https://host/mcp --duration 10
 | Flag | Meaning |
 |---|---|
 | `--command` / `--args` / `--url` | target (stdio or Streamable HTTP); `--bearer` / `--header` for auth |
-| `--call name:json` | benchmark a tool call (repeatable) |
+| `--call spec` | benchmark a tool call (repeatable) — `name:{"a":1}` or `name(a: 1)` |
 | `--read-only` | also benchmark every read-only tool that takes no required args |
 | `--concurrency N` | parallel callers per op (default 1) |
 | `--iterations N` | calls per op (default 20) — or `--duration S` for time-boxed |
@@ -43,7 +43,8 @@ npx tsx packages/mcp-bench/src/cli.ts --url https://host/mcp --duration 10
 
 By default it benchmarks `tools/list` plus any `--call` ops. **Destructive tools are never
 hammered automatically** — `--read-only` only adds tools annotated `readOnlyHint` with no
-required inputs.
+required inputs. Unknown flags are rejected with the list of known flags (typos fail fast
+instead of being silently ignored) — this holds across all the tool CLIs.
 
 > ⚠ **Benchmarking sends real traffic.** Against a hosted server that's real load on someone
 > else's infrastructure — mind rate limits and terms of service. Defaults are deliberately

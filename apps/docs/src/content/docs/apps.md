@@ -2,7 +2,7 @@
 title: "Example apps"
 ---
 
-Seven real UIs built on the client, each exercising a different surface of the reactive-cache-plus-hooks model. All of them share a WS proxy for local MCP server access except socialgpt-studio, which pairs with a Deno backend.
+Nine real UIs built on the client, each exercising a different surface of the reactive-cache-plus-hooks model. All of them share a WS proxy for local MCP server access except socialgpt-studio, which pairs with a Deno backend.
 
 | App | Stack | What it demonstrates |
 |---|---|---|
@@ -13,5 +13,7 @@ Seven real UIs built on the client, each exercising a different surface of the r
 | **[notebook](https://github.com/johnhenry/mcp-query/tree/main/apps/notebook)** | React + Vite | An interactive notebook over MCP tools — the exploratory/scripting end of the spectrum. |
 | **[ops-cockpit](https://github.com/johnhenry/mcp-query/tree/main/apps/ops-cockpit)** | React + Vite | An operations cockpit — dashboards and controls for running MCP-backed systems, not just querying them. |
 | **[socialgpt-studio](https://github.com/johnhenry/mcp-query/tree/main/apps/socialgpt-studio)** | React + Vite + Deno | The one app with its own backend — shows the client working against a server you don't control end-to-end. |
+| **[prompt-studio](https://github.com/johnhenry/mcp-query/tree/main/apps/prompt-studio)** | React + Vite | Prompts as a product surface — run server prompts with live `completion/complete` typeahead (including dependent completions), expand resource templates into subscribed reads, over codegen-typed hooks. |
+| **[switchboard](https://github.com/johnhenry/mcp-query/tree/main/apps/switchboard)** | React + Vite | One governed endpoint, many tenants — an `@mcp-query/gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, and per-tenant cache partitions via `client.scope()`. |
 
 Each is a real, runnable example — clone the repo and `npm install && npm run dev` inside any `apps/*` directory.
