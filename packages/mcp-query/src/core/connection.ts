@@ -88,7 +88,7 @@ export class ServerConnection {
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
     const client = new Client(
-      this.deps.clientInfo ?? { name: "mcp-query", version: "0.0.1" },
+      this.deps.clientInfo ?? { name: "mcpq", version: "0.0.1" },
       { capabilities: clientCapabilities(this.deps.handlers) },
     );
     installHandlers(client, this.deps.handlers);

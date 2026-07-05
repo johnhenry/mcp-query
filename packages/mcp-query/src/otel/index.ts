@@ -7,14 +7,14 @@ import { trace, context as otelContext, propagation, SpanStatusCode, type Tracer
 import type { RequestInterceptor } from "../core/interceptors.js";
 
 export interface TracingOptions {
-  /** A tracer to use; defaults to the global tracer named "mcp-query". */
+  /** A tracer to use; defaults to the global tracer named "mcpq". */
   tracer?: Tracer;
   /** Propagate W3C traceparent to the server via `context.meta`. Default true. */
   propagate?: boolean;
 }
 
 export function tracing(opts: TracingOptions = {}): RequestInterceptor {
-  const tracer = opts.tracer ?? trace.getTracer("mcp-query");
+  const tracer = opts.tracer ?? trace.getTracer("mcpq");
   const propagate = opts.propagate ?? true;
 
   return (op, next) =>

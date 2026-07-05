@@ -3,7 +3,7 @@
 // returned map is keyed by server name; tiles read their slice from it.
 
 import { useEffect, useRef, useState } from "react";
-import type { MCPClient } from "mcp-query";
+import type { MCPClient } from "mcpq";
 import { pushSample, type LatencySample } from "../lib/sparkline.js";
 import type { HealthSnapshot } from "../lib/tile-status.js";
 

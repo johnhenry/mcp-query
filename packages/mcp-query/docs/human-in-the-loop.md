@@ -8,7 +8,7 @@ per feature, mcp-query routes them through a single `InteractionBroker`.
 ## Wiring
 
 ```ts
-import { MCPClient, InteractionBroker, chromeBuiltinAISampling } from "mcp-query";
+import { MCPClient, InteractionBroker, chromeBuiltinAISampling } from "mcpq";
 
 const broker = new InteractionBroker({
   model: chromeBuiltinAISampling(),          // runs the LLM for sampling requests
@@ -39,7 +39,7 @@ The UI settles each pending interaction with an `InteractionDecision`:
 ## Rendering the queue in React
 
 ```tsx
-import { useInteractions, useAuditLog } from "mcp-query/react";
+import { useInteractions, useAuditLog } from "mcpq/react";
 
 function ApprovalCenter() {
   const { interactions, resolve } = useInteractions();

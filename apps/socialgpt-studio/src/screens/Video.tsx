@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useToolResult, useServerState } from "mcp-query/react";
+import { useToolResult, useServerState } from "mcpq/react";
 import { SERVER, useNav } from "../nav.js";
 import { unwrapResult, firstString, isObj, metricsOf } from "../lib/format.js";
 import { reduceAnalysis } from "../lib/analysis.js";

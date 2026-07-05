@@ -1,4 +1,4 @@
-import { useServerState, useToolResult } from "mcp-query/react";
+import { useServerState, useToolResult } from "mcpq/react";
 import { SERVER, useNav, type Route } from "../nav.js";
 import { budget } from "../lib/rateBudget.js";
 import { firstString, unwrapResult } from "../lib/format.js";

@@ -3,8 +3,8 @@
 // inspector (a protocol debugger) there is no message log or composer here — the
 // DevtoolsHub is kept only so panels can cheaply re-render on protocol activity.
 
-import { MCPClient } from "mcp-query";
-import { DevtoolsHub } from "mcp-query/devtools";
+import { MCPClient } from "mcpq";
+import { DevtoolsHub } from "mcpq/devtools";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";

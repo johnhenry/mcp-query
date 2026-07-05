@@ -68,7 +68,7 @@ describe("clientInfo", () => {
 
     const dflt = new MCPClient({ servers: { srv: { transport: mock.transport } } });
     await dflt.connect();
-    expect(mock.clientInfo()).toMatchObject({ name: "mcp-query" });
+    expect(mock.clientInfo()).toMatchObject({ name: "mcpq" });
     await dflt.close();
   });
 });

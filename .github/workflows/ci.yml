@@ -26,7 +26,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Build mcp-query
-        run: npm run build -w mcp-query
+        run: npm run build -w mcpq
 
       - name: Publish smoke (import the built entrypoint)
         working-directory: packages/mcp-query

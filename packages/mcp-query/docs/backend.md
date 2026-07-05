@@ -37,7 +37,7 @@ const client = new MCPClient({ servers, interceptors: [authz, breaker, limiter, 
 ## Authorization + audit (`mcp-query/server`)
 
 ```ts
-import { authorize, denyDestructiveUnless } from "mcp-query/server";
+import { authorize, denyDestructiveUnless } from "mcpq/server";
 
 interceptors: [authorize(({ context, destructive }) =>
   context?.meta?.role === "admin" || !destructive ? "allow" : "deny")]
@@ -52,7 +52,7 @@ target, principal, outcome }` (outcome ∈ ok | denied | error).
 ## Resilience (`mcp-query/server`)
 
 ```ts
-import { circuitBreaker, rateLimit } from "mcp-query/server";
+import { circuitBreaker, rateLimit } from "mcpq/server";
 interceptors: [circuitBreaker({ threshold: 5, cooldownMs: 10_000 }), rateLimit({ concurrency: 8 })]
 ```
 
@@ -62,7 +62,7 @@ cockatiel/bottleneck onto the same interceptor seam.
 ## Observability — metrics + health (`mcp-query/metrics`)
 
 ```ts
-import { MetricsCollector } from "mcp-query/metrics";
+import { MetricsCollector } from "mcpq/metrics";
 const metrics = new MetricsCollector();
 new MCPClient({ servers, interceptors: [metrics.interceptor()] });
 app.get("/metrics", (_, res) => res.type("text/plain").send(metrics.prometheus()));
@@ -75,7 +75,7 @@ For OpenTelemetry, wrap `@opentelemetry/api` as a tracing interceptor (propagate
 ## Gateway — re-serve upstreams as one MCP endpoint (`mcp-query/server`)
 
 ```ts
-import { createGateway } from "mcp-query/server";
+import { createGateway } from "mcpq/server";
 const gateway = createGateway(client, { namespace: true });   // an SDK Server
 await gateway.connect(transport);   // expose over stdio / Streamable HTTP
 ```
@@ -86,7 +86,7 @@ propagates `*_list_changed`. The deployable "single endpoint fronting many."
 ## Per-principal sessions + graceful shutdown (`mcp-query/session`)
 
 ```ts
-import { SessionManager } from "mcp-query/session";
+import { SessionManager } from "mcpq/session";
 const sessions = new SessionManager({
   ttl: 5 * 60_000,
   create: async (principal) => { const c = new MCPClient({ servers: serversFor(principal) }); await c.connect(); return c; },
@@ -105,7 +105,7 @@ L1 stays synchronous in-process (the hooks need it); an optional async **L2** sh
 across instances and broadcasts invalidations.
 
 ```ts
-import { createRedisCacheStore } from "mcp-query/redis";
+import { createRedisCacheStore } from "mcpq/redis";
 const cacheStore = createRedisCacheStore(redis, redisSubscriber); // bring your own ioredis
 new MCPClient({ servers, cacheStore });
 ```

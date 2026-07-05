@@ -16,7 +16,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mcp-query/app-shared": "*",
-    "mcp-query": "*",
+    "mcpq": "*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

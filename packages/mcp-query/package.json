@@ -1,5 +1,5 @@
 {
-  "name": "mcp-query",
+  "name": "mcpq",
   "version": "0.0.1",
   "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
   "type": "module",
@@ -53,8 +53,8 @@
     }
   },
   "bin": {
-    "mcp-query-codegen": "./dist/codegen/cli.js",
-    "mcp-query-inspect": "./dist/cli/inspect.js"
+    "mcpq-codegen": "./dist/codegen/cli.js",
+    "mcpq-inspect": "./dist/cli/inspect.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js",

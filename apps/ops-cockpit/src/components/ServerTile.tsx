@@ -2,7 +2,7 @@
 // health poll), capability counts (useTools/useResourceList/usePromptList) and an
 // inline SVG sparkline. Color-coded by tile status. Clicking drills into the server.
 
-import { useServerState, useTools, useResourceList, usePromptList } from "mcp-query/react";
+import { useServerState, useTools, useResourceList, usePromptList } from "mcpq/react";
 import { Sparkline } from "./Sparkline.js";
 import { healthToTileStatus, statusColor, statusLabel } from "../lib/tile-status.js";
 import type { ServerHealth } from "../hooks/useHealthPoll.js";

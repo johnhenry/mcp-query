@@ -1,6 +1,6 @@
 // Headless end-to-end smoke: browser transport -> proxy -> stdio server-everything.
 // Run with the proxy already up (PROXY_TOKEN=smoke). Deleted before commit.
-import { MCPClient } from "mcp-query";
+import { MCPClient } from "mcpq";
 import { WebSocketProxyTransport } from "../src/lib/transport.js";
 
 const client = new MCPClient({

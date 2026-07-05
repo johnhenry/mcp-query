@@ -4,8 +4,8 @@
 
 import { useState } from "react";
 import { SchemaForm, type JSONSchemaLike } from "@app-shared";
-import { useMCPClient, useTools, useResourceList, useServerState } from "mcp-query/react";
-import type { Tool, Resource } from "mcp-query";
+import { useMCPClient, useTools, useResourceList, useServerState } from "mcpq/react";
+import type { Tool, Resource } from "mcpq";
 import { nextId, type ToolBlock, type ResourceBlock } from "../draft.js";
 import type { ServerEntry } from "../servers.js";
 

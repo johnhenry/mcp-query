@@ -1,0 +1,50 @@
+name: Release
+
+# Publish the core package (mcpq) to npm.
+#   - Tag-triggered: push a tag like v0.1.0 (must match the package version).
+#   - Or run manually via workflow_dispatch (uses the version already in package.json).
+# Requires the NPM_TOKEN repo secret (an npm automation token with publish rights).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+
+      - name: Gate (typecheck + tests + build)
+        run: |
+          npm run typecheck
+          npm test
+          npm run build -w mcpq
+
+      - name: Verify tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/mcp-query/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "tag v$TAG_VERSION does not match package version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcp-query
+        run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
+
+      - name: Publish to npm
+        run: npm publish --workspace mcpq --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

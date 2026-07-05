@@ -6,11 +6,11 @@
 // it's safe to poll. Treating "no annotation" as mutating would make watch unusable here.
 
 import { useEffect, useState } from "react";
-import { useTools, useResourceList, useServerState } from "mcp-query/react";
-import { isReadOnly, isDestructive, type Tool } from "mcp-query";
+import { useTools, useResourceList, useServerState } from "mcpq/react";
+import { isReadOnly, isDestructive, type Tool } from "mcpq";
 import { JsonView } from "@app-shared";
 import { WatchWidget } from "./WatchWidget.js";
-import type { MCPClient } from "mcp-query";
+import type { MCPClient } from "mcpq";
 
 export function DrillDown({ client, server }: { client: MCPClient; server: string }) {
   const { state } = useServerState(server);

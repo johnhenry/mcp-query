@@ -12,8 +12,8 @@
 // but the mechanism the library provides is verified here end-to-end.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MCPClient } from "mcp-query";
-import { MockMCPServer } from "mcp-query/testing";
+import { MCPClient } from "mcpq";
+import { MockMCPServer } from "mcpq/testing";
 
 function makeNoteServer() {
   const files: Record<string, string> = { "file:///notes/welcome.md": "# Welcome\n\noriginal" };

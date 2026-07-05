@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "mcp-query": "*"
+    "mcpq": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",
