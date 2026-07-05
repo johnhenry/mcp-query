@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useTool, useServerState } from "mcpq/react";
+import { useTool, useServerState } from "@johnhenry/mcpq/react";
 import { SERVER, useNav } from "../nav.js";
 import { SchemaForm } from "@app-shared";
 import { budget, recordCall, ANALYSIS_LIMIT } from "../lib/rateBudget.js";

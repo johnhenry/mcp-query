@@ -28,7 +28,7 @@ jobs:
         run: |
           npm run typecheck
           npm test
-          npm run build -w mcpq
+          npm run build -w @johnhenry/mcpq
 
       - name: Verify tag matches package version
         if: github.ref_type == 'tag'
@@ -45,6 +45,6 @@ jobs:
         run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
 
       - name: Publish to npm
-        run: npm publish --workspace mcpq --provenance --access public
+        run: npm publish --workspace @johnhenry/mcpq --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

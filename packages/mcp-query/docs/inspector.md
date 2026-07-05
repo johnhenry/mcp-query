@@ -14,7 +14,7 @@ emitted as `request` / `response` / `notification` events (with `dir`, method, i
 response timing). This is the Inspector's defining "see every message" feature.
 
 ```ts
-import { DevtoolsHub } from "mcpq/devtools";
+import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
 
 const hub = new DevtoolsHub();
 const client = new MCPClient({ servers, devtools: hub });
@@ -54,7 +54,7 @@ step (client registration, token read/write, the authorization redirect, PKCE ve
 with secrets redacted, and exposes `authSteps()`:
 
 ```ts
-import { instrumentAuthProvider } from "mcpq";
+import { instrumentAuthProvider } from "@johnhenry/mcpq";
 
 const provider = instrumentAuthProvider(myOAuthProvider, (step) => hub.emit({ type: "auth", member: step.member, phase: step.phase }));
 const client = new MCPClient({

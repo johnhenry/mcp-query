@@ -1,7 +1,7 @@
 // Resource templates: discover uriTemplates, fill their {variables} (completed by the
 // server via ref/resource), expand, and live-read the resulting resource.
 import { useMemo, useState } from "react";
-import { useResource, useResourceTemplates } from "mcpq/react";
+import { useResource, useResourceTemplates } from "@johnhenry/mcpq/react";
 import { ResultView } from "@app-shared";
 import { CompletionInput } from "./CompletionInput.js";
 

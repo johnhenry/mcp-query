@@ -3,7 +3,7 @@
 // This is the one place we DO use refetchInterval — and only while pending.
 
 import { useMemo } from "react";
-import { useToolResult } from "mcpq/react";
+import { useToolResult } from "@johnhenry/mcpq/react";
 import { SERVER } from "../nav.js";
 import { reduceAnalysis, isSettled, type AnalysisState } from "../lib/analysis.js";
 import { Loading, ErrorState } from "./States.js";

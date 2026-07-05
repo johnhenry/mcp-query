@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MCPClient } from "mcpq";
+import { MCPClient } from "@johnhenry/mcpq";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { AppProvider } from "@app-shared";
 import { NavProvider } from "./nav.js";

@@ -3,8 +3,8 @@
 // request/response/notification/server-state). We normalize both into one row shape,
 // keep a capped ring buffer, and expose a useSyncExternalStore-friendly subscribe.
 
-import type { CallAuditEntry } from "mcpq";
-import type { DevtoolsEvent, DevtoolsHub } from "mcpq/devtools";
+import type { CallAuditEntry } from "@johnhenry/mcpq";
+import type { DevtoolsEvent, DevtoolsHub } from "@johnhenry/mcpq/devtools";
 
 export interface ActivityRow {
   id: number;

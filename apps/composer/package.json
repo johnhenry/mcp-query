@@ -15,7 +15,7 @@
   "dependencies": {
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "mcpq": "*",
+    "@johnhenry/mcpq": "*",
     "@mcp-query/app-shared": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ai.matey.core": "^0.2.0",

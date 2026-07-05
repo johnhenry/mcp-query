@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useToolResult, useServerState } from "mcpq/react";
+import { useToolResult, useServerState } from "@johnhenry/mcpq/react";
 import { SERVER, useNav } from "../nav.js";
 import {
   asList,

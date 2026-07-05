@@ -10,9 +10,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
-import { MCPClient } from "mcpq";
-import { MockMCPServer } from "mcpq/testing";
-import { MCPProvider } from "mcpq/react";
+import { MCPClient } from "@johnhenry/mcpq";
+import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPProvider } from "@johnhenry/mcpq/react";
 import type { ReactNode } from "react";
 import { PromptGallery } from "../src/components/PromptGallery.js";
 import { PromptRunner } from "../src/components/PromptRunner.js";
