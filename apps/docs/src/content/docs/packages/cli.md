@@ -78,15 +78,24 @@ mcpq tools --url https://host/mcp --bearer "$TOKEN"
 
 ## Tool verbs
 
-The eight tool verbs delegate to their respective package CLIs. As a nicety, the verbs that
-don't have their own subcommands (`lint` `docs` `bench` `codegen` `inspect`) accept a bare
-server name as their first argument — it's rewritten to `--server <name>`:
+The eight tool verbs delegate to their respective package CLIs. Verbs without their own
+subcommands (`lint` `docs` `bench` `codegen` `inspect`) accept a bare server name as their
+first argument — it's rewritten to `--server <name>`. `contract` and `record` keep their
+subcommands, and a registered name **after** the subcommand resolves too (the rewrite is
+resolution-gated, so file positionals like `record inspect tape.json` are never mangled):
 
 ```bash
-mcpq lint everything           # ≡  mcp-lint --server everything
-mcpq docs linear               # ≡  mcp-docs --server linear
-mcpq bench everything --runs 50
-mcpq contract capture --server everything   # contract/record keep their subcommands
+mcpq lint everything                 # ≡  mcp-lint --server everything
+mcpq docs linear                     # ≡  mcp-docs --server linear
+mcpq bench everything --iterations 50
+mcpq contract snapshot everything --out pin.json
+mcpq record record everything --out tape.json
+mcpq bench --help                    # per-verb usage at the umbrella
 ```
 
-Every flag a tool's own CLI accepts is passed straight through.
+Every flag a tool's own CLI accepts is passed straight through — and **unknown flags are
+rejected** with the list of known flags (typos fail fast instead of being silently
+swallowed). The client verbs `call`/`prompt` are exempt by design: unknown flags there
+*are* the tool arguments. One call grammar works everywhere a call is specified —
+`mcpq call`, `bench --call`, and `record --call` all accept both
+`tool(k: v, …)` and `tool:{"k":"v"}`.

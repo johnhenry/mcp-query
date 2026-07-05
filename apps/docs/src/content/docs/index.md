@@ -53,6 +53,8 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 | **[approvals](apps/approvals)** | **Human-in-the-loop** — agent sampling/elicitation proposals approved/edited in a queue, on the `InteractionBroker` | React |
 | **[notebook](apps/notebook)** | **Subscriptions** — a notes UI where agent and app share one live view via `resources/subscribe` | React |
 | **[composer](apps/composer)** | **Tools as *input*** — a chat where the *user* drives MCP tools to assemble grounded input (the inverse of agentic tool use), with a pluggable model picker via [ai.matey](https://github.com/johnhenry/ai.matey) | React |
+| **[prompt-studio](apps/prompt-studio)** | **Prompts as a product surface** — run server prompts with live `completion/complete` typeahead (incl. dependent completions), expand resource templates into subscribed reads, over codegen-typed hooks | React |
+| **[switchboard](apps/switchboard)** | **One governed endpoint, many tenants** — an `@mcp-query/gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, per-tenant cache partitions via `client.scope()` | React |
 
 Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
 it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
