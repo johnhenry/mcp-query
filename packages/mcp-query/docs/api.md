@@ -51,8 +51,38 @@ await client.connect();             // connects all servers; failures are isolat
 await client.close();
 ```
 
-`ConnectionConfig` per server: `{ transport: () => Transport, maxRetries?, retryDelay? }`.
+`ConnectionConfig` per server: `{ transport: (ctx?) => Transport, maxRetries?, retryDelay?, sessionStore? }`.
 The transport factory is re-invoked on reconnect.
+
+### Session resumption (Streamable HTTP)
+
+Stateful Streamable HTTP servers key their state on `Mcp-Session-Id`. By default every
+reload/reconnect re-`initialize`s into a *fresh* session, so the server forgets the client.
+Opt in with a `sessionStore` and a factory that forwards the context:
+
+```ts
+import { webStorageSessionStore } from "@johnhenry/mcpq";
+
+servers: {
+  api: {
+    sessionStore: webStorageSessionStore("mcpq:api"), // window.sessionStorage — same-tab lifetime
+    transport: (ctx) => {
+      const t = new StreamableHTTPClientTransport(url, { sessionId: ctx?.sessionId });
+      if (ctx?.protocolVersion) t.setProtocolVersion(ctx.protocolVersion);
+      return t;
+    },
+  },
+}
+```
+
+After a fresh connect the store receives `{ sessionId, capabilities, protocolVersion, serverVersion }`.
+On the next connect — page reload or mid-session reconnect — the stored id is passed to the
+factory; the SDK sees `transport.sessionId` and skips `initialize`, so negotiated state is
+restored from the record. The resumed session is *validated* with a `ping`: if the server has
+forgotten it, the record is cleared and the connection falls back to a fresh `initialize`
+(never an error). `ServerConnection.resumed` (and `useServerState().resumed`) reports which
+path this connection took. `memorySessionStore()` gives resume-across-reconnects within one
+process; sessionless transports (stdio, in-memory) never persist anything.
 
 ## Imperative client API
 

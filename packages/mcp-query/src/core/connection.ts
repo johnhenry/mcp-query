@@ -18,6 +18,7 @@ import type { MCPCache } from "./cache.js";
 import { clientCapabilities, installHandlers } from "./handlers.js";
 import { instrumentTransport, type TrafficEvent } from "./instrument.js";
 import { listKeyFor } from "./keys.js";
+import type { SessionStore } from "./sessionStore.js";
 import { capsTag, serverTag } from "./tags.js";
 import type {
   ClientInfo,
@@ -30,9 +31,26 @@ import type {
   Tool,
 } from "./types.js";
 
+/**
+ * Passed to the transport factory when resuming a persisted session. A Streamable HTTP
+ * factory should forward `sessionId` to its transport options (which makes the SDK skip
+ * `initialize`) and call `setProtocolVersion(protocolVersion)` when one is present.
+ */
+export interface TransportContext {
+  sessionId?: string;
+  protocolVersion?: string;
+}
+
 export interface ConnectionConfig {
   /** A transport factory so we can rebuild it on reconnect (stdio/StreamableHTTP/SSE). */
-  transport: () => Transport;
+  transport: (ctx?: TransportContext) => Transport;
+  /**
+   * Opt-in session resumption (Streamable HTTP): persist the transport's session id so a
+   * reload or reconnect resumes the same server-side session instead of re-`initialize`-ing
+   * into a fresh one. A resumed session is validated with a `ping` and falls back to a
+   * fresh init if the server has forgotten it.
+   */
+  sessionStore?: SessionStore;
   /** Cap reconnection attempts; backoff is exponential. */
   maxRetries?: number;
   /** ms before reconnect attempt N (0-based). Default: exponential capped at 30s. */
@@ -61,6 +79,8 @@ export class ServerConnection {
   state: ServerState = "idle";
   capabilities: ServerCapabilities = {};
   protocolVersion = "";
+  /** True when the current connection resumed a persisted session (skipped `initialize`). */
+  resumed = false;
 
   // Live registries — kept current by list_changed handlers (dynamic registration).
   tools = new Map<string, Tool>();
@@ -76,6 +96,7 @@ export class ServerConnection {
   private idle = false; // slept by idle eviction (re-wakes on next use)
   private idleTimer?: ReturnType<typeof setTimeout>;
   private readyPromise?: Promise<void>;
+  private rawTransport?: Transport;
 
   constructor(
     readonly name: string,
@@ -154,8 +175,9 @@ export class ServerConnection {
   }
 
   /** Build the transport, instrumented for the message log when a tap is present. */
-  private makeTransport(): Transport {
-    const t = this.cfg.transport();
+  private makeTransport(ctx?: TransportContext): Transport {
+    const t = this.cfg.transport(ctx);
+    this.rawTransport = t; // the instrumented wrapper doesn't forward `sessionId`
     return this.deps.onMessage ? instrumentTransport(t, (ev) => this.deps.onMessage!(this.name, ev)) : t;
   }
 
@@ -163,12 +185,8 @@ export class ServerConnection {
   async connect(): Promise<void> {
     this.setState("connecting");
     try {
-      this.wireNotifications();
-      await this.client.connect(this.makeTransport());
+      await this.establish();
       this.setState("initializing");
-      // The SDK performs `initialize` during connect(); capabilities are now available.
-      this.capabilities = this.client.getServerCapabilities() ?? {};
-      this.protocolVersion = this.client.getServerVersion()?.version ?? "";
       await this.refreshAll();
       this.retries = 0;
       this.setState(this.isDegraded() ? "degraded" : "ready");
@@ -176,6 +194,50 @@ export class ServerConnection {
       this.setState("failed");
       this.scheduleReconnect();
       throw err;
+    }
+  }
+
+  /**
+   * Connect the SDK client — resuming the persisted session when a `sessionStore` still
+   * holds one, else a fresh `initialize` — then capture the session that resulted.
+   * A resume skips `initialize` (the SDK detects `transport.sessionId`), so negotiated
+   * state is restored from the persisted record and the session is validated with a
+   * `ping` before we trust it; a server that forgot the session falls through to fresh.
+   */
+  private async establish(): Promise<void> {
+    const store = this.cfg.sessionStore;
+    const saved = store ? await store.get() : undefined;
+    this.resumed = false;
+    if (saved?.sessionId) {
+      try {
+        this.wireNotifications();
+        await this.client.connect(
+          this.makeTransport({ sessionId: saved.sessionId, protocolVersion: saved.protocolVersion }),
+        );
+        this.capabilities = saved.capabilities ?? {};
+        this.protocolVersion = saved.serverVersion ?? "";
+        await this.client.ping();
+        this.resumed = true;
+        return;
+      } catch {
+        await Promise.resolve(store!.clear()).catch(() => {});
+        await this.client.close().catch(() => {});
+        this.client = this.makeClient();
+      }
+    }
+    this.wireNotifications();
+    await this.client.connect(this.makeTransport());
+    // The SDK performs `initialize` during connect(); capabilities are now available.
+    this.capabilities = this.client.getServerCapabilities() ?? {};
+    this.protocolVersion = this.client.getServerVersion()?.version ?? "";
+    const sessionId = this.rawTransport?.sessionId;
+    if (store && sessionId) {
+      await store.set({
+        sessionId,
+        capabilities: this.capabilities,
+        protocolVersion: (this.rawTransport as { protocolVersion?: string }).protocolVersion,
+        serverVersion: this.protocolVersion,
+      });
     }
   }
 
@@ -187,9 +249,7 @@ export class ServerConnection {
     try {
       this.client.onclose = undefined; // stop the dying client from scheduling another reconnect
       this.client = this.makeClient();
-      this.wireNotifications();
-      await this.client.connect(this.makeTransport());
-      this.capabilities = this.client.getServerCapabilities() ?? {};
+      await this.establish(); // resumes the server-side session when the store still holds it
       this.reconcileCapabilities(before, this.capabilities);
       await this.refreshAll(); // re-list: surface may have changed
       await this.resubscribeObserved(); // re-establish resources/subscribe for observed entries

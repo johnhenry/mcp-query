@@ -52,15 +52,16 @@ describe("useServerState", () => {
   it("reports the connection lifecycle", async () => {
     const { client } = await makeClient();
     function View() {
-      const { state, isReady } = useServerState("srv");
-      return <span>{state}{isReady ? "!" : ""}</span>;
+      const { state, isReady, resumed } = useServerState("srv");
+      return <span>{state}{isReady ? "!" : ""}{resumed === false ? " fresh" : " resumed"}</span>;
     }
     render(
       <MCPProvider client={client}>
         <View />
       </MCPProvider>,
     );
-    await waitFor(() => expect(screen.getByText("ready!")).toBeTruthy());
+    // In-memory transports are sessionless, so this session was freshly initialized.
+    await waitFor(() => expect(screen.getByText("ready! fresh")).toBeTruthy());
     await client.close();
   });
 });

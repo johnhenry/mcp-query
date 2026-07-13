@@ -9,6 +9,8 @@ import type { ServerState } from "../core/types.js";
 export interface UseServerStateResult {
   state: ServerState;
   isReady: boolean;
+  /** True when this connection resumed a persisted session — server-side state survived. */
+  resumed: boolean;
   /** Convenience capability probe (tools/resources/prompts/resources.subscribe). */
   supports: (feature: "tools" | "resources" | "prompts" | "resources.subscribe") => boolean;
 }
@@ -25,6 +27,7 @@ export function useServerState(server: string): UseServerStateResult {
   return {
     state,
     isReady: state === "ready",
+    resumed: conn?.resumed ?? false,
     supports: (f) => conn?.supports(f) ?? false,
   };
 }

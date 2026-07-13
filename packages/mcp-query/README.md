@@ -51,6 +51,7 @@ A graded series from one-liner to full app lives in [`examples/`](./examples) (s
 | `test/cache.test.ts` | staleTime, subscriber ref-counting, tag + protocol invalidation, optimistic rollback, gc |
 | `test/router.test.ts` | tool/resource routing, namespacing, ambiguity errors |
 | `test/connection.test.ts` | connect/negotiate, cursor pagination, `resources/updated`, `list_changed`, **reconnect with a changed capability set** |
+| `test/session-resume.test.ts` | session capture/persist, resume-skips-`initialize`, validated fallback on forgotten sessions, resume across reconnect |
 | `test/client.test.ts` | multi-server routing, URI-tagged caching, subscribe ref-count, declared invalidation, isError rollback |
 | `test/codegen.test.ts` | JSON Schema → TS, generated output compiles under `--strict`, paginated `generateFromClient` |
 | `test/react.dom.test.tsx` | `useResource` loading→data, `useTool` invoke, `useTools` reactivity on `list_changed` (happy-dom) |
@@ -125,6 +126,9 @@ The MCP bonus: a chunk of the invalidation you'd hand-declare in RTK Query is
 - `notifications/<kind>/list_changed` → re-list → `cache.onListChanged` → `useTools()` re-renders.
 - cache subscriber count (>0) → connection issues `resources/subscribe`; (==0) → unsubscribe + gc.
 - reconnect → re-`initialize` (capabilities may differ) → reconcile → re-list → resubscribe observed entries.
+- with a `sessionStore` (opt-in), reload/reconnect *resumes* the server-side Streamable HTTP
+  session instead: the persisted `Mcp-Session-Id` skips `initialize`, a `ping` validates it,
+  and a forgotten session falls back to fresh init ([docs/api.md](docs/api.md#session-resumption-streamable-http)).
 
 ## Usage
 
