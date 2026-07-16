@@ -78,6 +78,8 @@ export interface ConnectionDeps {
 export class ServerConnection {
   state: ServerState = "idle";
   capabilities: ServerCapabilities = {};
+  /** serverInfo.version from `initialize` (the server's own version string) — NOT the MCP
+   *  protocol version. Compare to `TransportContext.protocolVersion`, which is that header. */
   protocolVersion = "";
   /** True when the current connection resumed a persisted session (skipped `initialize`). */
   resumed = false;
@@ -220,7 +222,11 @@ export class ServerConnection {
         this.resumed = true;
         return;
       } catch {
-        await Promise.resolve(store!.clear()).catch(() => {});
+        // Don't clear the record here: this failure may be a transient network/connect
+        // error rather than a confirmed "server forgot the session", and discarding a
+        // still-valid session id would cost future resumability for nothing. A successful
+        // fresh connect below overwrites the record anyway; a failed one leaves the old
+        // (possibly still-valid) id in place for the next attempt.
         await this.client.close().catch(() => {});
         this.client = this.makeClient();
       }
