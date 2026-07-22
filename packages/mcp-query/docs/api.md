@@ -22,7 +22,7 @@ A complete catalog of the public surface. Conceptual background lives in
 
 ```ts
 import { MCPClient, InteractionBroker } from "@johnhenry/mcpq";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport } from "@johnhenry/mcpq/transports";
 
 const client = new MCPClient({
   servers: {
@@ -51,10 +51,55 @@ await client.connect();             // connects all servers; failures are isolat
 await client.close();
 ```
 
-`ConnectionConfig` per server: `{ transport: (ctx?) => Transport, maxRetries?, retryDelay?, sessionStore? }`.
+`ConnectionConfig` per server: `{ transport: (ctx?) => Transport, versions?, versionNegotiation?,
+inputRequired?, maxRetries?, retryDelay?, lazy?, idleMs?, sessionStore? }`.
 The transport factory is re-invoked on reconnect.
 
-### Session resumption (Streamable HTTP)
+### Protocol versions (MCP 2026-07-28)
+
+Unconfigured connections speak the classic 2025-era protocol **byte-for-byte** —
+no probe, no behavioral changes. Newer revisions are opt-in via the additive
+`versions` preference list, client-wide or per connection (per-connection wins):
+
+```ts
+// Additive: probe via server/discover; speak 2026-07-28 where offered,
+// fall back losslessly to the 2025 handshake otherwise.
+const client = new MCPClient({ servers, versions: ["2026-07-28", "2025-11-25"] });
+
+// Exclusive: a modern-only list PINS — a server that can't speak it fails the connect.
+servers: { strict: { transport, versions: ["2026-07-28"] } }
+
+// A legacy-only list is explicit v1 (same as absent, but constrains what
+// the initialize handshake offers).
+servers: { old: { transport, versions: ["2025-11-25"] } }
+```
+
+The mapping (`negotiationFromVersions()`, exported) is mechanical: a modern-only
+list → the SDK's `{ mode: { pin } }` on the newest entry; a mixed list →
+`{ mode: "auto" }`; a legacy-only list → `{ mode: "legacy" }` — and the list
+itself becomes the SDK's `supportedProtocolVersions`, constraining exactly which
+revisions either handshake offers. Unknown strings pass through to the SDK
+verbatim, so future revisions need no library change. `versionNegotiation` (the
+SDK's own option shape) remains the low-level escape hatch and takes precedence
+over `versions` when both are set.
+
+After connect, `client.connection(name).era` reports what was actually
+negotiated (`"legacy" | "modern"`) — the request was a preference; the
+connection is the truth. Era-dependent surfaces (the deprecated
+`ping`/`setLogLevel`/roots-notify, the tasks extension gate, `subscriptions/listen`
+vs `resources/subscribe`, SEP-2549 cache hints, per-request `CallContext.logLevel`)
+switch on it automatically; app code using the hooks/broker/cache never branches.
+
+CLI note: `mcpq-inspect` and `mcpq-codegen` keep the conservative v1 default and
+expose `--negotiate auto|legacy|pin:<revision>` (spawn-per-invocation stdio tools
+should not pay the probe by default).
+
+### Session resumption (Streamable HTTP) — 2025-era only
+
+Sessions were removed by the 2026-07-28 revision (SEP-2567); everything in this
+section applies to legacy connections, where it keeps working through the
+deprecation window (a modern connection never sets `transport.sessionId`, so a
+configured store simply never writes).
 
 Stateful Streamable HTTP servers key their state on `Mcp-Session-Id`. By default every
 reload/reconnect re-`initialize`s into a *fresh* session, so the server forgets the client.
@@ -302,7 +347,7 @@ on the transport itself (OAuth 2.1 for Streamable HTTP), so no special client AP
 needed:
 
 ```ts
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport } from "@johnhenry/mcpq/transports";
 
 const client = new MCPClient({
   servers: {

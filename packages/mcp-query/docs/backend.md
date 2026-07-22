@@ -6,7 +6,7 @@ features live in optional subpath exports (`mcp-query/server`, `/metrics`, `/ses
 `/redis`) so the core stays small.
 
 ```bash
-npm i mcp-query @modelcontextprotocol/sdk
+npm i @johnhenry/mcpq @modelcontextprotocol/client
 ```
 
 The shape it fits: a **long-lived aggregator / server-side agent runtime** (BFF, gateway,
