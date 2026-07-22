@@ -8,7 +8,7 @@
 
 import { MCPClient } from "../src/index.js";
 import { generateFromClient } from "../src/codegen/cli.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const client = new MCPClient({
   servers: {

@@ -5,7 +5,7 @@
 
 import { MCPClient, isDestructive } from "../src/index.js";
 import { bridgeToWebMCP, webMcpToolServer } from "../src/webmcp/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 const client = new MCPClient({
   servers: {

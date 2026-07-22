@@ -7,10 +7,12 @@ import type { CacheKey } from "../src/core/keys.js";
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
 function twoServerClient() {
+  // Legacy-pinned: these tests assert 2025-era observability (mock.subscribed)
+  // and unhinted cache defaults; modern-era behavior has dedicated tests.
   const fs = new MockMCPServer({
     resources: [{ uri: "file:///a", read: () => ({ text: "AAA" }) }],
     tools: [{ name: "read_file", annotations: { readOnlyHint: true }, handler: () => ({ content: [{ type: "text", text: "ok" }] }) }],
-  });
+  }, { era: "legacy" });
   const github = new MockMCPServer({
     tools: [
       { name: "create_issue", annotations: { destructiveHint: false }, handler: (a) => ({ content: [{ type: "text", text: `#${(a as any).title}` }] }) },

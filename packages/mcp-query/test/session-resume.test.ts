@@ -2,14 +2,13 @@
 // `initialize` negotiated) so a page reload or transport drop resumes the same
 // server-side session instead of silently minting a new one.
 //
-// The mock here emulates Streamable HTTP session semantics over the in-memory
-// MockMCPServer: a fresh connect "assigns" a session id once the initialize
-// round-trip happens; a resumed connect presets `transport.sessionId` (which makes
-// the SDK client skip `initialize`); a forgotten session rejects every request the
-// way a stateful HTTP server 404s an unknown Mcp-Session-Id.
+// 2026-07-28 note: sessions were REMOVED from the modern revision (SEP-2567) —
+// this entire feature is 2025-era, so the mocks here pin `era: "legacy"` and
+// drive the mock's REAL sessionful Streamable HTTP leg (genuine Mcp-Session-Id
+// assignment on initialize, 404 on unknown ids). One test asserts the modern-era
+// posture: no session ever exists, so a configured store never writes.
 
 import { describe, it, expect } from "vitest";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ServerConnection } from "../src/core/connection.js";
 import type { TransportContext } from "../src/core/connection.js";
 import { MCPCache } from "../src/core/cache.js";
@@ -22,59 +21,22 @@ import {
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
-// ── test double: session-aware transport factory ────────────────────────────
-function deadTransport(sessionId: string): Transport {
-  const t: Transport = {
-    sessionId,
-    async start() {},
-    async send() {
-      throw new Error("HTTP 404: session not found");
-    },
-    async close() {
-      t.onclose?.();
-    },
-  };
-  return t;
-}
-
-function sessionfulMock(mock: MockMCPServer) {
-  const live = new Set<string>();
-  let n = 0;
-  const calls: Array<string | undefined> = []; // sessionId the factory was invoked with
-  const transport = (ctx?: TransportContext): Transport => {
+/** Track what session id (if any) each transport-factory call received. */
+function tracked(mock: MockMCPServer) {
+  const calls: Array<string | undefined> = [];
+  const transport = (ctx?: TransportContext) => {
     calls.push(ctx?.sessionId);
-    if (ctx?.sessionId !== undefined) {
-      if (!live.has(ctx.sessionId)) return deadTransport(ctx.sessionId);
-      const t = mock.transport();
-      (t as { sessionId?: string }).sessionId = ctx.sessionId; // SDK will skip initialize
-      return t;
-    }
-    const t = mock.transport();
-    const id = `sess-${++n}`;
-    const send = t.send.bind(t);
-    // The real transport learns its id from the initialize response header; here the
-    // first outbound message is `initialize`, so stamp the id as soon as it's sent.
-    t.send = async (...args: Parameters<Transport["send"]>) => {
-      await send(...args);
-      (t as { sessionId?: string }).sessionId = id;
-      live.add(id);
-    };
-    return t;
+    return mock.transport(ctx);
   };
-  return { transport, live, calls };
+  return { transport, calls };
 }
 
 function connectionWith(
-  mock: MockMCPServer,
-  transport: (ctx?: TransportContext) => Transport,
+  transport: (ctx?: TransportContext) => ReturnType<MockMCPServer["transport"]>,
   sessionStore?: SessionStore,
 ) {
   const cache = new MCPCache();
-  const conn = new ServerConnection(
-    "srv",
-    { transport, sessionStore, retryDelay: () => 5 },
-    { cache, handlers: {} },
-  );
+  const conn = new ServerConnection("srv", { transport, sessionStore, retryDelay: () => 5 }, { cache, handlers: {} });
   return { cache, conn };
 }
 
@@ -124,68 +86,70 @@ describe("session stores", () => {
 // ── capture ──────────────────────────────────────────────────────────────────
 describe("session capture", () => {
   it("persists sessionId + negotiated state after a fresh connect", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
-    const { transport } = sessionfulMock(mock);
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "legacy" });
+    const { transport } = tracked(mock);
     const store = memorySessionStore();
-    const { conn } = connectionWith(mock, transport, store);
+    const { conn } = connectionWith(transport, store);
 
     await conn.connect();
     expect(conn.state).toBe("ready");
     expect(conn.resumed).toBe(false);
 
     const saved = await store.get();
-    expect(saved?.sessionId).toBe("sess-1");
+    expect(saved?.sessionId).toMatch(/^mock-session-/); // real header-assigned id
     expect(saved?.capabilities?.tools).toBeTruthy();
     expect(saved?.serverVersion).toBe("1.0.0"); // restores conn.protocolVersion on resume
     await conn.close();
+    await mock.close();
   });
 
-  it("persists nothing when the transport is sessionless (stdio/in-memory)", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
+  it("persists nothing on a modern-era connection (sessions removed by SEP-2567)", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "modern" });
     const store = memorySessionStore();
-    // plain mock transport: never exposes a sessionId
-    const { conn } = connectionWith(mock, () => mock.transport(), store);
+    const { conn } = connectionWith((ctx) => mock.transport(ctx), store);
     await conn.connect();
+    expect(conn.era).toBe("modern");
     expect(await store.get()).toBeUndefined();
     expect(conn.resumed).toBe(false);
     await conn.close();
+    await mock.close();
   });
 });
 
 // ── resume ───────────────────────────────────────────────────────────────────
 describe("session resume", () => {
   it("resumes a stored session: factory gets the id, initialize is skipped, capabilities restore", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
-    const { transport, calls } = sessionfulMock(mock);
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "legacy" });
+    const { transport, calls } = tracked(mock);
     const store = memorySessionStore();
 
-    const first = connectionWith(mock, transport, store);
+    const first = connectionWith(transport, store);
     await first.conn.connect();
     await first.conn.close();
+    const saved = (await store.get())!.sessionId;
 
     // "Page reload": a brand-new connection sharing only the store.
-    const second = connectionWith(mock, transport, store);
+    const second = connectionWith(transport, store);
     await second.conn.connect();
 
-    expect(calls.at(-1)).toBe("sess-1"); // factory received the stored id
+    expect(calls.at(-1)).toBe(saved); // factory received the stored id
     expect(second.conn.resumed).toBe(true);
     expect(second.conn.state).toBe("ready");
-    // initialize was skipped (the server never saw clientInfo)…
-    expect(mock.clientInfo()).toBeUndefined();
-    // …so capabilities must have been restored from the persisted record,
+    // initialize was skipped, so capabilities came from the persisted record —
     // which is what lets the catalog refresh run.
     expect(second.conn.supports("tools")).toBe(true);
     expect(second.conn.tools.has("echo")).toBe(true);
     await second.conn.close();
+    await mock.close();
   });
 
   it("falls back to a fresh initialize when the server forgot the session", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
-    const { transport, calls } = sessionfulMock(mock);
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "legacy" });
+    const { transport, calls } = tracked(mock);
     const store = memorySessionStore();
     await store.set({ sessionId: "stale-id", capabilities: { tools: {} } }); // server never heard of it
 
-    const { conn } = connectionWith(mock, transport, store);
+    const { conn } = connectionWith(transport, store);
     await conn.connect(); // must not throw: validated fallback
 
     expect(calls[0]).toBe("stale-id"); // tried the resume first
@@ -193,42 +157,47 @@ describe("session resume", () => {
     expect(conn.resumed).toBe(false);
     expect(conn.state).toBe("ready");
     expect(conn.tools.has("echo")).toBe(true);
-    expect((await store.get())?.sessionId).toBe("sess-1"); // stale record replaced
+    const replaced = (await store.get())?.sessionId;
+    expect(replaced).toMatch(/^mock-session-/); // stale record replaced
     await conn.close();
+    await mock.close();
   });
 });
 
 // ── reconnect ────────────────────────────────────────────────────────────────
 describe("session resume across reconnect", () => {
   it("a transport drop reconnects into the SAME server-side session", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
-    const { transport, calls } = sessionfulMock(mock);
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "legacy" });
+    const { transport, calls } = tracked(mock);
     const store = memorySessionStore();
-    const { conn } = connectionWith(mock, transport, store);
+    const { conn } = connectionWith(transport, store);
     await conn.connect();
     expect(calls).toEqual([undefined]);
+    const saved = (await store.get())!.sessionId;
 
     await conn.sdk.transport?.close(); // mid-session drop → scheduleReconnect
-    await tick(60);
+    await tick(80);
 
     expect(conn.state).toBe("ready");
-    expect(calls.at(-1)).toBe("sess-1"); // reconnect resumed, not re-initialized
+    expect(calls.at(-1)).toBe(saved); // reconnect resumed, not re-initialized
     expect(conn.resumed).toBe(true);
     await conn.close();
+    await mock.close();
   });
 
   it("without a sessionStore, reconnect keeps today's fresh-init behavior", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
-    const { transport, calls } = sessionfulMock(mock);
-    const { conn } = connectionWith(mock, transport, undefined);
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "legacy" });
+    const { transport, calls } = tracked(mock);
+    const { conn } = connectionWith(transport, undefined);
     await conn.connect();
 
     await conn.sdk.transport?.close();
-    await tick(60);
+    await tick(80);
 
     expect(conn.state).toBe("ready");
     expect(calls).toEqual([undefined, undefined]); // never asked to resume
     expect(conn.resumed).toBe(false);
     await conn.close();
+    await mock.close();
   });
 });

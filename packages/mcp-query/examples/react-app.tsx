@@ -14,7 +14,7 @@ import { useServerState } from "../src/react/useServerState.js";
 import { useInteractions } from "../src/react/interactions.js";
 import { createTypedHooks } from "../src/react/typed.js";
 import { MCPDevtools, DevtoolsHub } from "../src/devtools/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 const hub = new DevtoolsHub();
 

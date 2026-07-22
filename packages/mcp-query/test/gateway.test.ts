@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { MCPClient } from "../src/core/client.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
 import { createGateway } from "../src/server/gateway.js";
@@ -82,7 +81,7 @@ describe("createGateway", () => {
     const { consumer, b } = await setup();
     let notified = false;
     consumer.setNotificationHandler(
-      (await import("@modelcontextprotocol/sdk/types.js")).ToolListChangedNotificationSchema,
+      "notifications/tools/list_changed",
       () => { notified = true; },
     );
     b.spec.tools = [{ name: "ping" }, { name: "ping2" }];

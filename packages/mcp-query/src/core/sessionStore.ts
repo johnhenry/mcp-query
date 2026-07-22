@@ -5,9 +5,19 @@
 //
 // A resumed connect skips `initialize` (the SDK detects `transport.sessionId`), so the
 // record persists what the handshake would have negotiated alongside the id itself.
+//
+// DEPRECATED (2026-07-28): the modern protocol revision removes sessions and the
+// `Mcp-Session-Id` header entirely (SEP-2567) — cross-call state is carried in
+// explicit server-minted handles. Everything here applies to 2025-era connections
+// only; on a modern connection the transport never sets `sessionId`, so a
+// configured store simply never writes.
 
 import type { ServerCapabilities } from "./types.js";
 
+/**
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision has no
+ * `Mcp-Session-Id` (SEP-2567). Functional on legacy connections.
+ */
 export interface PersistedSession {
   /** The transport session id (`Mcp-Session-Id` for Streamable HTTP). */
   sessionId: string;
@@ -20,6 +30,9 @@ export interface PersistedSession {
 }
 
 /**
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision has no
+ * `Mcp-Session-Id` (SEP-2567). Functional on legacy connections.
+ *
  * Where a connection stashes its session record. Async-tolerant so backends can be
  * IndexedDB, Redis, etc. A store is per-server: give each server its own instance
  * (or its own key, for `webStorageSessionStore`).
@@ -30,7 +43,12 @@ export interface SessionStore {
   clear(): void | Promise<void>;
 }
 
-/** In-process store — resumes across reconnects within one page/process lifetime. */
+/**
+ * In-process store — resumes across reconnects within one page/process lifetime.
+ *
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision has no
+ * `Mcp-Session-Id` (SEP-2567). Functional on legacy connections.
+ */
 export function memorySessionStore(): SessionStore {
   let session: PersistedSession | undefined;
   return {
@@ -40,7 +58,12 @@ export function memorySessionStore(): SessionStore {
   };
 }
 
-/** The subset of the Web Storage API the store needs (so tests can fake it). */
+/**
+ * The subset of the Web Storage API the store needs (so tests can fake it).
+ *
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision has no
+ * `Mcp-Session-Id` (SEP-2567). Functional on legacy connections.
+ */
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -48,6 +71,9 @@ export interface StorageLike {
 }
 
 /**
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision has no
+ * `Mcp-Session-Id` (SEP-2567). Functional on legacy connections.
+ *
  * Browser store on `window.sessionStorage` by default — same-tab lifetime, so a
  * refresh resumes the session and closing the tab drops it (mirroring the server's
  * own session semantics). Pass `localStorage` for cross-tab/restart persistence.

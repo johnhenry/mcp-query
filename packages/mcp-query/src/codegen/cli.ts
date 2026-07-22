@@ -7,8 +7,8 @@
 // thin I/O wrapper around it.
 
 import { writeFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
   generateToolTypes,
   generatePromptTypes,
@@ -21,15 +21,8 @@ import {
 /** Drain tools (and, when available, prompts + resource templates) and generate types. */
 export async function generateFromClient(client: Client): Promise<string> {
   const caps = client.getServerCapabilities() ?? {};
-  const tools: ToolLike[] = [];
-  let cursor: string | undefined;
-  if (caps.tools) {
-    do {
-      const page = await client.listTools(cursor ? { cursor } : undefined);
-      tools.push(...(page.tools as ToolLike[]));
-      cursor = page.nextCursor;
-    } while (cursor);
-  }
+  // v2 listTools auto-aggregates every page when called without a cursor.
+  const tools: ToolLike[] = caps.tools ? ((await client.listTools()).tools as ToolLike[]) : [];
 
   let prompts: PromptLike[] = [];
   if (caps.prompts) prompts = (await client.listPrompts().catch(() => ({ prompts: [] }))).prompts as PromptLike[];
@@ -57,10 +50,17 @@ function parseArgs(argv: string[]): Record<string, string> {
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const a = parseArgs(argv);
   if (!a.command) {
-    console.error("usage: mcpq-codegen --command <cmd> [--args <space-separated>] --out <file.ts>");
+    console.error("usage: mcpq-codegen --command <cmd> [--args <space-separated>] [--negotiate auto|legacy|pin:<rev>] --out <file.ts>");
     process.exit(1);
   }
-  const client = new Client({ name: "mcpq-codegen", version: "0.0.1" }, { capabilities: {} });
+  // CLIs keep the SDK's conservative 'legacy' negotiation default (spawn-per-invocation
+  // stdio tools stall on the probe against servers that ignore pre-initialize requests);
+  // opt in with --negotiate auto|legacy|pin:<revision>.
+  const negotiate = a.negotiate ? parseNegotiate(a.negotiate) : undefined;
+  const client = new Client(
+    { name: "mcpq-codegen", version: "0.1.0" },
+    { capabilities: {}, ...(negotiate ? { versionNegotiation: negotiate } : {}) },
+  );
   await client.connect(
     new StdioClientTransport({ command: a.command, args: a.args ? a.args.split(" ").filter(Boolean) : [] }),
   );
@@ -72,6 +72,13 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   } else {
     process.stdout.write(code);
   }
+}
+
+/** Parse --negotiate auto|legacy|pin:<revision>. */
+export function parseNegotiate(v: string): VersionNegotiationOptions {
+  if (v === "auto" || v === "legacy") return { mode: v };
+  if (v.startsWith("pin:")) return { mode: { pin: v.slice(4) as "2026-07-28" } };
+  throw new Error(`--negotiate: expected auto|legacy|pin:<revision>, got "${v}"`);
 }
 
 // Run only when invoked directly (not when imported by tests).

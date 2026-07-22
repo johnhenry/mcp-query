@@ -29,8 +29,20 @@ export { instrumentTransport } from "./core/instrument.js";
 export type { TrafficEvent, TrafficDirection } from "./core/instrument.js";
 export { instrumentAuthProvider } from "./core/authDebug.js";
 export type { AuthStep } from "./core/authDebug.js";
-export { ServerConnection } from "./core/connection.js";
+export { ServerConnection, cacheTtl, cacheScope } from "./core/connection.js";
 export type { ConnectionConfig, TransportContext } from "./core/connection.js";
+export { ListenManager } from "./core/listen.js";
+export type { ListenManagerOptions } from "./core/listen.js";
+// v2 SDK passthroughs consumers need for negotiation/MRTR config.
+export { withInputRequired } from "@modelcontextprotocol/client";
+export type {
+  InputRequiredOptions,
+  McpSubscription,
+  SubscriptionFilter,
+  VersionNegotiationOptions,
+} from "@modelcontextprotocol/client";
+export { TASKS_EXT, TaskSchema, DetailedTaskSchema, isTaskShaped, TERMINAL_STATUSES } from "./core/tasksExt.js";
+export type { DetailedTask } from "./core/tasksExt.js";
 export { memorySessionStore, webStorageSessionStore } from "./core/sessionStore.js";
 export type { SessionStore, PersistedSession, StorageLike } from "./core/sessionStore.js";
 export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.js";
@@ -52,7 +64,20 @@ export type { Tag } from "./core/tags.js";
 export type { CacheKey } from "./core/keys.js";
 export { argsHash, serializeKey } from "./core/keys.js";
 export { MCPError } from "./core/types.js";
-export type { ServerState, MCPErrorKind, HostHandlers, Tool, Resource, Prompt, ClientInfo, Task, TaskStatus } from "./core/types.js";
+export type {
+  ServerState,
+  MCPErrorKind,
+  HostHandlers,
+  ElicitationRequest,
+  ProtocolEra,
+  LoggingLevel,
+  Tool,
+  Resource,
+  Prompt,
+  ClientInfo,
+  Task,
+  TaskStatus,
+} from "./core/types.js";
 export {
   chromeBuiltinAISampling,
   ModelUnavailableError,

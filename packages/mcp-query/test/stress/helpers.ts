@@ -1,8 +1,8 @@
 // Shared helpers for the stress suite. Everything here is deterministic (seeded RNG) and
 // hermetic by default; scenarios that need a real subprocess gate themselves on STRESS_REAL.
 
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import type { Transport } from "@modelcontextprotocol/client";
 
 export const REAL = process.env.STRESS_REAL === "1";
 

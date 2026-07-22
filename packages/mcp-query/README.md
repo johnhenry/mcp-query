@@ -7,7 +7,20 @@ introspectable capability surface — tools, resources, prompts — and there's 
 reason a normal app can't use it as a universal data/capability layer. `mcp-query`
 gives such apps the developer experience that Apollo/React-Query gave GraphQL/REST
 apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
-official `@modelcontextprotocol/sdk`.
+official v2 MCP SDK (`@modelcontextprotocol/client`).
+
+**MCP 2026-07-28 ready.** Connections negotiate their protocol era automatically
+(`versionNegotiation: { mode: "auto" }` by default): against a 2026-07-28 server
+they speak the modern revision — multi-round-trip elicitation/sampling through
+the same human-in-the-loop broker, change notifications over
+`subscriptions/listen`, SEP-2549 `ttlMs`/`cacheScope` cache hints, per-request
+`logLevel` — and against a 2025-era server they fall back losslessly to the
+classic `initialize` handshake (including session resumption). Deprecated
+surfaces (sampling/roots/logging per SEP-2577, sessions per SEP-2567, the old
+tasks RPCs per SEP-2663) are annotated `@deprecated` and remain functional on
+legacy connections. Tasks are reimplemented on the `io.modelcontextprotocol/tasks`
+extension wire shapes (legacy-era-gated until the SDK ships its extension
+runtime).
 
 > Status: **working reference implementation.** `tsc --noEmit` is clean and the full
 > vitest suite (100 tests) passes, including end-to-end coverage of the cache,

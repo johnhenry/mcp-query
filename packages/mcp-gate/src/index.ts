@@ -4,7 +4,6 @@
 
 import { MCPClient, type RequestInterceptor } from "../../mcp-query/src/index.js";
 import { authorize, circuitBreaker, rateLimit, createGateway } from "../../mcp-query/src/server/index.js";
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig } from "./config.js";
 import { validateGateConfig } from "./validate.js";
@@ -17,7 +16,8 @@ export { validateGateConfig } from "./validate.js";
 
 export interface Gate {
   /** The MCP server the gate exposes — connect it to a transport (stdio / Streamable HTTP). */
-  server: Server;
+  /** The gateway re-server (a v2-SDK Server — mcp-query moved to @modelcontextprotocol/server). */
+  server: ReturnType<typeof createGateway>;
   /** The underlying mcp-query client fronting the upstreams. */
   client: MCPClient;
   close(): Promise<void>;

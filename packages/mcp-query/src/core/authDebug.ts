@@ -2,6 +2,13 @@
 // the OAuth handshake (client registration, token reads/writes, the authorization
 // redirect, PKCE verifier) so a debugger UI can show what happened. mcp-query doesn't
 // own the OAuth flow (the SDK does); this just makes it observable.
+//
+// v2 note: the SDK detects providers by member presence and wraps them itself; a
+// Proxy forwards property reads, so instrumented providers keep passing those
+// guards. v2 providers also carry SEP-2352 issuer-binding members
+// (discoveryState/saveDiscoveryState, issuer-keyed credential contexts) — the
+// wrapper forwards them verbatim (it never strips arguments), and summarize()
+// records them with secrets redacted.
 
 export interface AuthStep {
   at: number;
@@ -24,6 +31,14 @@ function summarize(member: string, value: unknown): unknown {
     return { authorizationUrl: String(url) };
   }
   if (member.includes("CodeVerifier") || member.includes("codeVerifier")) return "[redacted]";
+  if (member.startsWith("saveDiscoveryState") || member.startsWith("discoveryState")) {
+    // SEP-2352 issuer binding: issuer/resourceMetadataUrl are safe (and useful) to log.
+    const d = (Array.isArray(value) ? value[0] : value) as { issuer?: string; resourceMetadataUrl?: string } | undefined;
+    return d ? { issuer: d.issuer, resourceMetadataUrl: d.resourceMetadataUrl } : undefined;
+  }
+  if (member.startsWith("invalidateCredentials")) {
+    return { scope: Array.isArray(value) ? value[0] : value };
+  }
   return undefined;
 }
 

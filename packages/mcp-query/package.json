@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcpq",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
   "repository": {
     "type": "git",
@@ -26,6 +26,10 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
+    },
+    "./transports": {
+      "types": "./dist/transports.d.ts",
+      "default": "./dist/transports.js"
     },
     "./devtools": {
       "types": "./dist/devtools/index.d.ts",
@@ -83,7 +87,8 @@
     "example:06": "tsx examples/06-alongside-another-client.ts"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
     "react": "^19.2.7",
     "@opentelemetry/api": "^1.9.0"
   },
@@ -93,10 +98,18 @@
     },
     "@opentelemetry/api": {
       "optional": true
+    },
+    "@modelcontextprotocol/server": {
+      "optional": true
     }
   },
+  "dependencies": {
+    "zod": "^4.2.0"
+  },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/core": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@opentelemetry/api": "^1.9.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",

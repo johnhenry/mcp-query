@@ -27,6 +27,8 @@ export interface CacheEntry<T = unknown> {
   version: number;
   /** Whether we've issued resources/subscribe for this entry (managed by the connection layer). */
   protocolSubscribed: boolean;
+  /** SEP-2549 cacheScope from the server; undefined = unhinted (legacy-era write). */
+  scope?: "public" | "private";
   /** In-flight request, for de-duping concurrent reads of the same key. */
   inflight?: Promise<unknown>;
   /** Aborts the in-flight fetch when the last observer unsubscribes. */
@@ -38,6 +40,12 @@ export interface CacheWriteOpts {
   tags?: Tag[];
   staleTime?: number;
   gcTime?: number;
+  /**
+   * SEP-2549 `cacheScope` from the server (2026-07-28): "private" entries must
+   * not be shared across authorization contexts — the L2 write-through skips
+   * them unless the key carries a partition. `undefined` = unhinted (legacy).
+   */
+  scope?: "public" | "private";
 }
 
 export interface CachePatch {
@@ -166,6 +174,7 @@ export class MCPCache {
     e.updatedAt = this.now();
     if (opts.staleTime != null) e.staleTime = opts.staleTime;
     if (opts.gcTime != null) e.gcTime = opts.gcTime;
+    if (opts.scope != null) e.scope = opts.scope;
     this.reindexTags(e, opts.tags);
     // Unobserved entries must not linger forever: give them a gc deadline at write time
     // (previously only un-subscribe armed the timer, so imperative reads leaked entries).

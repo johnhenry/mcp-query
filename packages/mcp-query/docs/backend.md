@@ -114,6 +114,14 @@ Reads consult L2 on an L1 miss (skipping the network on a hit) and write through
 invalidations fan out to other nodes (protocol-driven ones stay local). `MemoryCacheStore`
 is the in-process equivalent (tests / single process).
 
+**SEP-2549 `cacheScope` (2026-07-28):** results a modern-era server marks
+`cacheScope: "private"` are never written to a shared L2 *unless* the cache key
+carries a `partition` — the partition IS the authorization context, so a
+partitioned private entry is already isolated in the shared store. Note the v2
+SDK's server-side default stamp is `private`, so cross-instance sharing against
+modern servers requires either servers that stamp `public` or partitioned
+`CallContext`s. Legacy-era (unhinted) results keep the old always-share behavior.
+
 ## Not yet (honest)
 
 - **Lazy-connect / idle eviction** of upstream connections (eager today) — a small follow-up.

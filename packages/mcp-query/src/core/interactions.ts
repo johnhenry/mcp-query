@@ -5,8 +5,14 @@
 //
 // Wired by MCPClient (pass `interactions`). The React `useInteractions()` hook reads the
 // pending queue reactively; `useAuditLog()` reads the trail.
+//
+// Era note (2026-07-28): on legacy connections handleSampling/handleElicitation
+// answer server→client JSON-RPC requests; on modern connections the SDK's
+// multi-round-trip driver invokes the same handlers for requests a server embeds
+// in an `input_required` result. The policy gate, approval queue, and audit trail
+// apply identically to both delivery paths.
 
-import type { HostHandlers } from "./types.js";
+import type { ElicitationRequest, HostHandlers } from "./types.js";
 
 export type InteractionType = "sampling" | "elicitation" | "confirm";
 
@@ -168,7 +174,7 @@ export class InteractionBroker {
     return result;
   }
 
-  async handleElicitation(server: string, params: unknown): Promise<{ action: string; content?: unknown }> {
+  async handleElicitation(server: string, params: ElicitationRequest): Promise<{ action: string; content?: unknown }> {
     const verdict = await this.decide({ server, type: "elicitation", payload: params });
     if (verdict === "deny") {
       this.record(server, "elicitation", "auto-deny");

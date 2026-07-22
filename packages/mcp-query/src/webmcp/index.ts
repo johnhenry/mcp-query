@@ -10,9 +10,9 @@
 //  A) webMcpToolServer — consume a page's WebMCP tools as an ordinary mcp-query server.
 //     Mostly here to unify the interfaces (and for cross-origin tool aggregation).
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+// One package per InMemoryTransport pair: both ends come from the SERVER package
+// here, since the page-side Server is the piece we construct.
+import { InMemoryTransport, Server, type CallToolResult } from "@modelcontextprotocol/server";
 import type { MCPClient } from "../core/client.js";
 import type { ConnectionConfig } from "../core/connection.js";
 import type { CacheKey } from "../core/keys.js";
@@ -123,23 +123,23 @@ export function webMcpToolServer(modelContext?: ModelContext): ConnectionConfig 
   return {
     transport: () => {
       const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-      const server = new Server({ name: "webmcp", version: "0.0.1" }, { capabilities: { tools: { listChanged: true } } });
+      const server = new Server({ name: "webmcp", version: "0.1.0" }, { capabilities: { tools: { listChanged: true } } });
 
-      server.setRequestHandler(ListToolsRequestSchema, async () => {
+      server.setRequestHandler("tools/list", async () => {
         const tools = (await mc.getTools?.()) ?? [];
         return {
           tools: tools.map((t) => ({
             name: t.name,
             description: t.description,
-            inputSchema: t.inputSchema ?? { type: "object" },
+            inputSchema: (t.inputSchema ?? { type: "object" }) as { type: "object" },
           })),
         };
       });
 
-      server.setRequestHandler(CallToolRequestSchema, async (req) => {
+      server.setRequestHandler("tools/call", async (req): Promise<CallToolResult> => {
         if (!mc.executeTool) throw new Error("this WebMCP host does not support executeTool");
         const out = await mc.executeTool(req.params.name, (req.params.arguments as Record<string, unknown>) ?? {});
-        if (out && typeof out === "object" && "content" in out) return out as Record<string, unknown>;
+        if (out && typeof out === "object" && "content" in out) return out as CallToolResult;
         return { content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out ?? null) }] };
       });
 

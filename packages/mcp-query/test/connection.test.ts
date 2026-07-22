@@ -47,7 +47,9 @@ describe("connection lifecycle", () => {
 
 describe("protocol-driven invalidation", () => {
   it("resources/updated marks exactly that resource stale", async () => {
-    const mock = new MockMCPServer({ resources: [{ uri: "mem://a" }, { uri: "mem://b" }] });
+    // Unsolicited per-resource updates are 2025-era semantics: the modern era
+    // delivers them only for URIs opted into via subscriptions/listen.
+    const mock = new MockMCPServer({ resources: [{ uri: "mem://a" }, { uri: "mem://b" }] }, { era: "legacy" });
     const { cache, conn } = setup(mock);
     await conn.connect();
 

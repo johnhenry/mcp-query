@@ -32,7 +32,8 @@ describe("useToolTask", () => {
           handler: (args) => ({ content: [{ type: "text", text: `crunched ${args.n}` }] }),
         },
       ],
-    });
+      // Tasks are legacy-era-gated until the SDK ships the extension runtime.
+    }, { era: "legacy" });
     const client = new MCPClient({ servers: { s: { transport: server.transport } } });
     await client.connect();
 

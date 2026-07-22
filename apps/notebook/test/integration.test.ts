@@ -37,7 +37,9 @@ function makeNoteServer() {
         },
       },
     ],
-  });
+    // Legacy-pinned: this test asserts 2025-era observability (mock.subscribed)
+    // and immediate unsolicited resources/updated delivery.
+  }, { era: "legacy" });
   return { mock, files };
 }
 

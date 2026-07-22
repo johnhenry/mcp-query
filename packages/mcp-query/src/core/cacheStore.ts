@@ -7,6 +7,13 @@ export interface StoredEntry {
   data: unknown;
   tags: string[];
   updatedAt: number;
+  /**
+   * SEP-2549 cacheScope (2026-07-28). MCPClient never writes "private" entries
+   * to a shared store unless the cache key carries a partition (the partition IS
+   * the authorization context, so partitioned private entries are already
+   * isolated); stores can enforce the same rule on read.
+   */
+  scope?: "public" | "private";
 }
 
 export interface CacheStore {
