@@ -9,13 +9,24 @@ gives such apps the developer experience that Apollo/React-Query gave GraphQL/RE
 apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
 official v2 MCP SDK (`@modelcontextprotocol/client`).
 
-**MCP 2026-07-28 ready.** Connections negotiate their protocol era automatically
-(`versionNegotiation: { mode: "auto" }` by default): against a 2026-07-28 server
-they speak the modern revision — multi-round-trip elicitation/sampling through
-the same human-in-the-loop broker, change notifications over
-`subscriptions/listen`, SEP-2549 `ttlMs`/`cacheScope` cache hints, per-request
-`logLevel` — and against a 2025-era server they fall back losslessly to the
-classic `initialize` handshake (including session resumption). Deprecated
+**MCP 2026-07-28 ready, v1 by default.** Unconfigured connections speak the
+classic 2025-era protocol byte-for-byte (no probe, no behavioral changes).
+Opt into newer revisions per client or per connection with the additive
+`versions` list:
+
+```ts
+new MCPClient({ servers, versions: ["2026-07-28", "2025-11-25"] });
+// → probe via server/discover; speak 2026-07-28 where offered, fall back
+//   losslessly to v1 otherwise. A modern-only list (["2026-07-28"]) pins.
+```
+
+On a modern connection you get the full revision — multi-round-trip
+elicitation/sampling through the same human-in-the-loop broker, change
+notifications over `subscriptions/listen`, SEP-2549 `ttlMs`/`cacheScope`
+cache hints, per-request `logLevel` — while legacy connections keep the
+classic behavior (including session resumption). `connection(name).era`
+tells you what was actually negotiated; `versionNegotiation` remains the
+low-level escape hatch. Deprecated
 surfaces (sampling/roots/logging per SEP-2577, sessions per SEP-2567, the old
 tasks RPCs per SEP-2663) are annotated `@deprecated` and remain functional on
 legacy connections. Tasks are reimplemented on the `io.modelcontextprotocol/tasks`

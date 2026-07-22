@@ -121,7 +121,7 @@ describe("callToolTask", () => {
     // When this starts failing because the call SUCCEEDS, the SDK gained tasks
     // support — remove assertTasksCallable's era gate (tracking issue #12).
     const server = taskServer("modern");
-    const client = new MCPClient({ servers: { s: { transport: server.transport } } });
+    const client = new MCPClient({ servers: { s: { transport: server.transport } }, versions: ["2026-07-28"] });
     await client.connect();
     expect(client.connections()[0]!.era).toBe("modern");
     await expect(client.callToolTask("crunch", { n: 1 })).rejects.toMatchObject({

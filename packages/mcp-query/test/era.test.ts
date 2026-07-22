@@ -29,18 +29,36 @@ async function settleNext(broker: InteractionBroker, decision: Parameters<Intera
 }
 
 describe("version negotiation matrix", () => {
-  it("'auto' against a dual-era server negotiates modern", async () => {
+  it("unconfigured = v1 only: no probe, legacy era even against a dual-era server", async () => {
     const mock = new MockMCPServer({ tools: [{ name: "t" }] });
     const conn = new ServerConnection("s", { transport: mock.transport }, { cache: new MCPCache(), handlers: {} });
+    await conn.connect();
+    expect(conn.era).toBe("legacy"); // absent config = yesterday's wire behavior
+    expect(conn.tools.has("t")).toBe(true);
+    await conn.close();
+    await mock.close();
+  });
+
+  it('versions ["2026-07-28", "2025-11-25"] negotiates modern against a dual-era server', async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "t" }] });
+    const conn = new ServerConnection(
+      "s",
+      { transport: mock.transport, versions: ["2026-07-28", "2025-11-25"] },
+      { cache: new MCPCache(), handlers: {} },
+    );
     await conn.connect();
     expect(conn.era).toBe("modern");
     await conn.close();
     await mock.close();
   });
 
-  it("'auto' against a legacy-only server falls back to the 2025 handshake", async () => {
+  it("a mixed versions list falls back to the 2025 handshake against a legacy-only server", async () => {
     const mock = new MockMCPServer({ tools: [{ name: "t" }] }, { era: "legacy" });
-    const conn = new ServerConnection("s", { transport: mock.transport }, { cache: new MCPCache(), handlers: {} });
+    const conn = new ServerConnection(
+      "s",
+      { transport: mock.transport, versions: ["2026-07-28", "2025-11-25"] },
+      { cache: new MCPCache(), handlers: {} },
+    );
     await conn.connect();
     expect(conn.era).toBe("legacy");
     expect(conn.tools.has("t")).toBe(true);
@@ -48,17 +66,33 @@ describe("version negotiation matrix", () => {
     await mock.close();
   });
 
-  it("'legacy' mode skips the probe entirely", async () => {
-    const mock = new MockMCPServer({ tools: [{ name: "t" }] });
+  it("a modern-only versions list pins: rejects against a legacy-only server", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "t" }] }, { era: "legacy" });
     const conn = new ServerConnection(
       "s",
-      { transport: mock.transport, versionNegotiation: { mode: "legacy" } },
+      { transport: mock.transport, versions: ["2026-07-28"], maxRetries: 0 },
       { cache: new MCPCache(), handlers: {} },
     );
-    await conn.connect();
-    expect(conn.era).toBe("legacy");
+    await expect(conn.connect()).rejects.toBeTruthy();
     await conn.close();
     await mock.close();
+  });
+
+  it("per-connection versions override the client-wide default", async () => {
+    const legacyMock = new MockMCPServer({ tools: [{ name: "t" }] });
+    const modernMock = new MockMCPServer({ tools: [{ name: "t" }] });
+    const client = new MCPClient({
+      servers: {
+        old: { transport: legacyMock.transport }, // inherits client default (v1)
+        new: { transport: modernMock.transport, versions: ["2026-07-28", "2025-11-25"] },
+      },
+    });
+    await client.connect();
+    expect(client.connection("old")!.era).toBe("legacy");
+    expect(client.connection("new")!.era).toBe("modern");
+    await client.close();
+    await legacyMock.close();
+    await modernMock.close();
   });
 
   it("a pin rejects against a legacy-only server", async () => {
@@ -106,7 +140,7 @@ describe("MRTR through the broker (modern era)", () => {
       },
       { era: "modern" },
     );
-    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
     expect(client.connections()[0]!.era).toBe("modern");
 
@@ -135,7 +169,7 @@ describe("MRTR through the broker (modern era)", () => {
       },
       { era: "modern" },
     );
-    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
     const res = (await client.callTool("srv.ask", {})) as { content: { text: string }[] };
     expect(res.content[0]!.text).toBe("decline");
@@ -160,7 +194,7 @@ describe("MRTR through the broker (modern era)", () => {
       },
       { era: "modern" },
     );
-    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
 
     const call = client.callTool("srv.sign_in", {}) as Promise<{ content: { text: string }[] }>;
@@ -198,7 +232,7 @@ describe("MRTR through the broker (modern era)", () => {
       },
       { era: "modern" },
     );
-    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
     const res = (await client.callTool("srv.summarize", {})) as { content: { text: string }[] };
     expect(res.content[0]!.text).toBe("MODELED");
@@ -215,7 +249,7 @@ describe("subscriptions/listen (modern era)", () => {
         { uri: "mem://b", read: () => ({ text: "B" }) },
       ],
     });
-    const client = new MCPClient({ servers: { s: { transport: mock.transport } } });
+    const client = new MCPClient({ servers: { s: { transport: mock.transport } }, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
     expect(client.connections()[0]!.era).toBe("modern");
 
@@ -238,7 +272,7 @@ describe("subscriptions/listen (modern era)", () => {
 
   it("tools list_changed arrives on the listen stream and re-lists", async () => {
     const mock = new MockMCPServer({ tools: [{ name: "a" }] });
-    const client = new MCPClient({ servers: { s: { transport: mock.transport } } });
+    const client = new MCPClient({ servers: { s: { transport: mock.transport } }, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
     expect(client.listTools("s").map((t) => t.name)).toEqual(["a"]);
 
@@ -257,8 +291,8 @@ describe("SEP-2549 cache hints", () => {
     const aMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ({ text: "from-A" }) }] });
     let readsB = 0;
     const bMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ((readsB += 1), { text: "B-own" }) }] });
-    const A = new MCPClient({ servers: { s: { transport: aMock.transport } }, cacheStore: store });
-    const B = new MCPClient({ servers: { s: { transport: bMock.transport } }, cacheStore: store });
+    const A = new MCPClient({ servers: { s: { transport: aMock.transport } }, cacheStore: store, versions: ["2026-07-28", "2025-11-25"] });
+    const B = new MCPClient({ servers: { s: { transport: bMock.transport } }, cacheStore: store, versions: ["2026-07-28", "2025-11-25"] });
     await A.connect();
     await B.connect();
 
@@ -277,8 +311,8 @@ describe("SEP-2549 cache hints", () => {
     const aMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ({ text: "from-A" }) }] });
     let readsB = 0;
     const bMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ((readsB += 1), { text: "B-own" }) }] });
-    const A = new MCPClient({ servers: { s: { transport: aMock.transport } }, cacheStore: store });
-    const B = new MCPClient({ servers: { s: { transport: bMock.transport } }, cacheStore: store });
+    const A = new MCPClient({ servers: { s: { transport: aMock.transport } }, cacheStore: store, versions: ["2026-07-28", "2025-11-25"] });
+    const B = new MCPClient({ servers: { s: { transport: bMock.transport } }, cacheStore: store, versions: ["2026-07-28", "2025-11-25"] });
     await A.connect();
     await B.connect();
 
@@ -295,7 +329,7 @@ describe("SEP-2549 cache hints", () => {
 
   it("caller staleTime beats server hints; ttlMs<=0 falls back to the default", async () => {
     const mock = new MockMCPServer({ resources: [{ uri: "mem://x", read: () => ({ text: "x" }) }] });
-    const client = new MCPClient({ servers: { s: { transport: mock.transport } } });
+    const client = new MCPClient({ servers: { s: { transport: mock.transport } }, versions: ["2026-07-28", "2025-11-25"] });
     await client.connect();
 
     // The v2 server stamps ttlMs: 0 by default — treated as "no signal", so the

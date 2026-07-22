@@ -63,9 +63,16 @@ export interface MCPClientConfig {
   /** Identity advertised to every server. Defaults to mcp-query's own. */
   clientInfo?: ClientInfo;
   /**
-   * Client-wide protocol negotiation default (2026-07-28), overridable per
-   * connection. Default `{ mode: "auto" }`: probe with `server/discover`, fall
-   * back losslessly to the 2025 handshake against a legacy server.
+   * Client-wide protocol-revision preference list, overridable per connection.
+   * Absent → v1 only (the classic 2025-era handshake, no probe — the default).
+   * `["2026-07-28", "2025-11-25"]` opts into the modern revision with lossless
+   * v1 fallback; a modern-only list pins (no fallback). See
+   * `ConnectionConfig.versions`.
+   */
+  versions?: readonly string[];
+  /**
+   * Low-level client-wide negotiation escape hatch (the SDK's option shape);
+   * takes precedence over `versions` when both are set.
    */
   versionNegotiation?: VersionNegotiationOptions;
   /** Client-wide multi-round-trip auto-fulfilment knobs (maxRounds etc.). */
@@ -202,6 +209,7 @@ export class MCPClient {
   private stateVersion = 0;
   private retryCount = 0;
   private clientInfo?: ClientInfo;
+  private versions?: readonly string[];
   private versionNegotiation?: VersionNegotiationOptions;
   private inputRequired?: InputRequiredOptions;
   private defaultLogLevel?: LoggingLevel;
@@ -224,6 +232,7 @@ export class MCPClient {
     this.cacheStore = cfg.cacheStore;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
+    this.versions = cfg.versions;
     this.versionNegotiation = cfg.versionNegotiation;
     this.inputRequired = cfg.inputRequired;
     this.defaultLogLevel = cfg.defaultLogLevel;
@@ -274,6 +283,7 @@ export class MCPClient {
       handlers,
       clientInfo: this.clientInfo,
       defaultVersionNegotiation: this.versionNegotiation,
+      defaultVersions: this.versions,
       defaultInputRequired: this.inputRequired,
       onStateChange: (s, state, caps) => {
         this.bumpServerState();

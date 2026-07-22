@@ -264,11 +264,13 @@ export class MockMCPServer {
 
   /** The identity the connected client advertised (initialize on legacy; request envelope on modern). */
   clientInfo(): { name?: string; version?: string; title?: string } | undefined {
+    // Latest session wins — sessions accumulate across connects on one mock.
+    let last: { name?: string; version?: string; title?: string } | undefined;
     for (const { server } of this.legacySessions.values()) {
       const v = server.getClientVersion();
-      if (v) return v;
+      if (v) last = v;
     }
-    return this.lastEnvelopeClientInfo;
+    return last ?? this.lastEnvelopeClientInfo;
   }
 
   // ── server construction (fresh per modern request / per legacy session) ────

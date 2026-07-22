@@ -29,7 +29,7 @@ export { instrumentTransport } from "./core/instrument.js";
 export type { TrafficEvent, TrafficDirection } from "./core/instrument.js";
 export { instrumentAuthProvider } from "./core/authDebug.js";
 export type { AuthStep } from "./core/authDebug.js";
-export { ServerConnection, cacheTtl, cacheScope } from "./core/connection.js";
+export { ServerConnection, cacheTtl, cacheScope, negotiationFromVersions } from "./core/connection.js";
 export type { ConnectionConfig, TransportContext } from "./core/connection.js";
 export { ListenManager } from "./core/listen.js";
 export type { ListenManagerOptions } from "./core/listen.js";

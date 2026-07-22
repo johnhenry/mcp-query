@@ -106,7 +106,12 @@ describe("session capture", () => {
   it("persists nothing on a modern-era connection (sessions removed by SEP-2567)", async () => {
     const mock = new MockMCPServer({ tools: [{ name: "echo" }] }, { era: "modern" });
     const store = memorySessionStore();
-    const { conn } = connectionWith((ctx) => mock.transport(ctx), store);
+    const cache = new MCPCache();
+    const conn = new ServerConnection(
+      "srv",
+      { transport: (ctx) => mock.transport(ctx), sessionStore: store, versions: ["2026-07-28"], retryDelay: () => 5 },
+      { cache, handlers: {} },
+    );
     await conn.connect();
     expect(conn.era).toBe("modern");
     expect(await store.get()).toBeUndefined();

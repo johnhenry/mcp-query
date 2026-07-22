@@ -49,11 +49,24 @@ export interface ConnectionConfig {
   /** A transport factory so we can rebuild it on reconnect (stdio/StreamableHTTP/SSE). */
   transport: (ctx?: TransportContext) => Transport;
   /**
-   * Protocol version negotiation (2026-07-28). Defaults to the client-wide
-   * setting (MCPClientConfig.versionNegotiation), ultimately `{ mode: "auto" }`:
-   * probe with `server/discover`, fall back losslessly to the 2025 handshake
-   * against a legacy server. Pin `{ mode: { pin: "2026-07-28" } }` for
-   * modern-only, or `{ mode: "legacy" }` to skip the probe entirely.
+   * Protocol revisions this connection may speak, newest-preference. The sugar
+   * over `versionNegotiation`:
+   *
+   *  - absent (and no `versionNegotiation`) → v1 only: the classic 2025-era
+   *    `initialize` handshake, byte-identical, no probe — the default.
+   *  - `["2026-07-28", "2025-11-25"]` → additive: probe for the modern
+   *    revision, fall back losslessly to v1 against a legacy server.
+   *  - `["2026-07-28"]` (modern entries only) → exclusive: pin to the newest
+   *    listed revision; a server that can't speak it fails the connect.
+   *
+   * Unknown strings are handed to the SDK verbatim, so future revisions need
+   * no library change. Per-connection setting wins over the client-wide one.
+   */
+  versions?: readonly string[];
+  /**
+   * Low-level protocol negotiation escape hatch (the SDK's own option shape);
+   * takes precedence over `versions` when both are set. Absent both, the
+   * default is `{ mode: "legacy" }` — v1 only, no probe.
    */
   versionNegotiation?: VersionNegotiationOptions;
   /** Multi-round-trip auto-fulfilment knobs (maxRounds etc.); default SDK behavior. */
@@ -87,6 +100,8 @@ export interface ConnectionDeps {
   clientInfo?: ClientInfo;
   /** Client-wide negotiation default (per-connection config wins). */
   defaultVersionNegotiation?: VersionNegotiationOptions;
+  /** Client-wide `versions` default (per-connection config wins). */
+  defaultVersions?: readonly string[];
   /** Client-wide MRTR default (per-connection config wins). */
   defaultInputRequired?: InputRequiredOptions;
   onStateChange?: (server: string, state: ServerState, caps?: ServerCapabilities) => void;
@@ -145,9 +160,11 @@ export class ServerConnection {
 
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
+    const resolved = resolveNegotiation(this.cfg, this.deps);
     const client = new Client(this.deps.clientInfo ?? { name: "mcpq", version: "0.1.0" }, {
       capabilities: clientCapabilities(this.deps.handlers),
-      versionNegotiation: this.cfg.versionNegotiation ?? this.deps.defaultVersionNegotiation ?? { mode: "auto" },
+      versionNegotiation: resolved.versionNegotiation,
+      ...(resolved.supportedProtocolVersions ? { supportedProtocolVersions: resolved.supportedProtocolVersions } : {}),
       inputRequired: this.cfg.inputRequired ?? this.deps.defaultInputRequired,
     });
     installHandlers(client, this.deps.handlers);
@@ -524,6 +541,48 @@ export class ServerConnection {
       void this.reconnect();
     }, delay);
   }
+}
+
+// ── version sugar ────────────────────────────────────────────────────────────
+
+/** Revision date-strings sort lexicographically; 2026-07-28 is the first modern one. */
+const FIRST_MODERN_REVISION = "2026-07-28";
+
+/**
+ * Map a `versions` preference list onto the SDK's negotiation options:
+ * modern-only list → pin to the newest entry (no fallback); mixed list → auto
+ * (probe, legacy fallback); legacy-only list → plain legacy handshake. The
+ * list itself becomes `supportedProtocolVersions`, constraining exactly what
+ * either handshake offers.
+ */
+export function negotiationFromVersions(versions: readonly string[]): {
+  versionNegotiation: VersionNegotiationOptions;
+  supportedProtocolVersions: string[];
+} {
+  if (!versions.length) throw new Error("versions: expected at least one protocol revision");
+  const sorted = [...versions].sort().reverse(); // newest first
+  const hasModern = sorted.some((v) => v >= FIRST_MODERN_REVISION);
+  const hasLegacy = sorted.some((v) => v < FIRST_MODERN_REVISION);
+  const mode: VersionNegotiationOptions["mode"] = !hasModern
+    ? "legacy"
+    : hasLegacy
+      ? "auto"
+      : { pin: sorted[0]! };
+  return { versionNegotiation: { mode }, supportedProtocolVersions: sorted };
+}
+
+/** Precedence: per-conn versionNegotiation > per-conn versions > client-wide, then v1-only. */
+function resolveNegotiation(
+  cfg: ConnectionConfig,
+  deps: ConnectionDeps,
+): { versionNegotiation: VersionNegotiationOptions; supportedProtocolVersions?: string[] } {
+  if (cfg.versionNegotiation) return { versionNegotiation: cfg.versionNegotiation };
+  if (cfg.versions) return negotiationFromVersions(cfg.versions);
+  if (deps.defaultVersionNegotiation) return { versionNegotiation: deps.defaultVersionNegotiation };
+  if (deps.defaultVersions) return negotiationFromVersions(deps.defaultVersions);
+  // Default: v1 only — absent configuration means yesterday's wire behavior,
+  // byte-for-byte (no probe, no stdio sibling spawn, no modern-era semantics).
+  return { versionNegotiation: { mode: "legacy" } };
 }
 
 // ── small utilities ──────────────────────────────────────────────────────────
