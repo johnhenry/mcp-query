@@ -212,6 +212,7 @@ export class MCPClient {
         this.devtools?.emit({ type: "capabilities", server: s, kind });
       },
       onLog: (s, entry) => this.devtools?.emit({ type: "log", server: s, level: entry.level, data: entry.data }),
+      onElicitationComplete: (s, id) => this.interactions?.completeElicitation(s, id),
       onMessage: this.devtools ? (s, ev) => this.onTraffic(s, ev) : undefined,
     });
   }

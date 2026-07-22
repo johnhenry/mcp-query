@@ -67,15 +67,26 @@ export class MCPError extends Error {
 
 export type ListKind = "tools" | "resources" | "prompts";
 
+/**
+ * A server's `elicitation/create` request. "form" (the original shape) asks the user
+ * to fill out structured fields inline. "url" (added to the SDK ahead of the MCP
+ * 2026-07-28 spec) asks the host to send the user to `url` out-of-band; the host
+ * resolves the request immediately (accept = "I'll show it") and the server later
+ * signals real completion via a `notifications/elicitation/complete` — see
+ * `HostHandlers.onElicitationComplete` / `InteractionBroker.completeElicitation`.
+ */
+export type ElicitationRequest =
+  | { mode?: "form"; message: string; requestedSchema: Record<string, unknown> }
+  | { mode: "url"; message: string; url: string; elicitationId: string };
+
 /** Handlers for server -> client requests. Registering one advertises the capability. */
 export interface HostHandlers {
   /** Server asks the host LLM to complete something. Omit in non-agentic apps. */
   sampling?: (req: unknown) => Promise<unknown>;
-  /** Server asks the user for structured input mid-call. Maps to a UI dialog. */
-  elicitation?: (req: {
-    message: string;
-    requestedSchema: Record<string, unknown>;
-  }) => Promise<{ action: "accept" | "decline" | "cancel"; content?: unknown }>;
+  /** Server asks the user for input mid-call: a form to fill out, or a URL to visit. */
+  elicitation?: (
+    req: ElicitationRequest,
+  ) => Promise<{ action: "accept" | "decline" | "cancel"; content?: unknown }>;
   /** Filesystem/URI boundaries the client exposes to the server. */
   roots?: () => Array<{ uri: string; name?: string }>;
 }

@@ -12,6 +12,7 @@ import {
   PromptListChangedNotificationSchema,
   LoggingMessageNotificationSchema,
   TaskStatusNotificationSchema,
+  ElicitationCompleteNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import type { MCPCache } from "./cache.js";
@@ -71,6 +72,8 @@ export interface ConnectionDeps {
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
   /** Server-emitted log messages (notifications/message). */
   onLog?: (server: string, entry: { level: string; logger?: string; data: unknown }) => void;
+  /** A "url"-mode elicitation finished out-of-band (notifications/elicitation/complete). */
+  onElicitationComplete?: (server: string, elicitationId: string) => void;
   /** Every JSON-RPC message in/out (for the devtools message log). */
   onMessage?: (server: string, ev: TrafficEvent) => void;
 }
@@ -310,6 +313,10 @@ export class ServerConnection {
       this.cache.write({ kind: "task", server: this.name, taskId: task.taskId }, task, {
         tags: [serverTag(this.name)],
       });
+    });
+    // Out-of-band completion of a "url"-mode elicitation.
+    this.client.setNotificationHandler(ElicitationCompleteNotificationSchema, (n) => {
+      this.deps.onElicitationComplete?.(this.name, n.params.elicitationId);
     });
   }
 

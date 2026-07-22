@@ -6,7 +6,7 @@
 // Wired by MCPClient (pass `interactions`). The React `useInteractions()` hook reads the
 // pending queue reactively; `useAuditLog()` reads the trail.
 
-import type { HostHandlers } from "./types.js";
+import type { ElicitationRequest, HostHandlers } from "./types.js";
 
 export type InteractionType = "sampling" | "elicitation" | "confirm";
 
@@ -27,7 +27,7 @@ export interface Interaction {
   type: InteractionType;
   phase: InteractionPhase;
   server: string;
-  /** sampling request params, elicitation {message, requestedSchema}, or {result}. */
+  /** sampling request params, an ElicitationRequest (form or url mode), or {result}. */
   payload: unknown;
   /** True when the human must *author* the result (manual sampling), not just approve. */
   manual?: boolean;
@@ -50,7 +50,7 @@ export interface AuditEntry {
   at: number;
   server: string;
   type: InteractionType;
-  outcome: "auto-allow" | "auto-deny" | "approved" | "denied" | "error";
+  outcome: "auto-allow" | "auto-deny" | "approved" | "denied" | "error" | "completed";
   reason?: string;
 }
 
@@ -168,7 +168,7 @@ export class InteractionBroker {
     return result;
   }
 
-  async handleElicitation(server: string, params: unknown): Promise<{ action: string; content?: unknown }> {
+  async handleElicitation(server: string, params: ElicitationRequest): Promise<{ action: string; content?: unknown }> {
     const verdict = await this.decide({ server, type: "elicitation", payload: params });
     if (verdict === "deny") {
       this.record(server, "elicitation", "auto-deny");
@@ -186,6 +186,17 @@ export class InteractionBroker {
     this.record(server, "elicitation", "approved");
     return { action: "accept", content: d.content ?? {} };
   }
+
+  /**
+   * Record that a "url"-mode elicitation finished out-of-band, per the server's
+   * `notifications/elicitation/complete`. Wire via `ConnectionDeps.onElicitationComplete`.
+   * There is no pending interaction to resolve here — the request already got its
+   * (immediate) accept/decline; this only appends to the audit trail so a UI showing
+   * "waiting on <url>" knows to clear.
+   */
+  completeElicitation = (server: string, elicitationId: string): void => {
+    this.record(server, "elicitation", "completed", elicitationId);
+  };
 
   /** Build server-bound HostHandlers that route sampling/elicitation through the broker. */
   handlersFor(server: string, base: HostHandlers): HostHandlers {

@@ -136,6 +136,10 @@ export class MockMCPServer {
   async notifyTaskStatus(task: Record<string, unknown>): Promise<void> {
     await this.active?.notification({ method: "notifications/tasks/status", params: task });
   }
+  /** Signal that an out-of-band "url"-mode elicitation finished (notifications/elicitation/complete). */
+  async notifyElicitationComplete(elicitationId: string): Promise<void> {
+    await this.active?.notification({ method: "notifications/elicitation/complete", params: { elicitationId } });
+  }
   /** The identity (name/version/title) the connected client advertised during initialize. */
   clientInfo(): { name?: string; version?: string; title?: string } | undefined {
     return this.active?.getClientVersion();

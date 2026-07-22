@@ -106,6 +106,32 @@ describe("InteractionBroker — elicitation", () => {
     await settleNext(broker, { action: "deny" });
     expect(await p).toEqual({ action: "decline" });
   });
+
+  it("surfaces url-mode params (url, elicitationId) untouched to the UI", async () => {
+    const broker = new InteractionBroker();
+    const p = broker.handleElicitation("srv", {
+      mode: "url",
+      message: "finish sign-in",
+      url: "https://example.com/auth",
+      elicitationId: "el-1",
+    });
+    const pending = await settleNext(broker, { action: "approve" });
+    expect(pending.payload).toEqual({
+      mode: "url",
+      message: "finish sign-in",
+      url: "https://example.com/auth",
+      elicitationId: "el-1",
+    });
+    expect(await p).toEqual({ action: "accept", content: {} });
+  });
+
+  it("completeElicitation records a 'completed' audit entry (no pending interaction to resolve)", () => {
+    const broker = new InteractionBroker();
+    broker.completeElicitation("srv", "el-1");
+    const entry = broker.auditLog().at(-1)!;
+    expect(entry).toMatchObject({ server: "srv", type: "elicitation", outcome: "completed", reason: "el-1" });
+    expect(broker.list()).toHaveLength(0);
+  });
 });
 
 describe("InteractionBroker — sampling with no model", () => {
@@ -171,6 +197,39 @@ describe("broker integration through the client", () => {
     await settleNext(broker, { action: "approve", content: { name: "Grace" } });
     const res = await call;
     expect(res.content[0]!.text).toBe("hi Grace");
+    await client.close();
+  });
+
+  it("routes a url-mode elicitation through the broker, then records completion from the server's notification", async () => {
+    const broker = new InteractionBroker();
+    const mock = new MockMCPServer({
+      tools: [
+        {
+          name: "sign_in",
+          handler: async (_args, ctx) => {
+            const r = await ctx.elicit({
+              mode: "url",
+              message: "finish sign-in",
+              url: "https://example.com/auth",
+              elicitationId: "el-1",
+            });
+            return { content: [{ type: "text", text: r.action }] };
+          },
+        },
+      ],
+    });
+    const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
+    await client.connect();
+
+    const call = client.callTool("srv.sign_in", {}) as Promise<{ content: { text: string }[] }>;
+    const pending = await settleNext(broker, { action: "approve" });
+    expect(pending.payload).toMatchObject({ mode: "url", url: "https://example.com/auth", elicitationId: "el-1" });
+    const res = await call;
+    expect(res.content[0]!.text).toBe("accept");
+
+    await mock.notifyElicitationComplete("el-1");
+    await tick();
+    expect(broker.auditLog().at(-1)).toMatchObject({ type: "elicitation", outcome: "completed", reason: "el-1" });
     await client.close();
   });
 

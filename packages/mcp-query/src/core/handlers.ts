@@ -11,13 +11,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import type { HostHandlers, ServerCapabilities } from "./types.js";
+import type { ElicitationRequest, HostHandlers, ServerCapabilities } from "./types.js";
 
 /** Returns the client-capabilities object to advertise, given which handlers exist. */
 export function clientCapabilities(h: HostHandlers): ServerCapabilities {
   const caps: Record<string, unknown> = {};
   if (h.sampling) caps.sampling = {};
-  if (h.elicitation) caps.elicitation = {};
+  // Servers gate each elicitation mode on its own sub-capability — declare both,
+  // since our handler (and the broker) supports form and url alike.
+  if (h.elicitation) caps.elicitation = { form: {}, url: {} };
   if (h.roots) caps.roots = { listChanged: false };
   return caps as ServerCapabilities;
 }
@@ -28,9 +30,10 @@ export function installHandlers(client: Client, h: HostHandlers): void {
     client.setRequestHandler(CreateMessageRequestSchema, async (req) => (await h.sampling!(req.params)) as never);
   }
   if (h.elicitation) {
+    // Pass the params through as-is (mode "form" or "url") — don't assume form shape,
+    // or url-mode requests silently lose their `url`/`elicitationId`.
     client.setRequestHandler(ElicitRequestSchema, async (req) => {
-      const p = req.params as { message: string; requestedSchema?: Record<string, unknown> };
-      return (await h.elicitation!({ message: p.message, requestedSchema: p.requestedSchema ?? {} })) as never;
+      return (await h.elicitation!(req.params as ElicitationRequest)) as never;
     });
   }
   if (h.roots) {
