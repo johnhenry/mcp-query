@@ -146,11 +146,21 @@ In this monorepo the satellite packages consume `mcp-query` directly from its Ty
 **source** (`packages/mcp-query/src`) for a zero-build dev loop; only `mcp-query` itself
 emits a `dist/` for publishing.
 
+## MCP 2026-07-28
+
+Adoption of the finalized MCP 2026-07-28 revision (v2 SDK, dual-era support, the
+`versions` negotiation sugar) is in progress on
+[PR #17](https://github.com/johnhenry/mcp-query/pull/17) — held until the spec
+finalizes on the 28th, merging shortly after. A preview is already on npm under
+the `rc` dist-tag: `npm install @johnhenry/mcpq@rc`. The `main` branch (and the
+`latest` npm tag) still speak MCP 2025-11-25 (v1) only until that PR merges.
+
 ## Status
 
-`mcp-query` is the publishable core (`0.0.1`); the gate / contract / lint / docs / bench /
-record packages and the inspector are MVPs (`private`) tracking it. See each package's README
-for specifics.
+`main` is pre-2026-07-28: `mcp-query` is at `0.0.1`, `latest` on npm. The gate /
+contract / lint / docs / bench / record packages and the inspector are MVPs
+(`private`) tracking it. See each package's README for specifics, and the note
+above for what's landing next.
 
 ## License
 
