@@ -9,21 +9,56 @@ gives such apps the developer experience that Apollo/React-Query gave GraphQL/RE
 apps: hooks, a cache, reactivity, optimistic updates, devtools — on top of the
 official `@modelcontextprotocol/sdk`.
 
-> Status: **working reference implementation.** `tsc --noEmit` is clean and the full
-> vitest suite (100 tests) passes, including end-to-end coverage of the cache,
-> multiplexing, protocol-driven invalidation, dynamic registration, reconnect, the
-> human-in-the-loop broker, and Inspector-style tooling (message log, manual sampling,
-> auth recorder, CLI) — all driven against a *real* SDK server over an in-memory
-> transport, with the codegen CLI verified against the live
-> `@modelcontextprotocol/server-everything`. It is a reference/learning codebase, not a
-> published package (no build/publish pipeline yet).
+> Status: **published, working reference implementation.** `main` is pre-2026-07-28:
+> this package is at `0.0.1`, the `latest` tag on npm, and speaks MCP 2025-11-25 (v1)
+> only, on top of the official `@modelcontextprotocol/sdk@^1.29.0`. `tsc --noEmit` is
+> clean and the full vitest suite passes (`npm test` for the current count), including
+> end-to-end coverage of the cache, multiplexing, protocol-driven invalidation, dynamic
+> registration, reconnect, the human-in-the-loop broker, and Inspector-style tooling
+> (message log, manual sampling, auth recorder, CLI) — all driven against a *real* SDK
+> server over an in-memory transport, with the codegen CLI verified against the live
+> `@modelcontextprotocol/server-everything`. A preview build with the 2026-07-28
+> migration (v2 SDK, dual-era support, `versions` negotiation) is in progress on
+> [PR #17](https://github.com/johnhenry/mcp-query/pull/17), held until the spec
+> finalizes on the 28th — try it via the `rc` dist-tag: `npm install @johnhenry/mcpq@rc`.
+> See [Supported protocol versions](#supported-protocol-versions) below.
+
+## Install
+
+```bash
+npm install @johnhenry/mcpq
+```
+
+This installs `latest` (`0.0.1`), which speaks MCP 2025-11-25 (v1) only. To preview
+the in-progress 2026-07-28 migration ahead of its release, install the `rc` tag instead:
+`npm install @johnhenry/mcpq@rc`.
+
+## Supported protocol versions
+
+| npm tag | Version | Protocol | SDK |
+|---|---|---|---|
+| `latest` (default, this branch) | `0.0.1` | MCP 2025-11-25 only | `@modelcontextprotocol/sdk@^1.29.0` (v1) |
+| `rc` | `0.1.0-rc.1` | MCP 2025-11-25 + opt-in 2026-07-28 | v2 SDK, dual-era |
+
+The `rc` preview (built from [PR #17](https://github.com/johnhenry/mcp-query/pull/17),
+not yet merged to `main`) adds opt-in support for the finalized 2026-07-28 revision via
+an additive `versions` list:
+
+```ts
+new MCPClient({ servers, versions: ["2026-07-28", "2025-11-25"] })
+```
+
+This probes each server with `server/discover`, speaks 2026-07-28 where the server
+offers it, and falls back losslessly to 2025-11-25 (v1) otherwise; a modern-only list
+pins (no fallback). Unconfigured connections — and everything installed from `latest`
+today — keep speaking 2025-11-25 byte-for-byte, no probe.
 
 ## Develop
 
 ```bash
 npm install
 npm run typecheck     # tsc --noEmit (covers src + examples)
-npm test              # vitest run — 128 tests
+npm test              # vitest run
 npm run build         # emit dist/ (ESM + .d.ts) — what `npm publish` ships
 npm run example:node  # runnable: drives @modelcontextprotocol/server-everything
 npm run codegen -- --command npx --args "-y @modelcontextprotocol/server-everything" --out src/mcp.gen.ts
@@ -208,7 +243,7 @@ entity tags · structured output + annotation helpers · human-in-the-loop broke
 elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
 ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
 log · manual (human-as-model) sampling · OAuth-debug recorder · `mcpq-inspect` CLI +
-per-request timeouts. **100 tests, green.**
+per-request timeouts. Full vitest suite green — run `npm test` for the current count.
 
 ## File map
 
