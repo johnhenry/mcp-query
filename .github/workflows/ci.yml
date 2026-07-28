@@ -16,6 +16,12 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: Build mcp-query
+        # Other workspaces (e.g. mcp-gate) import @johnhenry/mcpq's subpath
+        # exports (./server, ./testing), which resolve to dist/ — must exist
+        # before their typecheck/test runs, not just before this repo's own.
+        run: npm run build -w @johnhenry/mcpq
+
       - name: Typecheck (all workspaces)
         run: npm run typecheck
 
@@ -24,9 +30,6 @@ jobs:
 
       - name: Coverage (mcp-query)
         run: npm run test:coverage
-
-      - name: Build mcp-query
-        run: npm run build -w @johnhenry/mcpq
 
       - name: Publish smoke (import the built entrypoint)
         working-directory: packages/mcp-query

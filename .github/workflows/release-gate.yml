@@ -24,6 +24,11 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
 
+      - name: Build mcp-query
+        # mcp-gate imports @johnhenry/mcpq's subpath exports (./server,
+        # ./testing), which resolve to dist/ — must exist first.
+        run: npm run build -w @johnhenry/mcpq
+
       - name: Gate (typecheck + tests + build)
         run: |
           npm run typecheck -w @johnhenry/mcp-gate

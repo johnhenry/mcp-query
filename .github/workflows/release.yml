@@ -25,10 +25,12 @@ jobs:
       - run: npm ci
 
       - name: Gate (typecheck + tests + build)
+        # Build mcpq first: other workspaces (e.g. mcp-gate) import its
+        # subpath exports (./server, ./testing), which resolve to dist/.
         run: |
+          npm run build -w @johnhenry/mcpq
           npm run typecheck
           npm test
-          npm run build -w @johnhenry/mcpq
 
       - name: Verify tag matches package version
         if: github.ref_type == 'tag'
