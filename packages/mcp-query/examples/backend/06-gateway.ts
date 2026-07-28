@@ -5,8 +5,7 @@
 import { MCPClient } from "../../src/index.js";
 import { createGateway } from "../../src/server/index.js";
 import { MockMCPServer } from "../../src/testing/mockServer.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
 // Two upstreams behind one mcp-query client.
 const github = new MockMCPServer({ tools: [{ name: "create_issue", handler: (a) => ({ content: [{ type: "text", text: `#${a.title}` }] }) }] });

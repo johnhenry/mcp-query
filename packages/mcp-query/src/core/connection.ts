@@ -2,28 +2,29 @@
 // the LSP-client lifecycle: capability negotiation, *dynamic registration*
 // (list_changed == LSP's client/registerCapability), reconnection with capability
 // re-negotiation, and cache reconciliation.
+//
+// 2026-07-28: a connection now has an ERA. Legacy connections (2025-x) keep the
+// `initialize` handshake, unsolicited notifications, `resources/subscribe`, and
+// optional session resumption. Modern connections negotiate via `server/discover`
+// (SDK `versionNegotiation`), receive change notifications on a client-opened
+// `subscriptions/listen` stream (ListenManager), and have no sessions/ping/
+// logging-setLevel. The same notification handlers serve both delivery paths.
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  ToolListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  ResourceUpdatedNotificationSchema,
-  PromptListChangedNotificationSchema,
-  LoggingMessageNotificationSchema,
-  TaskStatusNotificationSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Client, type InputRequiredOptions, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
 
 import type { MCPCache } from "./cache.js";
 import { clientCapabilities, installHandlers } from "./handlers.js";
 import { instrumentTransport, type TrafficEvent } from "./instrument.js";
 import { listKeyFor } from "./keys.js";
+import { ListenManager } from "./listen.js";
 import type { SessionStore } from "./sessionStore.js";
 import { capsTag, serverTag } from "./tags.js";
+import { TASKS_EXT, TaskNotificationParamsSchema } from "./tasksExt.js";
 import type {
   ClientInfo,
   HostHandlers,
   Prompt,
+  ProtocolEra,
   Resource,
   ResourceTemplate,
   ServerCapabilities,
@@ -34,7 +35,10 @@ import type {
 /**
  * Passed to the transport factory when resuming a persisted session. A Streamable HTTP
  * factory should forward `sessionId` to its transport options (which makes the SDK skip
- * `initialize`) and call `setProtocolVersion(protocolVersion)` when one is present.
+ * `initialize`) and pass `protocolVersion` so the transport sends its version header.
+ *
+ * @deprecated 2025-era sessions only — the 2026-07-28 revision removed sessions
+ * (SEP-2567). Functional on legacy connections.
  */
 export interface TransportContext {
   sessionId?: string;
@@ -45,10 +49,37 @@ export interface ConnectionConfig {
   /** A transport factory so we can rebuild it on reconnect (stdio/StreamableHTTP/SSE). */
   transport: (ctx?: TransportContext) => Transport;
   /**
+   * Protocol revisions this connection may speak, newest-preference. The sugar
+   * over `versionNegotiation`:
+   *
+   *  - absent (and no `versionNegotiation`) → v1 only: the classic 2025-era
+   *    `initialize` handshake, byte-identical, no probe — the default.
+   *  - `["2026-07-28", "2025-11-25"]` → additive: probe for the modern
+   *    revision, fall back losslessly to v1 against a legacy server.
+   *  - `["2026-07-28"]` (modern entries only) → exclusive: pin to the newest
+   *    listed revision; a server that can't speak it fails the connect.
+   *
+   * Unknown strings are handed to the SDK verbatim, so future revisions need
+   * no library change. Per-connection setting wins over the client-wide one.
+   */
+  versions?: readonly string[];
+  /**
+   * Low-level protocol negotiation escape hatch (the SDK's own option shape);
+   * takes precedence over `versions` when both are set. Absent both, the
+   * default is `{ mode: "legacy" }` — v1 only, no probe.
+   */
+  versionNegotiation?: VersionNegotiationOptions;
+  /** Multi-round-trip auto-fulfilment knobs (maxRounds etc.); default SDK behavior. */
+  inputRequired?: InputRequiredOptions;
+  /**
    * Opt-in session resumption (Streamable HTTP): persist the transport's session id so a
    * reload or reconnect resumes the same server-side session instead of re-`initialize`-ing
    * into a fresh one. A resumed session is validated with a `ping` and falls back to a
    * fresh init if the server has forgotten it.
+   *
+   * @deprecated 2025-era sessions only — the 2026-07-28 revision removed sessions
+   * (SEP-2567). A modern connection never sets `transport.sessionId`, so the
+   * store never writes; resumption applies only against legacy servers.
    */
   sessionStore?: SessionStore;
   /** Cap reconnection attempts; backoff is exponential. */
@@ -65,8 +96,14 @@ export interface ConnectionDeps {
   cache: MCPCache;
   /** Host handlers (sampling/elicitation/roots); registering one advertises the capability. */
   handlers: HostHandlers;
-  /** Identity advertised to the server during initialize. Defaults to mcp-query's own. */
+  /** Identity advertised to servers. Defaults to mcp-query's own. */
   clientInfo?: ClientInfo;
+  /** Client-wide negotiation default (per-connection config wins). */
+  defaultVersionNegotiation?: VersionNegotiationOptions;
+  /** Client-wide `versions` default (per-connection config wins). */
+  defaultVersions?: readonly string[];
+  /** Client-wide MRTR default (per-connection config wins). */
+  defaultInputRequired?: InputRequiredOptions;
   onStateChange?: (server: string, state: ServerState, caps?: ServerCapabilities) => void;
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
   /** Server-emitted log messages (notifications/message). */
@@ -78,8 +115,7 @@ export interface ConnectionDeps {
 export class ServerConnection {
   state: ServerState = "idle";
   capabilities: ServerCapabilities = {};
-  /** serverInfo.version from `initialize` (the server's own version string) — NOT the MCP
-   *  protocol version. Compare to `TransportContext.protocolVersion`, which is that header. */
+  /** serverInfo.version — the server's own version string, NOT the MCP protocol version. */
   protocolVersion = "";
   /** True when the current connection resumed a persisted session (skipped `initialize`). */
   resumed = false;
@@ -89,6 +125,9 @@ export class ServerConnection {
   resources = new Map<string, Resource>();
   templates: ResourceTemplate[] = [];
   prompts = new Map<string, Prompt>();
+
+  /** Modern-era change-notification stream owner (idle on legacy connections). */
+  readonly listen: ListenManager;
 
   private client: Client;
   private retries = 0;
@@ -106,14 +145,28 @@ export class ServerConnection {
     private deps: ConnectionDeps,
   ) {
     this.client = this.makeClient();
+    this.listen = new ListenManager(() => this.client, {
+      listFilters: () => ({
+        tools: !!this.capabilities.tools?.listChanged,
+        prompts: !!this.capabilities.prompts?.listChanged,
+        resources: !!this.capabilities.resources?.listChanged,
+      }),
+      retryDelay: this.cfg.retryDelay,
+      onError: () => {
+        /* listen loss is recoverable; state surfaces via honoredFilter */
+      },
+    });
   }
 
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
-    const client = new Client(
-      this.deps.clientInfo ?? { name: "mcpq", version: "0.0.1" },
-      { capabilities: clientCapabilities(this.deps.handlers) },
-    );
+    const resolved = resolveNegotiation(this.cfg, this.deps);
+    const client = new Client(this.deps.clientInfo ?? { name: "mcpq", version: "0.1.0" }, {
+      capabilities: clientCapabilities(this.deps.handlers),
+      versionNegotiation: resolved.versionNegotiation,
+      ...(resolved.supportedProtocolVersions ? { supportedProtocolVersions: resolved.supportedProtocolVersions } : {}),
+      inputRequired: this.cfg.inputRequired ?? this.deps.defaultInputRequired,
+    });
     installHandlers(client, this.deps.handlers);
     // Mid-session disconnect (transport dropped) -> attempt reconnect, unless we
     // closed on purpose or are already cycling. Mirrors an editor relaunching a
@@ -127,6 +180,15 @@ export class ServerConnection {
 
   get isLazy(): boolean {
     return this.cfg.lazy === true;
+  }
+
+  /**
+   * The negotiated protocol generation: "modern" = 2026-07-28+, "legacy" =
+   * 2025-era `initialize` (including resumed sessions, which are legacy by
+   * construction). "legacy" before the connection is established.
+   */
+  get era(): ProtocolEra {
+    return this.client.getProtocolEra() === "modern" ? "modern" : "legacy";
   }
 
   /**
@@ -161,6 +223,7 @@ export class ServerConnection {
       this.idleTimer = undefined;
     }
     this.idle = true;
+    await this.listen.stop();
     await this.client.close().catch(() => {});
     this.setState("idle");
   }
@@ -190,6 +253,7 @@ export class ServerConnection {
       await this.establish();
       this.setState("initializing");
       await this.refreshAll();
+      await this.startListen();
       this.retries = 0;
       this.setState(this.isDegraded() ? "degraded" : "ready");
     } catch (err) {
@@ -200,11 +264,12 @@ export class ServerConnection {
   }
 
   /**
-   * Connect the SDK client — resuming the persisted session when a `sessionStore` still
-   * holds one, else a fresh `initialize` — then capture the session that resulted.
-   * A resume skips `initialize` (the SDK detects `transport.sessionId`), so negotiated
-   * state is restored from the persisted record and the session is validated with a
-   * `ping` before we trust it; a server that forgot the session falls through to fresh.
+   * Connect the SDK client:
+   *  1. Resume the persisted (legacy-era) session when a `sessionStore` still
+   *     holds one — `prior: { kind: "legacy" }` keeps the 'auto' probe from
+   *     running before the resume, and the session is validated with a `ping`.
+   *  2. Otherwise a fresh connect: reuse the last negotiation verdict when we
+   *     have one (`prior`), else probe/handshake per `versionNegotiation`.
    */
   private async establish(): Promise<void> {
     const store = this.cfg.sessionStore;
@@ -215,9 +280,16 @@ export class ServerConnection {
         this.wireNotifications();
         await this.client.connect(
           this.makeTransport({ sessionId: saved.sessionId, protocolVersion: saved.protocolVersion }),
+          { prior: { kind: "legacy" } },
         );
         this.capabilities = saved.capabilities ?? {};
         this.protocolVersion = saved.serverVersion ?? "";
+        // The resume path skips `initialize`, leaving the SDK client capability-
+        // blind — and v2 soft-guards its list verbs on server capabilities
+        // (returning empty lists). No public restore API exists in 2.0.0-beta.5,
+        // so seed the private field from the persisted record. Beta gap; revisit.
+        (this.client as unknown as { _serverCapabilities?: ServerCapabilities })._serverCapabilities =
+          saved.capabilities ?? {};
         await this.client.ping();
         this.resumed = true;
         return;
@@ -232,8 +304,11 @@ export class ServerConnection {
       }
     }
     this.wireNotifications();
+    // Every fresh connect re-negotiates (probe + capability fetch): reconnects
+    // MUST see capability changes, so a cached era verdict (`prior`) is not
+    // reused here — correctness over the probe round trip. (Callers that want
+    // zero-probe reconnects can pin versionNegotiation instead.)
     await this.client.connect(this.makeTransport());
-    // The SDK performs `initialize` during connect(); capabilities are now available.
     this.capabilities = this.client.getServerCapabilities() ?? {};
     this.protocolVersion = this.client.getServerVersion()?.version ?? "";
     const sessionId = this.rawTransport?.sessionId;
@@ -247,6 +322,28 @@ export class ServerConnection {
     }
   }
 
+  /** Open the modern-era listen stream, seeding observed resources from the cache. */
+  private async startListen(): Promise<void> {
+    if (this.era !== "modern") return;
+    const observed = this.observedResourceUris();
+    // Awaited: the connection is not live-invalidation-ready until the server
+    // acks the stream (notifications published before the ack are lost). A
+    // failed listen still resolves — the manager retries with backoff and the
+    // connection degrades to poll-only semantics meanwhile.
+    await this.listen.start(observed);
+  }
+
+  /** Resource URIs with a live protocol subscription (drives the listen filter). */
+  private observedResourceUris(): string[] {
+    const uris: string[] = [];
+    for (const e of this.cache.entriesForDevtools()) {
+      if (e.protocolSubscribed && e.cacheKey.kind === "resource" && e.cacheKey.server === this.name) {
+        uris.push(e.cacheKey.uri);
+      }
+    }
+    return uris;
+  }
+
   /** Re-initialize on reconnect — capabilities MAY have changed, so reconcile. */
   private async reconnect(): Promise<void> {
     this.setState("reconnecting");
@@ -254,11 +351,13 @@ export class ServerConnection {
     const before = this.capabilities;
     try {
       this.client.onclose = undefined; // stop the dying client from scheduling another reconnect
+      await this.listen.stop();
       this.client = this.makeClient();
-      await this.establish(); // resumes the server-side session when the store still holds it
+      await this.establish(); // resumes the session where possible, else re-negotiates
       this.reconcileCapabilities(before, this.capabilities);
       await this.refreshAll(); // re-list: surface may have changed
-      await this.resubscribeObserved(); // re-establish resources/subscribe for observed entries
+      await this.resubscribeObserved(); // legacy: re-establish resources/subscribe
+      await this.startListen(); // modern: reopen the listen stream
       this.cache.invalidateTags([
         capsTag(this.name, "tools"),
         capsTag(this.name, "resources"),
@@ -279,35 +378,37 @@ export class ServerConnection {
       clearTimeout(this.idleTimer);
       this.idleTimer = undefined;
     }
+    await this.listen.stop();
     await this.client.close().catch(() => {});
     this.setState("closed");
   }
 
   // ── dynamic registration: list_changed == LSP client/registerCapability ───
+  // The same registrations serve both eras: unsolicited notifications on legacy
+  // connections, listen-stream deliveries on modern ones.
   private wireNotifications(): void {
-    this.client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+    this.client.setNotificationHandler("notifications/tools/list_changed", async () => {
       await this.relist("tools");
     });
-    this.client.setNotificationHandler(ResourceListChangedNotificationSchema, async () => {
+    this.client.setNotificationHandler("notifications/resources/list_changed", async () => {
       await this.relist("resources");
     });
-    this.client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
+    this.client.setNotificationHandler("notifications/prompts/list_changed", async () => {
       await this.relist("prompts");
     });
     // The free-invalidation path: server tells us exactly which resource changed.
-    this.client.setNotificationHandler(ResourceUpdatedNotificationSchema, (n) => {
+    this.client.setNotificationHandler("notifications/resources/updated", (n) => {
       this.cache.onResourceUpdated(this.name, n.params.uri);
     });
-    // Server-side logging stream.
-    this.client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => {
+    // Server-side logging stream (legacy; modern only for requests carrying the
+    // logLevel _meta key — see CallContext.logLevel).
+    this.client.setNotificationHandler("notifications/message", (n) => {
       this.deps.onLog?.(this.name, { level: n.params.level, logger: n.params.logger, data: n.params.data });
     });
-    // Task status pushes (notifications/tasks/status) — the params ARE a Task snapshot;
-    // write it into the cache so task observers (useTask / TaskHandle.subscribe) react.
-    this.client.setNotificationHandler(TaskStatusNotificationSchema, (n) => {
-      const { _meta, ...task } = n.params;
-      void _meta;
-      this.cache.write({ kind: "task", server: this.name, taskId: task.taskId }, task, {
+    // Tasks extension (SEP-2663): unsolicited task snapshots. Custom method —
+    // registered with an explicit schema; params ARE a DetailedTask.
+    this.client.setNotificationHandler("notifications/tasks", { params: TaskNotificationParamsSchema }, (params) => {
+      this.cache.write({ kind: "task", server: this.name, taskId: params.taskId }, params, {
         tags: [serverTag(this.name)],
       });
     });
@@ -318,31 +419,36 @@ export class ServerConnection {
     // stale response can be applied AFTER the newest one and stick. Tag each re-list
     // with a generation; only the response for the latest generation may apply.
     const gen = (this.relistGen[kind] = (this.relistGen[kind] ?? 0) + 1);
+    // v2 list calls auto-aggregate all pages; 'refresh' keeps the SDK's derived
+    // tools index warm without ever serving us its cached copy (mcp-query's
+    // MCPCache is the caching layer here).
+    let ttlMs: number | undefined;
     if (kind === "tools" && this.capabilities.tools) {
-      const tools = indexBy(await paginate((c) => this.client.listTools(c), (r) => r.tools), "name");
+      const res = await this.client.listTools(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return; // superseded by a newer list_changed
-      this.tools = tools;
+      this.tools = indexBy(res.tools, "name");
+      ttlMs = cacheTtl(res);
     } else if (kind === "resources" && this.capabilities.resources) {
-      const resources = indexBy(
-        await paginate((c) => this.client.listResources(c), (r) => r.resources),
-        "uri",
-      );
+      const res = await this.client.listResources(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return;
-      this.resources = resources;
+      this.resources = indexBy(res.resources, "uri");
+      ttlMs = cacheTtl(res);
     } else if (kind === "prompts" && this.capabilities.prompts) {
-      const prompts = indexBy(await paginate((c) => this.client.listPrompts(c), (r) => r.prompts), "name");
+      const res = await this.client.listPrompts(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return;
-      this.prompts = prompts;
+      this.prompts = indexBy(res.prompts, "name");
+      ttlMs = cacheTtl(res);
     }
     // Write the catalog into the cache (tagged) so list-observing hooks re-render and
-    // tag-based invalidation has something to hit.
+    // tag-based invalidation has something to hit. Server-provided ttlMs (SEP-2549)
+    // becomes the entry's staleTime.
     const list =
       kind === "tools"
         ? [...this.tools.values()]
         : kind === "resources"
           ? [...this.resources.values()]
           : [...this.prompts.values()];
-    this.cache.write(listKeyFor(this.name, kind), list, { tags: [capsTag(this.name, kind)] });
+    this.cache.write(listKeyFor(this.name, kind), list, { tags: [capsTag(this.name, kind)], staleTime: ttlMs });
     this.deps.onCapabilitiesChanged?.(this.name, kind);
   }
 
@@ -353,17 +459,28 @@ export class ServerConnection {
       this.capabilities.prompts && this.relist("prompts"),
     ]);
     if (this.capabilities.resources) {
-      this.templates = (await this.client.listResourceTemplates().catch(() => ({ resourceTemplates: [] })))
-        .resourceTemplates as ResourceTemplate[];
+      const res = await this.client
+        .listResourceTemplates(undefined, { cacheMode: "refresh" })
+        .catch(() => ({ resourceTemplates: [] as ResourceTemplate[] }));
+      this.templates = res.resourceTemplates;
       // Cache templates (tagged with the resources catalog) so useResourceTemplates re-renders.
       this.cache.write({ kind: "templateList", server: this.name }, this.templates, {
         tags: [capsTag(this.name, "resources")],
+        staleTime: cacheTtl(res),
       });
     }
   }
 
-  /** Set the server-side logging verbosity (logging/setLevel). */
+  /**
+   * Set the server-side logging verbosity (logging/setLevel).
+   *
+   * @deprecated The Logging feature is deprecated as of 2026-07-28 (SEP-2577),
+   * and `logging/setLevel` does not exist on modern connections (no-op there).
+   * Use `CallContext.logLevel` / `MCPClientConfig.defaultLogLevel` to request
+   * per-call log delivery on the modern era.
+   */
   async setLogLevel(level: string): Promise<void> {
+    if (this.era === "modern") return; // method absent from the 2026-07-28 registry
     if (this.capabilities.logging) await this.client.setLoggingLevel(level as never).catch(() => {});
   }
 
@@ -377,18 +494,17 @@ export class ServerConnection {
   }
 
   private async resubscribeObserved(): Promise<void> {
+    if (this.era === "modern") return; // modern: the listen stream carries these (startListen)
     if (!this.capabilities.resources?.subscribe) return;
-    for (const e of this.cache.entriesForDevtools()) {
-      if (e.protocolSubscribed && e.cacheKey.kind === "resource" && e.cacheKey.server === this.name) {
-        await this.client.subscribeResource({ uri: e.cacheKey.uri }).catch(() => {});
-      }
+    for (const uri of this.observedResourceUris()) {
+      await this.client.subscribeResource({ uri }).catch(() => {});
     }
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
   supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks"): boolean {
     if (feature === "resources.subscribe") return !!this.capabilities.resources?.subscribe;
-    if (feature === "tasks") return !!(this.capabilities as { tasks?: unknown }).tasks;
+    if (feature === "tasks") return !!this.capabilities.extensions?.[TASKS_EXT];
     return !!this.capabilities[feature];
   }
 
@@ -427,6 +543,48 @@ export class ServerConnection {
   }
 }
 
+// ── version sugar ────────────────────────────────────────────────────────────
+
+/** Revision date-strings sort lexicographically; 2026-07-28 is the first modern one. */
+const FIRST_MODERN_REVISION = "2026-07-28";
+
+/**
+ * Map a `versions` preference list onto the SDK's negotiation options:
+ * modern-only list → pin to the newest entry (no fallback); mixed list → auto
+ * (probe, legacy fallback); legacy-only list → plain legacy handshake. The
+ * list itself becomes `supportedProtocolVersions`, constraining exactly what
+ * either handshake offers.
+ */
+export function negotiationFromVersions(versions: readonly string[]): {
+  versionNegotiation: VersionNegotiationOptions;
+  supportedProtocolVersions: string[];
+} {
+  if (!versions.length) throw new Error("versions: expected at least one protocol revision");
+  const sorted = [...versions].sort().reverse(); // newest first
+  const hasModern = sorted.some((v) => v >= FIRST_MODERN_REVISION);
+  const hasLegacy = sorted.some((v) => v < FIRST_MODERN_REVISION);
+  const mode: VersionNegotiationOptions["mode"] = !hasModern
+    ? "legacy"
+    : hasLegacy
+      ? "auto"
+      : { pin: sorted[0]! };
+  return { versionNegotiation: { mode }, supportedProtocolVersions: sorted };
+}
+
+/** Precedence: per-conn versionNegotiation > per-conn versions > client-wide, then v1-only. */
+function resolveNegotiation(
+  cfg: ConnectionConfig,
+  deps: ConnectionDeps,
+): { versionNegotiation: VersionNegotiationOptions; supportedProtocolVersions?: string[] } {
+  if (cfg.versionNegotiation) return { versionNegotiation: cfg.versionNegotiation };
+  if (cfg.versions) return negotiationFromVersions(cfg.versions);
+  if (deps.defaultVersionNegotiation) return { versionNegotiation: deps.defaultVersionNegotiation };
+  if (deps.defaultVersions) return negotiationFromVersions(deps.defaultVersions);
+  // Default: v1 only — absent configuration means yesterday's wire behavior,
+  // byte-for-byte (no probe, no stdio sibling spawn, no modern-era semantics).
+  return { versionNegotiation: { mode: "legacy" } };
+}
+
 // ── small utilities ──────────────────────────────────────────────────────────
 function indexBy<T>(items: T[], key: keyof T): Map<string, T> {
   const m = new Map<string, T>();
@@ -434,17 +592,26 @@ function indexBy<T>(items: T[], key: keyof T): Map<string, T> {
   return m;
 }
 
-/** Drain a cursor-paginated MCP list method (tools/list, resources/list, ...). */
-async function paginate<R extends { nextCursor?: string }, T>(
-  call: (params?: { cursor?: string }) => Promise<R>,
-  pick: (r: R) => T[],
-): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await call(cursor ? { cursor } : undefined);
-    out.push(...pick(page));
-    cursor = page.nextCursor;
-  } while (cursor);
-  return out;
+/**
+ * Read the SEP-2549 `ttlMs` freshness hint off a cacheable result body. The
+ * fields are wire-only (hidden from the public types but passed through by the
+ * loose schemas); 2025-era results never carry them ⇒ undefined ⇒ defaults.
+ *
+ * Deliberate deviation: `ttlMs: 0` (the v2 SDK's server-side stamp when a
+ * handler sets no hint — the field is required on the 2026 wire) is treated as
+ * "no signal" rather than "immediately stale". mcp-query staleness is advisory
+ * (it schedules background refetch, it does not gate correctness), and honoring
+ * the ubiquitous default 0 would disable client-side freshness entirely against
+ * hint-less servers. Positive hints are honored and clamped like the SDK (24h).
+ */
+export function cacheTtl(result: unknown): number | undefined {
+  const ttl = (result as { ttlMs?: unknown })?.ttlMs;
+  if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return undefined;
+  return Math.min(ttl, 24 * 60 * 60 * 1000);
+}
+
+/** Read the SEP-2549 `cacheScope` off a cacheable result body. */
+export function cacheScope(result: unknown): "public" | "private" | undefined {
+  const scope = (result as { cacheScope?: unknown })?.cacheScope;
+  return scope === "public" || scope === "private" ? scope : undefined;
 }

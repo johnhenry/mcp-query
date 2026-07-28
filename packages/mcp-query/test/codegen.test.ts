@@ -5,7 +5,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { jsonSchemaToTS, generateToolTypes, generatePromptTypes, generateTemplateTypes } from "../src/codegen/generate.js";
 import { generateFromClient } from "../src/codegen/cli.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 import { MockMCPServer } from "../src/testing/mockServer.js";
 
 describe("jsonSchemaToTS", () => {
@@ -106,7 +106,7 @@ describe("generateToolTypes", () => {
     const diagnostics = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === file);
     const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     expect(messages).toEqual([]);
-  }, 60_000); // a full TS program compile; extra slow under coverage instrumentation
+  }, 120_000); // a full TS program compile; extra slow under coverage instrumentation
 });
 
 describe("generatePromptTypes", () => {

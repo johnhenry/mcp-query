@@ -2,17 +2,20 @@
 // MCP server. Pairs the downstream MCPClient with an SDK Server: the deployable backend
 // artifact (a single MCP endpoint fronting many). Same in-memory-Server proxy pattern as
 // src/webmcp/index.ts (webMcpToolServer), but aggregating the whole multiplexed client.
+//
+// Era note (2026-07-28): a hand-constructed `Server` + transport serves the 2025
+// era only. To serve the modern revision over HTTP, wrap the gateway in the SDK's
+// `createMcpHandler`:
+//
+//   import { createMcpHandler } from "@modelcontextprotocol/server";
+//   const handler = createMcpHandler(() => createGateway(client));
+//   // handler.fetch(request) — dual-era Streamable HTTP endpoint
+//
+// (Modern-serving concerns — listen-stream fan-out for upstream list_changed,
+// stamping ttlMs/cacheScope from the client's cache — are tracked in
+// https://github.com/johnhenry/mcp-query/issues/15.)
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Server } from "@modelcontextprotocol/server";
 import type { MCPClient } from "../core/client.js";
 
 export interface GatewayOptions {
@@ -34,17 +37,17 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
   const servers = () => client.connections().map((c) => c.name);
 
   const server = new Server(
-    { name: opts.name ?? "mcp-query-gateway", version: opts.version ?? "0.0.1" },
+    { name: opts.name ?? "mcp-query-gateway", version: opts.version ?? "0.1.0" },
     { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } },
   );
 
   // ── tools ──
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
+  server.setRequestHandler("tools/list", () => ({
     tools: servers().flatMap((s) =>
       client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...t, name: qualify(s, t.name) })),
     ),
   }));
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler("tools/call", async (req) => {
     const [s, tool] = split(req.params.name, servers(), namespace);
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
     // the gateway — without this, multi-tenant _meta dies at the gate.
@@ -57,25 +60,31 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
   });
 
   // ── resources (URIs are global; route reads back through the client's resolver) ──
-  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+  server.setRequestHandler("resources/list", () => ({
     resources: servers().flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri))),
   }));
-  server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
+  server.setRequestHandler("resources/templates/list", () => ({
     resourceTemplates: servers().flatMap((s) => client.listResourceTemplates(s)),
   }));
-  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  server.setRequestHandler("resources/read", async (req) => {
     return (await client.readResource(req.params.uri)) as never;
   });
 
   // ── prompts ──
-  server.setRequestHandler(ListPromptsRequestSchema, () => ({
+  server.setRequestHandler("prompts/list", () => ({
     prompts: servers().flatMap((s) =>
       client.listPrompts(s).filter((p) => keep(s, "prompt", p.name)).map((p) => ({ ...p, name: qualify(s, p.name) })),
     ),
   }));
-  server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+  server.setRequestHandler("prompts/get", async (req) => {
     const [s, name] = split(req.params.name, servers(), namespace);
-    return (await client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s)) as never;
+    const meta = req.params._meta as Record<string, unknown> | undefined;
+    return (await client.getPrompt(
+      name,
+      (req.params.arguments as Record<string, unknown>) ?? {},
+      s,
+      meta ? { context: { meta } } : {},
+    )) as never;
   });
 
   // ── live list_changed propagation ──

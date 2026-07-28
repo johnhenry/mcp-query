@@ -11,8 +11,8 @@ describe("L2 CacheStore (cross-instance sharing)", () => {
   it("lets node B serve a read from L2 without hitting its server", async () => {
     const store = new MemoryCacheStore();
     let readsB = 0;
-    const aMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ({ text: "from-A" }) }] });
-    const bMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ((readsB += 1), { text: "B-own" }) }] });
+    const aMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ({ text: "from-A" }) }] }, { era: "legacy" });
+    const bMock = new MockMCPServer({ resources: [{ uri: "mem://doc", read: () => ((readsB += 1), { text: "B-own" }) }] }, { era: "legacy" });
     const A = new MCPClient({ servers: { s: { transport: aMock.transport } }, cacheStore: store });
     const B = new MCPClient({ servers: { s: { transport: bMock.transport } }, cacheStore: store });
     await A.connect();

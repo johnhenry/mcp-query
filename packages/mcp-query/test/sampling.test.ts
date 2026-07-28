@@ -127,7 +127,11 @@ describe("sampling round-trip through the client", () => {
     });
     await client.connect();
 
-    await expect(client.callTool("srv.needs_ai", {})).rejects.toBeTruthy();
+    // The v2 server's legacy input_required shim surfaces the decline as an
+    // isError tool result (rather than a thrown JSON-RPC error).
+    const res = (await client.callTool("srv.needs_ai", {})) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("declined");
     await client.close();
   });
 });

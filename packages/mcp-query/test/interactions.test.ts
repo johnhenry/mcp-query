@@ -189,7 +189,11 @@ describe("broker integration through the client", () => {
     });
     const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, interactions: broker });
     await client.connect();
-    await expect(client.callTool("srv.needs_ai", {})).rejects.toBeTruthy();
+    // The v2 server's legacy input_required shim surfaces a denied fulfilment as
+    // an isError tool result (rather than a thrown JSON-RPC error).
+    const res = (await client.callTool("srv.needs_ai", {})) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("denied");
     expect(broker.list()).toHaveLength(0);
     await client.close();
   });

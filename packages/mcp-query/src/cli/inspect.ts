@@ -8,10 +8,8 @@
 //   mcpq-inspect --command … --method ping
 
 import { MCPClient } from "../core/client.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { SSEClientTransport, StreamableHTTPClientTransport, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 function parse(argv: string[]): { flags: Record<string, string>; args: Record<string, string> } {
   const flags: Record<string, string> = {};
@@ -26,6 +24,12 @@ function parse(argv: string[]): { flags: Record<string, string>; args: Record<st
     }
   }
   return { flags, args };
+}
+
+function parseNegotiate(v: string): VersionNegotiationOptions {
+  if (v === "auto" || v === "legacy") return { mode: v };
+  if (v.startsWith("pin:")) return { mode: { pin: v.slice(4) as "2026-07-28" } };
+  throw new Error(`--negotiate: expected auto|legacy|pin:<revision>, got "${v}"`);
 }
 
 function coerce(v: string): unknown {
@@ -50,7 +54,11 @@ function buildTransport(f: Record<string, string>): () => Transport {
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { flags, args } = parse(argv);
-  const client = new MCPClient({ servers: { s: { transport: buildTransport(flags) } } });
+  // CLI default stays 'legacy' (byte-stable transcripts; spawn-per-invocation stdio).
+  const client = new MCPClient({
+    servers: { s: { transport: buildTransport(flags), ...(flags.negotiate ? { versionNegotiation: parseNegotiate(flags.negotiate) } : {}) } },
+    ...(flags.negotiate ? {} : { versionNegotiation: { mode: "legacy" } }),
+  });
   await client.connect();
   try {
     process.stdout.write(JSON.stringify(await dispatch(client, flags, args), null, 2) + "\n");

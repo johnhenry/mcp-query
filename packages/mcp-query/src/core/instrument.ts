@@ -1,8 +1,14 @@
 // Transport instrumentation — taps every JSON-RPC message in both directions so the
 // devtools can show a full message log (the MCP Inspector's defining feature). Wraps
 // any SDK Transport transparently via a Proxy, so it survives SDK changes.
+//
+// v2 caveat: the SDK special-cases its own `StdioClientTransport` (instanceof) for
+// the `versionNegotiation: 'auto'` probe — a Proxy-wrapped stdio transport probes
+// in place instead of on a disposable sibling process, and probe traffic on the
+// sibling path never crosses this tap. See
+// https://github.com/johnhenry/mcp-query/issues/16
 
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { MessageExtraInfo, Transport } from "@modelcontextprotocol/client";
 
 export type TrafficDirection = "out" | "in";
 
@@ -13,11 +19,13 @@ export interface TrafficEvent {
 }
 
 export function instrumentTransport(inner: Transport, onTraffic: (e: TrafficEvent) => void): Transport {
-  let handler: ((m: unknown) => void) | undefined;
+  let handler: ((m: unknown, extra?: MessageExtraInfo) => void) | undefined;
   // Tap incoming once; everything the consumer set goes through `handler`.
-  inner.onmessage = (m) => {
+  // v2's onmessage carries a second arg (authInfo/classification) — forward it,
+  // or modern-era inbound classification breaks downstream.
+  inner.onmessage = (m, extra) => {
     onTraffic({ dir: "in", message: m as TrafficEvent["message"] });
-    handler?.(m);
+    handler?.(m, extra);
   };
 
   return new Proxy(inner, {

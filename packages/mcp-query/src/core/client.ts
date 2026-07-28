@@ -2,9 +2,21 @@
 // of server connections (multiplexing), the router, and the host handlers. Exposes
 // the imperative read/call/list API that the React hooks sit on top of.
 
+import {
+  ProtocolError,
+  ResourceNotFoundError,
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
+  LOG_LEVEL_META_KEY,
+  CLIENT_CAPABILITIES_META_KEY,
+  type InputRequiredOptions,
+  type VersionNegotiationOptions,
+} from "@modelcontextprotocol/client";
+
 import { MCPCache, type CachePatch } from "./cache.js";
 import type { CacheStore } from "./cacheStore.js";
-import { ServerConnection, type ConnectionConfig } from "./connection.js";
+import { cacheScope, cacheTtl, ServerConnection, type ConnectionConfig } from "./connection.js";
 import { InteractionBroker } from "./interactions.js";
 import type { TrafficEvent } from "./instrument.js";
 import { runInterceptors, type Operation, type RequestInterceptor } from "./interceptors.js";
@@ -12,8 +24,26 @@ import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
-import { MCPError, type ClientInfo, type HostHandlers, type ServerState, type Task, type Tool } from "./types.js";
-import type { TaskCreationParams } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolOrTaskResultSchema,
+  CancelTaskResultSchema,
+  GetTaskResultSchema,
+  isTaskShaped,
+  TASKS_EXT,
+  TERMINAL_STATUSES,
+  UpdateTaskResultSchema,
+  type DetailedTask,
+  type Task,
+} from "./tasksExt.js";
+import {
+  MCPError,
+  type ClientInfo,
+  type ElicitationRequest,
+  type HostHandlers,
+  type LoggingLevel,
+  type ServerState,
+  type Tool,
+} from "./types.js";
 
 export interface MCPClientConfig {
   servers: Record<string, ConnectionConfig>;
@@ -30,8 +60,32 @@ export interface MCPClientConfig {
   interceptors?: RequestInterceptor[];
   /** Retry count for *reads* (resource reads + tool queries are safe to retry). Default 0. */
   retry?: number;
-  /** Identity advertised to every server during initialize. Defaults to mcp-query's own. */
+  /** Identity advertised to every server. Defaults to mcp-query's own. */
   clientInfo?: ClientInfo;
+  /**
+   * Client-wide protocol-revision preference list, overridable per connection.
+   * Absent → v1 only (the classic 2025-era handshake, no probe — the default).
+   * `["2026-07-28", "2025-11-25"]` opts into the modern revision with lossless
+   * v1 fallback; a modern-only list pins (no fallback). See
+   * `ConnectionConfig.versions`.
+   */
+  versions?: readonly string[];
+  /**
+   * Low-level client-wide negotiation escape hatch (the SDK's option shape);
+   * takes precedence over `versions` when both are set.
+   */
+  versionNegotiation?: VersionNegotiationOptions;
+  /** Client-wide multi-round-trip auto-fulfilment knobs (maxRounds etc.). */
+  inputRequired?: InputRequiredOptions;
+  /**
+   * Modern-era log delivery: servers only emit `notifications/message` for
+   * requests carrying the `io.modelcontextprotocol/logLevel` `_meta` key. Set
+   * this to attach it to every request (per-call `CallContext.logLevel` wins).
+   * Legacy-era log delivery still uses `setLogLevel`.
+   */
+  defaultLogLevel?: LoggingLevel;
+  /** Fallback poll cadence (ms) for task handles when the server sends no pollIntervalMs. Default 150. */
+  taskPollMs?: number;
   /** Client-wide default request timeouts, overridden per-call by `requestOptions`. */
   defaultRequestOptions?: RequestTimeoutOpts;
   /** Durable audit sink — called for every read/call/query with its outcome + timing. */
@@ -69,6 +123,12 @@ export interface RequestTimeoutOpts {
 export interface CallContext {
   partition?: string;
   meta?: Record<string, unknown>;
+  /**
+   * Modern-era per-request log delivery (2026-07-28): attaches the
+   * `io.modelcontextprotocol/logLevel` `_meta` key so the server emits
+   * `notifications/message` for this request at the given severity.
+   */
+  logLevel?: LoggingLevel;
 }
 
 export interface ReadResourceOpts {
@@ -96,8 +156,11 @@ export interface QueryToolOpts {
 /** Options for task-augmented tool calls (callToolTask). */
 export interface TaskCallOpts {
   server?: string;
-  /** Task creation parameters (ttl, …) sent with the request. Default {}. */
-  task?: TaskCreationParams;
+  /**
+   * @deprecated Ignored — under the tasks extension (SEP-2663, 2026-07-28)
+   * task creation is server-directed; there are no client task params.
+   */
+  task?: Record<string, unknown>;
   signal?: AbortSignal;
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
@@ -105,8 +168,8 @@ export interface TaskCallOpts {
 
 /**
  * A live handle on a task-augmented tool call. Status snapshots are cache-backed —
- * `subscribe` fires on both the SDK's status polling and server `notifications/tasks/status`
- * pushes, and `useTask` observes the same entries.
+ * `subscribe` fires on both the handle's own `tasks/get` polling and server
+ * `notifications/tasks` pushes, and `useTask` observes the same entries.
  */
 export interface TaskHandle<R = unknown> {
   taskId: string;
@@ -138,12 +201,19 @@ export class MCPClient {
   private conns = new Map<string, ServerConnection>();
   private router: Router;
   private handlers: HostHandlers;
+  /** Per-server handler views (broker-routed when a broker is configured). */
+  private serverHandlers = new Map<string, HostHandlers>();
   private devtools?: DevtoolsSink;
   private stateListeners = new Set<() => void>();
   private capListeners = new Set<(server: string, kind: "tools" | "resources" | "prompts") => void>();
   private stateVersion = 0;
   private retryCount = 0;
   private clientInfo?: ClientInfo;
+  private versions?: readonly string[];
+  private versionNegotiation?: VersionNegotiationOptions;
+  private inputRequired?: InputRequiredOptions;
+  private defaultLogLevel?: LoggingLevel;
+  private taskPollMs: number;
   private defaultRequestOptions?: RequestTimeoutOpts;
   private interceptors: RequestInterceptor[];
   private onCall?: (entry: CallAuditEntry) => void;
@@ -151,6 +221,7 @@ export class MCPClient {
   private inFlight = new Set<Promise<unknown>>();
   private cacheStore?: CacheStore;
   private schemeMap?: Record<string, string>;
+  private syncTaskSeq = 0;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -161,6 +232,11 @@ export class MCPClient {
     this.cacheStore = cfg.cacheStore;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
+    this.versions = cfg.versions;
+    this.versionNegotiation = cfg.versionNegotiation;
+    this.inputRequired = cfg.inputRequired;
+    this.defaultLogLevel = cfg.defaultLogLevel;
+    this.taskPollMs = cfg.taskPollMs ?? 150;
     this.defaultRequestOptions = cfg.defaultRequestOptions;
     // Mirror the broker's audit trail into devtools as host-call events.
     if (this.interactions && this.devtools) {
@@ -197,12 +273,18 @@ export class MCPClient {
   /** Build a ServerConnection with the shared deps (broker routing, devtools taps, identity). */
   private newConnection(name: string, conf: ConnectionConfig): ServerConnection {
     // When a broker is present, sampling + elicitation are routed through it with
-    // server context; other handlers (roots) pass through.
+    // server context; other handlers (roots) pass through. On modern connections
+    // the SDK's multi-round-trip driver reuses the SAME handlers, so the broker
+    // gates in-band input_required rounds too.
     const handlers = this.interactions ? this.interactions.handlersFor(name, this.handlers) : this.handlers;
+    this.serverHandlers.set(name, handlers);
     return new ServerConnection(name, conf, {
       cache: this.cache,
       handlers,
       clientInfo: this.clientInfo,
+      defaultVersionNegotiation: this.versionNegotiation,
+      defaultVersions: this.versions,
+      defaultInputRequired: this.inputRequired,
       onStateChange: (s, state, caps) => {
         this.bumpServerState();
         this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
@@ -284,6 +366,7 @@ export class MCPClient {
         (r) => (this.audit(op, at, "ok"), r),
         (e) => {
           // -32003 is AuthorizationError's code (mcp-query/server); don't import across layers.
+          // (Safe vs the 2026-07-28 reserved band, which starts at -32020.)
           this.audit(op, at, (e as { code?: number })?.code === -32003 ? "denied" : "error", e instanceof Error ? e.message : String(e));
           throw e;
         },
@@ -299,16 +382,31 @@ export class MCPClient {
     this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
   }
 
+  /**
+   * Build the request `_meta` from a CallContext: caller meta plus, on modern-era
+   * connections, the per-request logLevel envelope key (absent key = the server
+   * emits no notifications/message for the request, per the 2026-07-28 spec).
+   */
+  private withMeta(conn: ServerConnection, context?: CallContext): Record<string, unknown> | undefined {
+    const level = context?.logLevel ?? this.defaultLogLevel;
+    const wantLevel = conn.era === "modern" && level != null;
+    if (!context?.meta && !wantLevel) return undefined;
+    return { ...(context?.meta ?? {}), ...(wantLevel ? { [LOG_LEVEL_META_KEY]: level } : {}) };
+  }
+
   /** L2 read-through: if L1 has no fresh data, populate it from the store. Returns the hit. */
   private async l2ReadThrough(key: CacheKey): Promise<{ data: unknown } | undefined> {
     if (!this.cacheStore || this.cache.getSnapshot(key)?.status === "success") return undefined;
     const stored = await this.cacheStore.get(serializeKey(key));
     if (!stored) return undefined;
-    this.cache.write(key, stored.data, { tags: stored.tags });
+    this.cache.write(key, stored.data, { tags: stored.tags, scope: stored.scope });
     return { data: stored.data };
   }
-  private l2WriteThrough(key: CacheKey, data: unknown, tags: string[]): void {
-    void this.cacheStore?.set(serializeKey(key), { data, tags, updatedAt: Date.now() });
+  private l2WriteThrough(key: CacheKey, data: unknown, tags: string[], scope?: "public" | "private"): void {
+    // SEP-2549: never share a private-scoped entry across authorization contexts.
+    // A partitioned key is already isolated per context, so it may go to L2.
+    if (scope === "private" && !key.partition) return;
+    void this.cacheStore?.set(serializeKey(key), { data, tags, updatedAt: Date.now(), scope });
   }
 
   /** Graceful shutdown: refuse new ops, await in-flight, then close all connections (SIGTERM). */
@@ -318,7 +416,11 @@ export class MCPClient {
     await this.close();
   }
 
-  /** Per-server health snapshot for readiness probes (+ does a live ping per server). */
+  /**
+   * Per-server health snapshot for readiness probes. Round-trips `ping` on
+   * legacy connections and `server/discover` on modern ones (the 2026-07-28
+   * revision removed `ping`).
+   */
   async health(): Promise<Record<string, { state: ServerState; pingMs?: number; ok: boolean }>> {
     const out: Record<string, { state: ServerState; pingMs?: number; ok: boolean }> = {};
     await Promise.all(
@@ -327,7 +429,8 @@ export class MCPClient {
         let ok = false;
         let pingMs: number | undefined;
         try {
-          await c.sdk.ping();
+          if (c.era === "modern") await c.sdk.discover();
+          else await c.sdk.ping();
           ok = true;
           pingMs = Date.now() - start;
         } catch {
@@ -350,7 +453,6 @@ export class MCPClient {
   private execRead(server: string, uri: string, opts: ReadResourceOpts): Promise<unknown> {
     const conn = this.req(server);
     const key = { kind: "resource", server, uri, partition: opts.context?.partition } as const;
-    const meta = opts.context?.meta;
 
     // De-dupe: concurrent reads of the same key share one in-flight request.
     const existing = this.cache.inflight(key);
@@ -366,16 +468,21 @@ export class MCPClient {
           if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
           return fromL2.data;
         }
+        const meta = this.withMeta(conn, opts.context);
         const res = await this.withRetry(() =>
           conn.sdk.readResource(
             { uri, ...(meta ? { _meta: meta } : {}) },
-            { signal: abort.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+            // mcp-query's MCPCache is the caching layer — bypass the SDK's own
+            // response cache to avoid double-storing an unbounded URI keyspace.
+            { signal: abort.signal, cacheMode: "bypass", ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
           ),
         );
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(res) : opts.providesTags ?? [];
         const tags = [resourceTag(server, uri), serverTag(server), ...extra];
-        this.cache.write(key, res, { staleTime: opts.staleTime, gcTime: opts.gcTime, tags });
-        this.l2WriteThrough(key, res, tags);
+        // SEP-2549: explicit caller staleTime wins; else the server's ttlMs (0 = stale now).
+        const scope = cacheScope(res);
+        this.cache.write(key, res, { staleTime: opts.staleTime ?? cacheTtl(res), gcTime: opts.gcTime, tags, scope });
+        this.l2WriteThrough(key, res, tags, scope);
         if (opts.subscribe) await this.maybeProtocolSubscribe(key, true);
         return res;
       } catch (err) {
@@ -410,13 +517,20 @@ export class MCPClient {
     const conn = this.req(server);
     const readOnly = def.annotations?.readOnlyHint === true;
 
-    const meta = opts.context?.meta;
+    const meta = this.withMeta(conn, opts.context);
     const rollback = opts.optimistic ? this.cache.patch(opts.optimistic(args)) : undefined;
     try {
       const result = (await conn.sdk.callTool(
         { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) },
-        undefined,
-        { signal: opts.signal, onprogress: opts.onProgress, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+        {
+          signal: opts.signal,
+          onprogress: opts.onProgress,
+          // We already hold the routed Tool — hand it to the SDK so output-schema
+          // validation and SEP-2243 header mirroring never depend on its own cache.
+          toolDefinition: def,
+          ...this.defaultRequestOptions,
+          ...(opts.requestOptions ?? {}),
+        },
       )) as unknown as R & { isError?: boolean };
 
       // Tool-level error channel: surfaced as data, NOT thrown (mirrors GraphQL errors[]).
@@ -427,7 +541,7 @@ export class MCPClient {
         this.cache.write(
           { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition },
           result,
-          { tags: [serverTag(server)] },
+          { tags: [serverTag(server)], staleTime: cacheTtl(result), scope: cacheScope(result) },
         );
       }
 
@@ -485,14 +599,26 @@ export class MCPClient {
     }
   }
 
-  /** Set a server's logging verbosity (logging/setLevel). */
+  /**
+   * Set a server's logging verbosity (logging/setLevel).
+   *
+   * @deprecated Logging is deprecated as of 2026-07-28 (SEP-2577); the RPC does
+   * not exist on modern connections (no-op there). Use `CallContext.logLevel` /
+   * `defaultLogLevel` for modern-era per-request log delivery.
+   */
   setLogLevel(server: string, level: string): Promise<void> {
     return this.req(server).setLogLevel(level);
   }
 
-  /** Liveness check — round-trips a ping to detect a silently-dead server. */
+  /**
+   * Liveness check — round-trips `ping` (legacy) or `server/discover` (modern;
+   * the 2026-07-28 revision removed `ping`).
+   *
+   * @deprecated Prefer `health()`, which is era-aware and reports per-server state.
+   */
   ping(server: string): Promise<unknown> {
-    return this.req(server).sdk.ping();
+    const conn = this.req(server);
+    return conn.era === "modern" ? conn.sdk.discover() : conn.sdk.ping();
   }
 
   /**
@@ -513,14 +639,60 @@ export class MCPClient {
     return res.completion?.values ?? [];
   }
 
-  // ── tasks (MCP 2025-11-25, SDK experimental): call-now, fetch-later tool calls ────
+  // ── tasks (io.modelcontextprotocol/tasks extension, SEP-2663) ─────────────
+  //
+  // Implemented over raw request() with mcp-query-defined schemas: the v2 SDK
+  // ships no tasks runtime and era-gates the tasks RPCs off the 2026-07-28
+  // wire, so the extension is currently drivable on LEGACY-era connections
+  // only. One choke point (assertTasksCallable) holds the gate — see
+  // https://github.com/johnhenry/mcp-query/issues/12
+
+  private assertTasksCallable(conn: ServerConnection): void {
+    if (conn.era === "modern") {
+      throw new MCPError(
+        "protocol",
+        `tasks are not yet callable on a 2026-07-28 connection: @modelcontextprotocol/client has no ${TASKS_EXT} runtime ` +
+          `(tracking: https://github.com/johnhenry/mcp-query/issues/12). ` +
+          `Pin this server's versionNegotiation to { mode: "legacy" } to use tasks today.`,
+        conn.name,
+      );
+    }
+    if (!conn.supports("tasks")) {
+      throw new MCPError(
+        "protocol",
+        `server "${conn.name}" does not advertise the tasks extension (capabilities.extensions["${TASKS_EXT}"])`,
+        conn.name,
+      );
+    }
+  }
+
+  /** The extension declaration servers read off each request's _meta (per SEP-2663). */
+  private tasksMeta(meta?: Record<string, unknown>): Record<string, unknown> {
+    return { ...(meta ?? {}), [CLIENT_CAPABILITIES_META_KEY]: { extensions: { [TASKS_EXT]: {} } } };
+  }
+
+  private taskKey(server: string, taskId: string, context?: CallContext): CacheKey {
+    return { kind: "task", server, taskId, partition: context?.partition };
+  }
+
+  /** Write a task snapshot: terminal snapshots stay fresh for the retention ttlMs, live ones for a poll beat. */
+  private writeTaskSnapshot(server: string, task: Task | DetailedTask, context?: CallContext): void {
+    const terminal = TERMINAL_STATUSES.includes(task.status);
+    this.cache.write(this.taskKey(server, task.taskId, context), task, {
+      tags: [serverTag(server)],
+      staleTime: terminal ? (task.ttlMs ?? undefined) : (task.pollIntervalMs ?? this.taskPollMs),
+    });
+  }
 
   /**
-   * Start a task-augmented tool call (call-now, fetch-later). Resolves once the server
-   * acknowledges the task; the returned handle exposes the live status (cache-backed, so
-   * `useTask`/`subscribe` react to both polling and `notifications/tasks/status` pushes),
-   * the eventual result, and cancellation. The interceptor chain and audit wrap task
-   * INITIATION (authorize/rate-limit apply when the task starts, not per status poll).
+   * Start a task-augmented tool call (call-now, fetch-later). Under SEP-2663 the
+   * server decides whether to answer `tools/call` with a task handle or a plain
+   * (synchronous) result — the returned TaskHandle covers both: a real task is
+   * polled via `tasks/get` (honoring the server's pollIntervalMs), with
+   * `input_required` rounds routed through the host handlers/broker and answered
+   * via `tasks/update`; a synchronous result yields an already-completed handle.
+   * The interceptor chain and audit wrap task INITIATION (authorize/rate-limit
+   * apply when the task starts, not per status poll).
    */
   async callToolTask<A extends Record<string, unknown>, R = unknown>(
     name: string,
@@ -542,120 +714,226 @@ export class MCPClient {
     opts: TaskCallOpts,
   ): Promise<TaskHandle<R>> {
     const conn = this.req(server);
-    if (!conn.supports("tasks")) {
-      throw this.toError(new Error(`server "${server}" does not advertise the tasks capability`), server, "protocol");
-    }
-    // Tool-level augmentation flag (spec: execution.taskSupport = forbidden|optional|required).
-    const taskSupport = (def as { execution?: { taskSupport?: string } }).execution?.taskSupport;
-    if (taskSupport === "forbidden") {
-      throw this.toError(
-        new Error(`tool "${def.name}" forbids task-augmented execution (execution.taskSupport: "forbidden") — use callTool`),
-        server,
-        "protocol",
-      );
-    }
-    const meta = opts.context?.meta;
-    const key = (taskId: string): CacheKey => ({
-      kind: "task",
-      server,
-      taskId,
-      partition: opts.context?.partition,
-    });
+    this.assertTasksCallable(conn);
 
-    let resolveCreated!: (t: Task) => void;
-    let rejectCreated!: (e: unknown) => void;
-    const created = new Promise<Task>((res, rej) => ((resolveCreated = res), (rejectCreated = rej)));
+    const res = await conn.sdk.request(
+      {
+        method: "tools/call",
+        params: { name: def.name, arguments: args, _meta: this.tasksMeta(this.withMeta(conn, opts.context)) },
+      },
+      CallToolOrTaskResultSchema,
+      { signal: opts.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+    );
+
+    if (!isTaskShaped(res)) {
+      // Server chose synchronous execution — spec says clients MUST handle either.
+      const syntheticId = `sync-${++this.syncTaskSeq}`;
+      const now = new Date().toISOString();
+      const snapshot: Task = { taskId: syntheticId, status: "completed", createdAt: now, lastUpdatedAt: now, ttlMs: null };
+      this.writeTaskSnapshot(server, snapshot, opts.context);
+      return {
+        taskId: syntheticId,
+        server,
+        task: () => this.cache.getSnapshot(this.taskKey(server, syntheticId, opts.context))?.data as Task | undefined,
+        subscribe: () => () => {},
+        result: () => Promise.resolve(res as R),
+        cancel: () => Promise.resolve(),
+      };
+    }
+
+    this.writeTaskSnapshot(server, res, opts.context);
+    return this.makeTaskHandle<R>(conn, res, opts.context);
+  }
+
+  private makeTaskHandle<R>(conn: ServerConnection, seed: Task, context?: CallContext): TaskHandle<R> {
+    const server = conn.name;
+    const key = this.taskKey(server, seed.taskId, context);
+    const answered = new Set<string>();
+    let loop: Promise<void> | undefined;
+    let settled = false;
     let resolveResult!: (r: R) => void;
     let rejectResult!: (e: unknown) => void;
     const result = new Promise<R>((res, rej) => ((resolveResult = res), (rejectResult = rej)));
-    result.catch(() => {}); // handle() callers may never ask for the result
+    result.catch(() => {}); // handle callers may never ask for the result
 
-    const stream = conn.sdk.experimental.tasks.callToolStream(
-      { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) },
-      undefined,
-      { task: opts.task ?? {}, signal: opts.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
-    );
-    // Drain the stream in the background: every status snapshot lands in the cache
-    // (driving subscribers), the terminal message settles the result promise.
-    void (async () => {
-      try {
-        for await (const msg of stream) {
-          if (msg.type === "taskCreated" || msg.type === "taskStatus") {
-            const task = msg.task as Task;
-            this.cache.write(key(task.taskId), task, { tags: [serverTag(server)] });
-            if (msg.type === "taskCreated") resolveCreated(task);
-          } else if (msg.type === "result") {
-            resolveResult(msg.result as R);
-          } else if (msg.type === "error") {
-            const err = this.toError(msg.error, server, "protocol");
-            rejectCreated(err);
-            rejectResult(err);
+    const settle = (task: DetailedTask): boolean => {
+      if (settled) return true;
+      if (task.status === "completed") {
+        settled = true;
+        resolveResult((task.result ?? {}) as R);
+      } else if (task.status === "failed") {
+        settled = true;
+        const e = task.error as { message?: string; code?: number; data?: unknown } | undefined;
+        rejectResult(new MCPError("protocol", e?.message ?? `task ${task.taskId} failed`, server, e?.code, e?.data));
+      } else if (task.status === "cancelled") {
+        settled = true;
+        rejectResult(new MCPError("cancelled", `task ${task.taskId} was cancelled`, server));
+      }
+      return settled;
+    };
+
+    const answerInputs = async (task: DetailedTask): Promise<void> => {
+      if (task.status !== "input_required" || !task.inputRequests) return;
+      const handlers = this.serverHandlers.get(server) ?? this.handlers;
+      const inputResponses: Record<string, unknown> = {};
+      for (const [k, reqObj] of Object.entries(task.inputRequests)) {
+        if (answered.has(k)) continue;
+        try {
+          if (reqObj.method === "elicitation/create" && handlers.elicitation) {
+            inputResponses[k] = await handlers.elicitation(reqObj.params as ElicitationRequest);
+          } else if (reqObj.method === "sampling/createMessage" && handlers.sampling) {
+            inputResponses[k] = await handlers.sampling(reqObj.params);
+          } else if (reqObj.method === "roots/list" && handlers.roots) {
+            inputResponses[k] = { roots: handlers.roots() };
+          } else if (reqObj.method === "elicitation/create") {
+            inputResponses[k] = { action: "decline" }; // no handler ⇒ decline rather than hang
+          } else {
+            continue; // unanswerable (no sampling/roots handler) — leave pending
+          }
+          answered.add(k);
+        } catch {
+          // Handler rejection (e.g. broker deny) — decline elicitations, skip others.
+          if (reqObj.method === "elicitation/create") {
+            inputResponses[k] = { action: "decline" };
+            answered.add(k);
           }
         }
-      } catch (err) {
-        const e = this.toError(err, server, "protocol");
-        rejectCreated(e);
-        rejectResult(e);
       }
-    })();
+      if (Object.keys(inputResponses).length) {
+        try {
+          await conn.sdk.request(
+            { method: "tasks/update", params: { taskId: task.taskId, inputResponses } },
+            UpdateTaskResultSchema,
+          );
+        } catch {
+          // Failed delivery: un-mark these keys so the next poll retries them
+          // (otherwise the handle livelocks on a permanently-pending task).
+          for (const k of Object.keys(inputResponses)) answered.delete(k);
+        }
+      }
+    };
 
-    const task = await created;
-    const snapshot = () => this.cache.getSnapshot(key(task.taskId))?.data as Task | undefined;
+    const pollOnce = async (): Promise<DetailedTask> => {
+      const task = await conn.sdk.request(
+        { method: "tasks/get", params: { taskId: seed.taskId } },
+        GetTaskResultSchema,
+      );
+      this.writeTaskSnapshot(server, task, context);
+      return task;
+    };
+
+    const ensureLoop = (): void => {
+      if (loop || settled) return;
+      loop = (async () => {
+        // Seed status may already be terminal (server settled before answering).
+        if (isDetailed(seed) && settle(seed)) return;
+        for (;;) {
+          let task: DetailedTask;
+          try {
+            task = await pollOnce();
+          } catch (err) {
+            rejectResult(this.toError(err, server, "protocol"));
+            settled = true;
+            return;
+          }
+          if (settle(task)) return;
+          await answerInputs(task);
+          const beat = task.pollIntervalMs ?? this.taskPollMs;
+          await new Promise((r) => setTimeout(r, beat));
+        }
+      })();
+    };
+
     return {
-      taskId: task.taskId,
+      taskId: seed.taskId,
       server,
-      task: snapshot,
-      subscribe: (fn) =>
-        this.cache.subscribe(key(task.taskId), () => {
-          const t = snapshot();
+      task: () => this.cache.getSnapshot(key)?.data as Task | undefined,
+      subscribe: (fn) => {
+        ensureLoop();
+        return this.cache.subscribe(key, () => {
+          const t = this.cache.getSnapshot(key)?.data as Task | undefined;
           if (t) fn(t);
-        }),
-      result: () => result,
-      cancel: () => this.cancelTask(task.taskId, server, opts.context),
+        });
+      },
+      result: () => {
+        ensureLoop();
+        return result;
+      },
+      cancel: async () => {
+        await this.cancelTask(seed.taskId, server, context);
+      },
     };
   }
 
   /** Fetch a task's current status (tasks/get) and refresh the cached snapshot. */
   async getTask(taskId: string, server: string, context?: CallContext): Promise<Task> {
     await this.wake(server);
-    const task = (await this.req(server).sdk.experimental.tasks.getTask(taskId)) as Task;
-    this.cache.write({ kind: "task", server, taskId, partition: context?.partition }, task, {
-      tags: [serverTag(server)],
-    });
+    const conn = this.req(server);
+    this.assertTasksCallable(conn);
+    const task = await conn.sdk.request({ method: "tasks/get", params: { taskId } }, GetTaskResultSchema);
+    this.writeTaskSnapshot(server, task, context);
     return task;
   }
 
-  /** List the server's tasks (tasks/list), draining pagination. */
+  /**
+   * @deprecated `tasks/list` was removed by the tasks extension redesign
+   * (SEP-2663, 2026-07-28) — track task ids from `callToolTask` handles.
+   * Always throws.
+   */
   async listTasks(server: string): Promise<Task[]> {
-    await this.wake(server);
-    const sdkTasks = this.req(server).sdk.experimental.tasks;
-    const out: Task[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await sdkTasks.listTasks(cursor);
-      out.push(...((page.tasks ?? []) as Task[]));
-      cursor = page.nextCursor;
-    } while (cursor);
-    return out;
+    throw new MCPError(
+      "protocol",
+      "tasks/list was removed by the tasks extension (SEP-2663); track task ids from callToolTask handles",
+      server,
+    );
   }
 
-  /** Retrieve a completed task's result (tasks/result). */
+  /**
+   * Retrieve a task's result.
+   *
+   * @deprecated `tasks/result` was removed by the tasks extension redesign
+   * (SEP-2663) — the result is inlined on the terminal `tasks/get` snapshot.
+   * This emulates the old blocking behavior by polling `tasks/get`.
+   */
   async getTaskResult<R = unknown>(taskId: string, server: string): Promise<R> {
     await this.wake(server);
-    const { CallToolResultSchema } = await import("@modelcontextprotocol/sdk/types.js");
-    return (await this.req(server).sdk.experimental.tasks.getTaskResult(taskId, CallToolResultSchema)) as R;
+    const conn = this.req(server);
+    this.assertTasksCallable(conn);
+    for (;;) {
+      const task = await conn.sdk.request({ method: "tasks/get", params: { taskId } }, GetTaskResultSchema);
+      this.writeTaskSnapshot(server, task);
+      if (task.status === "completed") return (task.result ?? {}) as R;
+      if (task.status === "failed") {
+        const e = task.error as { message?: string; code?: number; data?: unknown } | undefined;
+        throw new MCPError("protocol", e?.message ?? `task ${taskId} failed`, server, e?.code, e?.data);
+      }
+      if (task.status === "cancelled") throw new MCPError("cancelled", `task ${taskId} was cancelled`, server);
+      await new Promise((r) => setTimeout(r, task.pollIntervalMs ?? this.taskPollMs));
+    }
   }
 
   /** Cancel a running task (tasks/cancel) and refresh the cached snapshot. */
   async cancelTask(taskId: string, server: string, context?: CallContext): Promise<void> {
     await this.wake(server);
-    await this.req(server).sdk.experimental.tasks.cancelTask(taskId);
+    const conn = this.req(server);
+    this.assertTasksCallable(conn);
+    await conn.sdk.request({ method: "tasks/cancel", params: { taskId } }, CancelTaskResultSchema);
     await this.getTask(taskId, server, context).catch(() => {});
   }
 
-  /** Notify every connected server that the client's roots changed (roots/list_changed). */
+  /**
+   * Notify every connected server that the client's roots changed (roots/list_changed).
+   *
+   * @deprecated Roots are deprecated as of 2026-07-28 (SEP-2577), and the
+   * notification does not exist on modern connections (those are skipped;
+   * modern-era roots are delivered per multi-round-trip round).
+   */
   async notifyRootsChanged(): Promise<void> {
-    await Promise.allSettled(this.connections().map((c) => c.sdk.sendRootsListChanged()));
+    await Promise.allSettled(
+      this.connections()
+        .filter((c) => c.era !== "modern")
+        .map((c) => c.sdk.sendRootsListChanged()),
+    );
   }
 
   // ── dynamic topology ──────────────────────────────────────────────────────
@@ -673,6 +951,7 @@ export class MCPClient {
     if (!conn) return;
     await conn.close();
     this.conns.delete(name);
+    this.serverHandlers.delete(name);
     this.cache.markStaleByServer(name);
     this.bumpServerState();
   }
@@ -692,7 +971,6 @@ export class MCPClient {
   private execQuery<R = unknown>(server: string, def: Tool, args: Record<string, unknown>, opts: QueryToolOpts): Promise<R> {
     const conn = this.req(server);
     const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition } as const;
-    const meta = opts.context?.meta;
 
     const existing = this.cache.inflight(key);
     if (existing) return existing as Promise<R>;
@@ -703,16 +981,19 @@ export class MCPClient {
       try {
         const fromL2 = await this.l2ReadThrough(key);
         if (fromL2) return fromL2.data as R;
+        const meta = this.withMeta(conn, opts.context);
         const result = (await this.withRetry(() =>
-          conn.sdk.callTool({ name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, {
+          conn.sdk.callTool({ name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) }, {
             signal: abort.signal,
+            toolDefinition: def,
             ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}),
           }),
         )) as R;
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
         const tags = [serverTag(server), ...extra];
-        this.cache.write(key, result, { gcTime: opts.gcTime, tags });
-        this.l2WriteThrough(key, result, tags);
+        const scope = cacheScope(result);
+        this.cache.write(key, result, { gcTime: opts.gcTime, staleTime: cacheTtl(result), tags, scope });
+        this.l2WriteThrough(key, result, tags, scope);
         return result;
       } catch (err) {
         this.cache.setError(key, this.toError(err, server, "protocol"));
@@ -725,23 +1006,40 @@ export class MCPClient {
     return p;
   }
 
-  async getPrompt(name: string, args: Record<string, unknown>, server?: string) {
+  async getPrompt(name: string, args: Record<string, unknown>, server?: string, opts: { context?: CallContext } = {}) {
     await this.wake(server);
     // Prompts have their own registry — route by which server offers the prompt, not by tool.
     const s = server ?? this.connections().find((c) => c.prompts.has(name))?.name;
     if (!s) throw new Error(`No connected server offers prompt "${name}"`);
+    const conn = this.req(s);
     // MCP prompt arguments are string-valued; coerce so callers can pass numbers/bools.
     const stringArgs = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)]));
-    return this.req(s).sdk.getPrompt({ name, arguments: stringArgs });
+    const meta = this.withMeta(conn, opts.context);
+    return conn.sdk.getPrompt({ name, arguments: stringArgs, ...(meta ? { _meta: meta } : {}) });
   }
 
   // ── internals ──────────────────────────────────────────────────────────
-  /** Ref-counted resources/subscribe driven by cache subscriber count. */
+  /**
+   * Ref-counted protocol subscriptions driven by cache subscriber count:
+   * legacy era = `resources/subscribe`/`unsubscribe`; modern era = the observed
+   * set feeds the connection's `subscriptions/listen` filter (SEP-2575).
+   */
   private async maybeProtocolSubscribe(key: CacheKey, want: boolean): Promise<void> {
     if (key.kind !== "resource") return;
     const { server, uri } = key;
     const conn = this.conns.get(server);
     if (!conn?.supports("resources.subscribe")) return;
+    if (conn.era === "modern") {
+      this.cache.setProtocolSubscribed(key, want);
+      const observed = new Set<string>();
+      for (const e of this.cache.entriesForDevtools()) {
+        if (e.protocolSubscribed && e.cacheKey.kind === "resource" && e.cacheKey.server === server) {
+          observed.add(e.cacheKey.uri);
+        }
+      }
+      conn.listen.setObserved(observed);
+      return;
+    }
     if (want) {
       await conn.sdk.subscribeResource({ uri }).catch(() => {});
       this.cache.setProtocolSubscribed(key, true);
@@ -772,6 +1070,48 @@ export class MCPClient {
 
   private toError(err: unknown, server: string, kind: MCPError["kind"]): MCPError {
     if (err instanceof MCPError) return err; // don't re-wrap (scoped/idempotent paths)
+
+    // v2 SDK-local errors (string SdkErrorCode). Brand-based hasInstance makes
+    // this safe across package copies (client + server in one process).
+    if (err instanceof SdkError) {
+      const message = err.message;
+      // v2 wraps a caller abort as SdkError(RequestTimeout) with the AbortError
+      // message — classify by cause, not code, so aborts stay "cancelled".
+      const aborted = /\babort(ed)?\b|\bcancell?ed\b/i.test(message);
+      const kindFor: MCPError["kind"] = aborted
+        ? "cancelled"
+        : err.code === SdkErrorCode.RequestTimeout
+          ? "timeout"
+          : err.code === SdkErrorCode.ConnectionClosed ||
+              err.code === SdkErrorCode.NotConnected ||
+              err.code === SdkErrorCode.SendFailed ||
+              err instanceof SdkHttpError ||
+              err.code === SdkErrorCode.EraNegotiationFailed
+            ? "transport"
+            : "protocol";
+      const out = new MCPError(kindFor, message, server, undefined, {
+        sdkCode: err.code,
+        ...(err instanceof SdkHttpError ? { status: err.status } : {}),
+        ...(err.data !== undefined ? { cause: err.data } : {}),
+      });
+      if (err.stack) out.stack = err.stack;
+      return out;
+    }
+
+    // Wire-level JSON-RPC errors: numeric codes. -32602-with-uri (2026-07-28)
+    // and legacy -32002 are both resource-not-found.
+    if (err instanceof ProtocolError) {
+      const uri =
+        err instanceof ResourceNotFoundError
+          ? err.uri
+          : err.code === -32002
+            ? ((err.data as { uri?: string } | undefined)?.uri ?? undefined)
+            : undefined;
+      const out = new MCPError(kind, err.message, server, err.code, err.data, uri);
+      if (err.stack) out.stack = err.stack;
+      return out;
+    }
+
     const e = err as { message?: string; code?: number; data?: unknown; name?: string };
     const message = e?.message ?? String(err);
     // Classify aborts as "cancelled" — callers gate retry/toast logic on the kind.
@@ -781,4 +1121,9 @@ export class MCPClient {
     if (err instanceof Error && err.stack) out.stack = err.stack;
     return out;
   }
+}
+
+/** A Task carrying detail fields (inputRequests/result/error) — i.e. from tasks/get. */
+function isDetailed(task: Task): task is DetailedTask {
+  return "result" in task || "error" in task || "inputRequests" in task || TERMINAL_STATUSES.includes(task.status);
 }

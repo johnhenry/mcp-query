@@ -5,9 +5,7 @@
 //      retry backoff window instead of continuing to claim "ready"
 
 import { describe, it, expect } from "vitest";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { InMemoryTransport, Server } from "@modelcontextprotocol/server";
 import { MCPClient } from "../src/core/client.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
 
@@ -21,13 +19,13 @@ describe("relist ordering under concurrent list_changed", () => {
     let active: Server | undefined;
     const build = () => {
       const server = new Server({ name: "m", version: "1" }, { capabilities: { tools: { listChanged: true } } });
-      server.setRequestHandler(ListToolsRequestSchema, async () => {
+      server.setRequestHandler("tools/list", async () => {
         const call = ++listCalls;
         const tools = [{ name: `tool-gen-${call}`, inputSchema: { type: "object" } }];
         if (call === 2) await tick(80); // 2nd list (1st storm re-list) arrives LAST
         return { tools };
       });
-      server.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+      server.setRequestHandler("tools/call", () => ({ content: [] }));
       return server;
     };
     const client = new MCPClient({

@@ -91,7 +91,9 @@ describe("defaultRequestOptions", () => {
 describe("server logging capture", () => {
   it("forwards notifications/message into the devtools hub", async () => {
     const hub = new DevtoolsHub();
-    const mock = new MockMCPServer({ tools: [{ name: "t" }], logging: true });
+    // Unsolicited server logging is 2025-era (SEP-2577 deprecates the feature;
+    // modern-era log delivery is per-request via CallContext.logLevel).
+    const mock = new MockMCPServer({ tools: [{ name: "t" }], logging: true }, { era: "legacy" });
     const client = new MCPClient({ servers: { srv: { transport: mock.transport } }, devtools: hub });
     await client.connect();
 

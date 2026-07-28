@@ -9,7 +9,7 @@ import { MCPClient, InteractionBroker } from "../src/index.js";
 import { MCPProvider, useMCPClient } from "../src/react/provider.js";
 import { useResource } from "../src/react/useResource.js";
 import { useInteractions } from "../src/react/interactions.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 // The agent borrows the host's model via the broker; the human approves each use.
 const broker = new InteractionBroker({ policy: () => "ask" /* model: chromeBuiltinAISampling() */ });

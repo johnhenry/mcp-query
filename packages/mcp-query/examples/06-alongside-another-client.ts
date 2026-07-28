@@ -3,7 +3,7 @@
 // clients share one stateful server:
 //
 //   • Client A = mcp-query — the reactive read/cache/UI layer (a human dashboard).
-//   • Client B = a raw @modelcontextprotocol/sdk Client — stands in for an LLM agent
+//   • Client B = a raw @modelcontextprotocol/client Client — stands in for an LLM agent
 //     (or Claude Desktop, Vercel AI SDK, LangChain, …) that *acts* by calling tools.
 //
 // When B mutates shared state, the server pushes notifications/resources/updated to A,
@@ -14,19 +14,9 @@
 // Run: npx tsx examples/06-alongside-another-client.ts
 
 import { MCPClient } from "../src/index.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  SubscribeRequestSchema,
-  UnsubscribeRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport, Server } from "@modelcontextprotocol/server";
+import type { Transport } from "@modelcontextprotocol/client";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── one shared backend; many server "sessions" read/write it and broadcast changes ──
@@ -44,19 +34,19 @@ function sessionTransport(): Transport {
   );
   const subscribed = new Set<string>();
 
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
+  server.setRequestHandler("tools/list", () => ({
     tools: [{ name: "set_status", inputSchema: { type: "object", properties: { status: { type: "string" } }, required: ["status"] } }],
   }));
-  server.setRequestHandler(CallToolRequestSchema, (req) => {
+  server.setRequestHandler("tools/call", (req) => {
     setStatus(String((req.params.arguments as { status: string }).status));
     return { content: [{ type: "text", text: "ok" }] };
   });
-  server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [{ uri: "doc://status", name: "status" }] }));
-  server.setRequestHandler(ReadResourceRequestSchema, () => ({
+  server.setRequestHandler("resources/list", () => ({ resources: [{ uri: "doc://status", name: "status" }] }));
+  server.setRequestHandler("resources/read", () => ({
     contents: [{ uri: "doc://status", mimeType: "text/plain", text: backend.status }],
   }));
-  server.setRequestHandler(SubscribeRequestSchema, (req) => (subscribed.add(req.params.uri), {}));
-  server.setRequestHandler(UnsubscribeRequestSchema, (req) => (subscribed.delete(req.params.uri), {}));
+  server.setRequestHandler("resources/subscribe", (req) => (subscribed.add(req.params.uri), {}));
+  server.setRequestHandler("resources/unsubscribe", (req) => (subscribed.delete(req.params.uri), {}));
 
   // Broadcast: when the shared backend changes, push to THIS session if it's subscribed.
   backend.listeners.add(() => {
