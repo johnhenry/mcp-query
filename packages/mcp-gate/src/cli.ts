@@ -6,8 +6,9 @@
 //
 // (dev: runs via tsx; a published build would ship dist JS.)
 
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createGate, type GateConfig } from "./index.js";
 
@@ -35,7 +36,20 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Compare realpaths, not raw import.meta.url/process.argv[1] strings: an npm
+// bin (node_modules/.bin/mcp-gate, what `npx mcp-gate` / a global install
+// actually runs) is a symlink, so the two would otherwise never match and
+// this file would silently no-op for every real install.
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-gate]", e instanceof Error ? e.message : e);
     process.exit(1);
