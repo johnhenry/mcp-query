@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "React + Vite mcp-query example app (governed multi-tenant gateway console) with the shared WS proxy fronting an @mcp-query/gate sidecar.",
+  "description": "React + Vite mcp-query example app (governed multi-tenant gateway console) with the shared WS proxy fronting an @johnhenry/mcp-gate sidecar.",
   "scripts": {
     "dev": "WEB_PORT=5180 PROXY_PORT=6287 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:web": "vite",
@@ -15,7 +15,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mcp-query/app-shared": "*",
-    "@mcp-query/gate": "*",
+    "@johnhenry/mcp-gate": "0.0.1",
     "@johnhenry/mcpq": "*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

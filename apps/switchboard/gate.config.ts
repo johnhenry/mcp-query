@@ -9,7 +9,7 @@
 // Streamable HTTP) — the gate builds the transports, so this file needs no SDK imports.
 // Remote upstreams are added only when reachable-by-default (Context7 needs no token) or
 // their token is present, so the app demos fully offline on server-everything alone.
-import type { GateConfig } from "@mcp-query/gate";
+import type { GateConfig } from "@johnhenry/mcp-gate";
 
 const upstreams: GateConfig["upstreams"] = {
   everything: { command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] },

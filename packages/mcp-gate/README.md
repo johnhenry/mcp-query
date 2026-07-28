@@ -67,7 +67,7 @@ The config is **validated at load time**: unknown/typo'd keys, malformed upstrea
 wrong basic types make `createGate` throw with a message naming the bad key and the valid ones.
 
 ```ts
-import type { GateConfig } from "@mcp-query/gate";
+import type { GateConfig } from "@johnhenry/mcp-gate";
 
 const config: GateConfig = {
   // 1. Upstreams to front (name → declarative spec or ConnectionConfig). The name becomes the namespace.
@@ -145,7 +145,7 @@ free; `mcp-gate` only adds the DLP interceptor, the policy compiler, and the CLI
 ## API
 
 ```ts
-import { createGate } from "@mcp-query/gate";
+import { createGate } from "@johnhenry/mcp-gate";
 
 const gate = await createGate(config);
 await gate.server.connect(transport); // gate.server is an SDK Server; gate.client is the MCPClient

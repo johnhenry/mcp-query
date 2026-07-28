@@ -1,19 +1,41 @@
 {
-  "name": "@mcp-query/gate",
+  "name": "@johnhenry/mcp-gate",
   "version": "0.0.1",
-  "private": true,
-  "type": "module",
   "description": "A config-driven MCP security/policy proxy — authorization, DLP redaction, rate-limit, circuit breaking, and audit, fronting many upstreams as one MCP endpoint. Built on mcp-query.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnhenry/mcp-query.git",
+    "directory": "packages/mcp-gate"
+  },
+  "homepage": "https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-gate",
+  "bugs": "https://github.com/johnhenry/mcp-query/issues",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "bin": {
-    "mcp-gate": "./src/cli.ts"
+    "mcp-gate": "./dist/cli.js"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@johnhenry/mcpq": "*",
+    "@johnhenry/mcpq": "0.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {

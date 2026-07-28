@@ -6,8 +6,8 @@
 
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AuthzRequest, AuthzVerdict } from "../../mcp-query/src/server/index.js";
-import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "../../mcp-query/src/index.js";
+import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcpq/server";
+import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcpq";
 import type { RedactRule } from "./redact.js";
 
 /** Declarative policy: glob-matched `server.tool` allow/deny lists + a destructive switch. */

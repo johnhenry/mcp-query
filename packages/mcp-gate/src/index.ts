@@ -2,8 +2,8 @@
 // (with an interceptor stack: authorize → circuit-break → rate-limit → redact) behind a
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
-import { MCPClient, type RequestInterceptor } from "../../mcp-query/src/index.js";
-import { authorize, circuitBreaker, rateLimit, createGateway } from "../../mcp-query/src/server/index.js";
+import { MCPClient, type RequestInterceptor } from "@johnhenry/mcpq";
+import { authorize, circuitBreaker, rateLimit, createGateway } from "@johnhenry/mcpq/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig } from "./config.js";
 import { validateGateConfig } from "./validate.js";

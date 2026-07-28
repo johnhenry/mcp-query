@@ -22,14 +22,14 @@ const { data, isLoading } = client.useTool('search', { query: 'hello' });
 
 ## Add a governance layer
 
-Every other package in the ecosystem is a **plugin on the same seam** — an interceptor chain and a transport tap — so adding one is additive, not a rewrite. `@mcp-query/gate` fronts your server as a policy proxy:
+Every other package in the ecosystem is a **plugin on the same seam** — an interceptor chain and a transport tap — so adding one is additive, not a rewrite. `@johnhenry/mcp-gate` fronts your server as a policy proxy:
 
 ```sh
-npm install @mcp-query/gate
+npm install @johnhenry/mcp-gate
 ```
 
 ```ts
-import { createGate } from '@mcp-query/gate';
+import { createGate } from '@johnhenry/mcp-gate';
 
 const gated = createGate(client, {
   policies: ['./policies/redact-secrets.json'],

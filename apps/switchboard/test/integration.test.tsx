@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Switchboard integration: an in-process @mcp-query/gate (over a linked in-memory
+// Switchboard integration: an in-process @johnhenry/mcp-gate (over a linked in-memory
 // transport pair) fronting a MockMCPServer upstream, consumed by a real MCPClient with
 // the app's interceptor chain — governance, tracing, and tenant partitions end-to-end.
 

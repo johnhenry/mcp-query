@@ -1,0 +1,50 @@
+name: Release (mcp-gate)
+
+# Publish @johnhenry/mcp-gate to npm.
+#   - Tag-triggered: push a tag like gate-v0.0.1 (must match the package version).
+#   - Or run manually via workflow_dispatch (uses the version already in package.json).
+# Requires the NPM_TOKEN repo secret (shared with the mcpq release workflow).
+on:
+  push:
+    tags: ["gate-v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+
+      - name: Gate (typecheck + tests + build)
+        run: |
+          npm run typecheck -w @johnhenry/mcp-gate
+          npm test -w @johnhenry/mcp-gate
+          npm run build -w @johnhenry/mcp-gate
+
+      - name: Verify tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/mcp-gate/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#gate-v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "tag gate-v$TAG_VERSION does not match package version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcp-gate
+        run: node -e "import('./dist/index.js').then(m => { if (!m.createGate) throw new Error('missing createGate export'); console.log('ok'); })"
+
+      - name: Publish to npm
+        run: npm publish --workspace @johnhenry/mcp-gate --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

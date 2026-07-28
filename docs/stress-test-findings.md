@@ -120,7 +120,7 @@ live remote upstream, and the `mcpq` daemon warms repeat calls (~20s → ~6.6s i
   dependent `completion/complete` typeahead, `useResourceTemplates` → subscribed reads,
   committed codegen output + typed hooks, `persistCache`.
 - **`apps/switchboard`** (5180/6287) — one governed endpoint, many tenants: an
-  `@mcp-query/gate` stdio sidecar fronting server-everything + live Context7, an
+  `@johnhenry/mcp-gate` stdio sidecar fronting server-everything + live Context7, an
   interceptor trace waterfall, per-tenant cache partitions via `client.scope()`, a
   governed-vs-direct comparison, and a chaos hammer.
 

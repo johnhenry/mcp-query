@@ -14,6 +14,6 @@ Nine real UIs built on the client, each exercising a different surface of the re
 | **[ops-cockpit](https://github.com/johnhenry/mcp-query/tree/main/apps/ops-cockpit)** | React + Vite | An operations cockpit — dashboards and controls for running MCP-backed systems, not just querying them. |
 | **[socialgpt-studio](https://github.com/johnhenry/mcp-query/tree/main/apps/socialgpt-studio)** | React + Vite + Deno | The one app with its own backend — shows the client working against a server you don't control end-to-end. |
 | **[prompt-studio](https://github.com/johnhenry/mcp-query/tree/main/apps/prompt-studio)** | React + Vite | Prompts as a product surface — run server prompts with live `completion/complete` typeahead (including dependent completions), expand resource templates into subscribed reads, over codegen-typed hooks. |
-| **[switchboard](https://github.com/johnhenry/mcp-query/tree/main/apps/switchboard)** | React + Vite | One governed endpoint, many tenants — an `@mcp-query/gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, and per-tenant cache partitions via `client.scope()`. |
+| **[switchboard](https://github.com/johnhenry/mcp-query/tree/main/apps/switchboard)** | React + Vite | One governed endpoint, many tenants — an `@johnhenry/mcp-gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, and per-tenant cache partitions via `client.scope()`. |
 
 Each is a real, runnable example — clone the repo and `npm install && npm run dev` inside any `apps/*` directory.

@@ -12,7 +12,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "@mcp-query/gate": ["../../packages/mcp-gate/src/index.ts"],
+      "@johnhenry/mcp-gate": ["../../packages/mcp-gate/src/index.ts"],
       "@johnhenry/mcpq": ["../../packages/mcp-query/src/index.ts"],
       "@johnhenry/mcpq/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
       "@johnhenry/mcpq/react": ["../../packages/mcp-query/src/react/index.ts"],

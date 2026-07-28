@@ -117,7 +117,7 @@ export default defineConfig({
           items: [
             { label: 'mcp-query (core)', slug: 'packages/core' },
             { label: '@mcp-query/cli', slug: 'packages/cli' },
-            { label: '@mcp-query/gate', slug: 'packages/gate' },
+            { label: '@johnhenry/mcp-gate', slug: 'packages/gate' },
             { label: '@mcp-query/contract', slug: 'packages/contract' },
             { label: '@mcp-query/lint', slug: 'packages/lint' },
             { label: '@mcp-query/docs', slug: 'packages/docs-tool' },

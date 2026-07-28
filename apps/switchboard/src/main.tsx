@@ -1,7 +1,7 @@
 // Switchboard — one governed endpoint, many tenants.
 //
 // The browser client dials TWO targets through the WS proxy:
-//   gate            an @mcp-query/gate sidecar (spawned as stdio: tsx <cli> <gate.config.ts>)
+//   gate            an @johnhenry/mcp-gate sidecar (spawned as stdio: tsx <cli> <gate.config.ts>)
 //                   fronting server-everything + Context7 (+ HF with a token) behind policy
 //   context7-direct the same remote, ungoverned — the "governed vs direct" comparison
 //

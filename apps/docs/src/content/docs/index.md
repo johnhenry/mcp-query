@@ -31,7 +31,7 @@ and they stack:
 |---|---|---|
 | **[@mcp-query/cli](/packages/cli/)** | The unified **`mcpq`** CLI: one entry point over every tool below (`mcpq lint`/`docs`/`bench`/…), **plus a server registry** (`mcpq add`, honoring the `.mcp.json`/`mcpServers` standard) and **client verbs** (`mcpq tools`/`call`/`read`) to drive any registered server. | You want **one command** for the whole toolkit and to call your MCP servers by name from the terminal. |
 | **[mcp-query](/packages/core/)** | The reactive, cached, embeddable MCP **client**: TanStack-Query-style document cache, RTK-Query tags, LSP-client lifecycle, React hooks, codegen, an interceptor chain, and optional server-side modules (gateway, metrics, OTel, sessions, Redis L2). | You're **consuming** MCP servers from an app or backend and want a real data layer, not raw SDK calls. |
-| **[@mcp-query/gate](/packages/gate/)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
+| **[@johnhenry/mcp-gate](/packages/gate/)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
 | **[@mcp-query/contract](/packages/contract/)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
 | **[@mcp-query/lint](/packages/lint/)** | **Quality lint** (ESLint for MCP). Check a single surface against design rules — descriptions, annotations, typed inputs, naming — and gate CI on it. | You're **authoring** an MCP server and want a quality bar enforced in CI. |
 | **[@mcp-query/docs](/packages/docs-tool/)** | **Reference docs** (Redoc for MCP). Render Markdown docs from a live server or a contract: tool arg tables, annotation badges, resources, prompts. | You want **always-current reference docs** for an MCP server, generated not hand-written. |
@@ -54,7 +54,7 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 | **[notebook](apps/notebook)** | **Subscriptions** — a notes UI where agent and app share one live view via `resources/subscribe` | React |
 | **[composer](apps/composer)** | **Tools as *input*** — a chat where the *user* drives MCP tools to assemble grounded input (the inverse of agentic tool use), with a pluggable model picker via [ai.matey](https://github.com/johnhenry/ai.matey) | React |
 | **[prompt-studio](apps/prompt-studio)** | **Prompts as a product surface** — run server prompts with live `completion/complete` typeahead (incl. dependent completions), expand resource templates into subscribed reads, over codegen-typed hooks | React |
-| **[switchboard](apps/switchboard)** | **One governed endpoint, many tenants** — an `@mcp-query/gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, per-tenant cache partitions via `client.scope()` | React |
+| **[switchboard](apps/switchboard)** | **One governed endpoint, many tenants** — an `@johnhenry/mcp-gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, per-tenant cache partitions via `client.scope()` | React |
 
 Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
 it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
@@ -140,7 +140,7 @@ npm run typecheck           # typecheck all workspaces
 
 # work in one package
 npm test -w @johnhenry/mcpq
-npm test -w @mcp-query/gate
+npm test -w @johnhenry/mcp-gate
 npm run dev -w @mcp-query/inspector
 ```
 

@@ -1,6 +1,6 @@
 # Switchboard
 
-**One governed endpoint, many tenants** — a gateway ops console: an `@mcp-query/gate`
+**One governed endpoint, many tenants** — a gateway ops console: an `@johnhenry/mcp-gate`
 sidecar fronts local + live remote servers behind declarative policy, while the browser
 client runs every call through an interceptor chain, stamps it with a tenant, and caches
 it in that tenant's own partition.
@@ -11,7 +11,7 @@ This is the app for the server-side half of mcp-query — the features no other 
 
 | Feature | Where |
 |---|---|
-| `@mcp-query/gate` (→ `createGateway` + `authorize` + `redact` + `rateLimit` + `circuitBreaker`) as a stdio sidecar the WS proxy spawns — zero extra infrastructure | `gate.config.ts` |
+| `@johnhenry/mcp-gate` (→ `createGateway` + `authorize` + `redact` + `rateLimit` + `circuitBreaker`) as a stdio sidecar the WS proxy spawns — zero extra infrastructure | `gate.config.ts` |
 | Interceptor chain (`MCPClientConfig.interceptors`), browser-side: tracing → tenant-meta → `rateLimit(4)` | `src/trace.ts`, `src/main.tsx` |
 | Multi-tenant `client.scope({ partition, meta })` — per-tenant cache isolation + `_meta` principal propagation (which now traverses the gateway) | `src/components/CallDesk.tsx`, `PartitionInspector.tsx` |
 | Governed vs direct: the same Context7 call through the gate (policy'd, redacted) or straight to the ungoverned remote | `CallDesk.tsx` toggle |
