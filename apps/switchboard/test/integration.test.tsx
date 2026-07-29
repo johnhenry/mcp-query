@@ -4,7 +4,7 @@
 // the app's interceptor chain — governance, tracing, and tenant partitions end-to-end.
 
 import { describe, it, expect } from "vitest";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { InMemoryTransport } from "@modelcontextprotocol/client";
 import { MCPClient } from "@johnhenry/mcpq";
 import { rateLimit } from "@johnhenry/mcpq/server";
 import { MockMCPServer } from "@johnhenry/mcpq/testing";

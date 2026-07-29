@@ -3,7 +3,7 @@
 // instrumentAuthProvider → the devtools `auth` event → the OAuth debugger panel. Tokens
 // live in sessionStorage (a dev tool) and are redacted in the step log.
 
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 
 export class BrowserOAuthProvider implements OAuthClientProvider {
   constructor(private serverName: string) {}

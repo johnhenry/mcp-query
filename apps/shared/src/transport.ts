@@ -1,7 +1,7 @@
 // Browser side of the proxy bridge: an SDK Transport that relays JSON-RPC frames to the
 // local proxy over a WebSocket. mcp-query consumes it via ConnectionConfig.transport.
 
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { Transport } from "@modelcontextprotocol/client";
 
 export interface TargetSpec {
   transport: "stdio" | "http" | "sse";

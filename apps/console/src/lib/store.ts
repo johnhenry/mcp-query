@@ -5,10 +5,7 @@
 
 import { MCPClient } from "@johnhenry/mcpq";
 import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { WebSocketProxyTransport, type TargetSpec } from "@app-shared/transport";
 import { BrowserOAuthProvider } from "@app-shared/oauth";
 

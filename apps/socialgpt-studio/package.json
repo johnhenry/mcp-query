@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "2.0.0",
     "@mcp-query/app-shared": "*",
     "@johnhenry/mcpq": "*",
     "react": "^19.2.7",

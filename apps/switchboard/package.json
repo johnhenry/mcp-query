@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mcp-query/app-shared": "*",
     "@johnhenry/mcp-gate": "0.0.1",
     "@johnhenry/mcpq": "*",
