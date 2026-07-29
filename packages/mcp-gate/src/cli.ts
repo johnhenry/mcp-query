@@ -9,7 +9,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { createGate, type GateConfig } from "./index.js";
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {

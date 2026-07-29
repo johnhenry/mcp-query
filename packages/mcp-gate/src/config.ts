@@ -4,8 +4,8 @@
 // shape ({ command } / { url }), for which the gate builds the transport itself so config
 // files need no SDK imports.
 
-import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcpq/server";
 import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcpq";
 import type { RedactRule } from "./redact.js";
@@ -34,6 +34,20 @@ export interface StdioUpstreamSpec {
 export interface HttpUpstreamSpec {
   url: string;
   headers?: Record<string, string>;
+  /**
+   * Resolve a bearer token fresh before every request to this upstream. Maps directly onto
+   * the SDK's own `AuthProvider.token()` — called by the transport itself, per request, with
+   * no gate-side caching or shared mutable state, so it's safe under concurrent calls (unlike
+   * a naive "mutate a shared headers object" approach, which would race). Mutually exclusive
+   * with an `Authorization` entry in `headers`.
+   *
+   * This resolves a single, possibly-refreshing credential for the upstream connection as a
+   * whole — it does not receive per-call context, so it can't differentiate by tenant/caller
+   * on its own (neither this SDK generation nor the previous one supports that). For a token
+   * that must vary per tenant on the *same* upstream URL, provision one connection per
+   * `(upstream, partition)` via `Gate.addUpstream` instead, each with its own `getToken`.
+   */
+  getToken?: () => string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -52,9 +66,13 @@ export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
         new StdioClientTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
     };
   }
-  const { url, headers } = upstream;
+  const { url, headers, getToken } = upstream;
   return {
-    transport: () => new StreamableHTTPClientTransport(new URL(url), headers ? { requestInit: { headers } } : undefined),
+    transport: () =>
+      new StreamableHTTPClientTransport(new URL(url), {
+        ...(headers ? { requestInit: { headers } } : {}),
+        ...(getToken ? { authProvider: { token: async () => getToken() } } : {}),
+      }),
   };
 }
 
@@ -67,9 +85,37 @@ export interface GateConfig {
   circuitBreaker?: { threshold?: number; cooldownMs?: number };
   /** Namespace re-exposed tools/prompts as `server.tool`. Default true. */
   namespace?: boolean;
-  /** Audit sink for every op. Default: one line to stderr. */
+  /**
+   * Audit sink for every op (read/call/query), including denials. Default: one line to
+   * stderr. The only persistence hook gate has — everything else in gate is in-memory —
+   * so a real deployment typically wires this straight into a DB table.
+   *
+   * Contract (verified against `@johnhenry/mcpq`'s `MCPClient.run()`):
+   * - Fires *after* the operation settles — it's an observability hook, not a veto/blocking
+   *   point. It cannot delay, retry, or reject the call; use `policy` for that.
+   * - `entry.at` is `Date.now()` at op start; `entry.ms` is wall-clock duration to settle
+   *   (`Date.now() - at`), not monotonic — sensitive to system clock adjustments mid-call.
+   * - `entry.outcome` is `"ok" | "denied" | "error"`. `"denied"` means specifically an
+   *   authorization-policy denial; a rate-limit rejection or an open circuit breaker
+   *   (`CircuitOpenError`) is `"error"`, not `"denied"`.
+   * - **Not awaited.** mcpq's `run()` invokes this fire-and-forget; a returned Promise's
+   *   settlement is never waited on before the client call resolves. Gate wraps whatever
+   *   you pass here so a thrown error or rejected Promise can't crash the process or
+   *   produce an unhandled rejection — but the operation has already completed by the time
+   *   your callback runs regardless of what it does.
+   */
   audit?: (entry: CallAuditEntry) => void;
   clientInfo?: ClientInfo;
+  /**
+   * Derive a tenant/session partition from request `_meta` for per-tenant `rateLimit`/
+   * `circuitBreaker` isolation (so one tenant hammering an upstream doesn't throttle or
+   * trip the breaker for every other tenant sharing this gate). Default:
+   * `(meta) => meta?.partition as string | undefined`. Runs before `policy`, so a function
+   * policy can also branch on `context.partition`. A caller sets this via `_meta.partition`
+   * on a raw `tools/call` (the gateway already forwards `_meta` through), or a library-mode
+   * embedder sets it directly via `gate.client.scope({ partition, meta })`.
+   */
+  partitionFrom?: (meta: Record<string, unknown> | undefined) => string | undefined;
 }
 
 function escapeRe(s: string): string {

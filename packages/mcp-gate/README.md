@@ -35,11 +35,9 @@ plays for HTTP services.
 
 ## Install / run
 
-In this monorepo it runs straight from source via `tsx`:
-
 ```bash
-# serve a gate defined by a config module, over stdio
-npx tsx packages/mcp-gate/src/cli.ts packages/mcp-gate/examples/gate.config.ts
+npm install @johnhenry/mcp-gate
+npx mcp-gate ./gate.config.ts   # serve a gate defined by a config module, over stdio
 ```
 
 Wire it into an MCP host (e.g. Claude Desktop) in place of the raw upstream:
@@ -49,7 +47,7 @@ Wire it into an MCP host (e.g. Claude Desktop) in place of the raw upstream:
   "mcpServers": {
     "everything": {
       "command": "npx",
-      "args": ["tsx", "packages/mcp-gate/src/cli.ts", "packages/mcp-gate/examples/gate.config.ts"]
+      "args": ["mcp-gate", "./gate.config.ts"]
     }
   }
 }
@@ -104,14 +102,20 @@ export default config;
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `upstreams` | `Record<string, GateUpstream>` | — | `{ command, args?, env? }` (stdio) \| `{ url, headers? }` (Streamable HTTP) \| mcp-query `ConnectionConfig`; key = namespace. |
+| `upstreams` | `Record<string, GateUpstream>` | — | `{ command, args?, env? }` (stdio) \| `{ url, headers?, getToken? }` (Streamable HTTP) \| mcp-query `ConnectionConfig`; key = namespace. |
 | `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"` | none (allow all) | Declarative rules or a custom function. |
 | `redact` | `RedactRule[]` | none | `{ pattern: RegExp\|string, replacement?: string }`. |
-| `rateLimit` | `{ concurrency?: number }` | none | Per-gate concurrency cap. |
-| `circuitBreaker` | `{ threshold?, cooldownMs? }` | none | Per-upstream open/half-open breaker. |
+| `rateLimit` | `{ concurrency?: number }` | none | Concurrency cap per `(upstream, tenant)` pair — see `partitionFrom`. |
+| `circuitBreaker` | `{ threshold?, cooldownMs? }` | none | Open/half-open breaker per `(upstream, tenant)` pair. |
+| `partitionFrom` | `(meta) => string \| undefined` | `meta?.partition` | Derives the tenant key `rateLimit`/`circuitBreaker` isolate by. See [Multi-tenancy](#multi-tenancy). |
 | `namespace` | `boolean` | `true` | Prefix re-exposed names with `server.`. |
-| `audit` | `(entry: CallAuditEntry) => void` | stderr line | Sink for every op. |
+| `audit` | `(entry: CallAuditEntry) => void` | stderr line | Sink for every op — see the field's TSDoc in `src/config.ts` for the full contract (fires after settle, not awaited, wrapped for crash-safety). |
 | `clientInfo` | `ClientInfo` | `mcp-gate` | Identity sent to upstreams. |
+
+`HttpUpstreamSpec.getToken?: () => string | undefined | Promise<string | undefined>` resolves
+a bearer token fresh before every request (the SDK's own `AuthProvider.token()` hook — no
+gate-side caching, no shared mutable state, safe under concurrent calls). Mutually exclusive
+with `headers.Authorization`.
 
 ### Policy semantics
 
@@ -131,16 +135,59 @@ is enforced at **call time only** (the listing filter doesn't carry tool annotat
 `createGate(config)` builds the interceptor onion (outermost first) and serves it:
 
 ```
-authorize(compilePolicy(policy))   // deny early
-  → circuitBreaker(...)            // protect upstreams
-    → rateLimit(...)               // cap concurrency
-      → redact(...)                // scrub the result on the way back
-        → MCPClient → upstreams
+populatePartition(partitionFrom)   // resolve the tenant key first
+  → authorize(compilePolicy(policy))   // deny early
+    → circuitBreaker(...)              // protect upstreams, per (upstream, tenant)
+      → rateLimit(...)                 // cap concurrency, per (upstream, tenant)
+        → redact(...)                  // scrub the result on the way back
+          → MCPClient → upstreams
 ```
 
 then `createGateway(client, { namespace, filter })` re-exposes it as one `Server`. So the
-gate inherits mcp-query's reconnection, aggregation, `_meta` propagation, and audit hook for
-free; `mcp-gate` only adds the DLP interceptor, the policy compiler, and the CLI.
+gate inherits mcp-query's reconnection, aggregation, `_meta` propagation, dynamic
+`addServer`/`removeServer`, and audit hook for free; `mcp-gate` only adds the DLP
+interceptor, the tenant-aware `rateLimit`/`circuitBreaker` fork (see [Multi-tenancy](#multi-tenancy)),
+the policy compiler, and the CLI.
+
+## Multi-tenancy
+
+A single gate can serve many tenants/principals without one `Gate` instance per tenant.
+`rateLimit`/`circuitBreaker` isolate their state by `(upstream, partition)`, not just
+`upstream` — one tenant hammering an upstream or tripping its breaker doesn't throttle or
+fast-fail every other tenant sharing the gate. The partition comes from `partitionFrom`
+(default: `meta?.partition`), applied to `context.meta` before `policy` runs, so a function
+policy can branch on it too. Two ways to set it:
+
+- **Behind the gateway** (`gate.server` connected to a transport): the caller sets
+  `_meta.partition` on a raw `tools/call` — the gateway already forwards `_meta` through.
+- **Library mode**: `gate.client.scope({ partition, meta })` sets it directly — see below.
+
+With no partition ever set anywhere (the default), every key collapses to the same string,
+so this is behaviorally identical to a single shared bucket per upstream — no config needed
+to keep today's behavior.
+
+## Library mode
+
+`createGate()` always returns a connected `client` — wiring `gate.server` to a transport is
+**optional**, only needed if you want to expose a standalone governed MCP endpoint. To embed
+governance (authz/redact/rateLimit/circuitBreaker/audit) directly inside your own process —
+an agent host, a backend job — call `gate.client` directly and skip `server`/transport
+entirely:
+
+```ts
+import { createGate } from "@johnhenry/mcp-gate";
+
+const gate = await createGate(config);
+const result = await gate.client.callTool("docs.echo", { message: "hi" });
+
+// Multi-tenant embedding, ties to partitionFrom above:
+const tenant = gate.client.scope({ partition: "acme", meta: { principal: "alice" } });
+await tenant.callTool("docs.echo", { message: "scoped" });
+
+await gate.close(); // no server.close() needed — it was never connected to a transport
+```
+
+Runnable version: `examples/01-library-mode.ts` (`npm run example:01`).
 
 ## API
 
@@ -148,19 +195,33 @@ free; `mcp-gate` only adds the DLP interceptor, the policy compiler, and the CLI
 import { createGate } from "@johnhenry/mcp-gate";
 
 const gate = await createGate(config);
-await gate.server.connect(transport); // gate.server is an SDK Server; gate.client is the MCPClient
+await gate.server.connect(transport); // gate.server is an SDK Server; gate.client is the MCPClient — optional, see Library mode
+await gate.addUpstream("newServer", { url: "https://example.com/mcp" }); // connect + register live, no restart
+await gate.updateUpstream("newServer", { url: "https://example.com/v2/mcp" }); // atomic remove+add
+await gate.removeUpstream("newServer"); // disconnect + prune its rateLimit/circuitBreaker state + push list_changed
 await gate.close();
 ```
 
 Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(policy)`,
 `resolveUpstream(spec)` (declarative spec → `ConnectionConfig`), `validateGateConfig(config)`,
-and the `GateConfig` / `GatePolicy` / `GateUpstream` / `StdioUpstreamSpec` / `HttpUpstreamSpec` /
-`RedactRule` types.
+`CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `GateUpstream` / `StdioUpstreamSpec` /
+`HttpUpstreamSpec` / `RedactRule` types.
+
+## MCP SDK versions
+
+`mcp-gate` depends only on `@modelcontextprotocol/client@2.0.0` and
+`@modelcontextprotocol/server@2.0.0` (the v2-split packages — same lineage `@johnhenry/mcpq`
+itself peer-depends on). It does **not** depend on the v1 monolith `@modelcontextprotocol/sdk`
+at all. A consumer pinning `@modelcontextprotocol/sdk@^1.x` for its own MCP client code has no
+version conflict with gate — these are separate npm package names, so npm/pnpm install both
+side by side with no peer-dependency collision. Wire compatibility across the two generations
+is real and already exercised in CI: `test/gate.test.ts` connects a v1-SDK `Client` to a gate
+`server` built on v2 `@modelcontextprotocol/server`, and every test passes.
 
 ## Tests
 
 ```bash
-npx vitest run    # routing, policy (deny + destructive), discovery hiding, redaction, audit
+npx vitest run    # routing, policy, discovery hiding, redaction, audit, dynamic upstreams, multi-tenancy
 ```
 
 All tests drive a real consumer SDK `Client` over `InMemoryTransport` against `gate.server`,
@@ -168,5 +229,8 @@ fronting an in-memory `MockMCPServer` — no network, no subprocess.
 
 ## Status
 
-MVP. Not yet published (`private: true`). Roadmap: per-principal policy (`req.context.meta`),
-streaming-result redaction, metrics endpoint, hot config reload.
+Published as `@johnhenry/mcp-gate` on npm. Roadmap: streaming-result redaction, metrics
+endpoint, hot config reload, per-`(upstream, partition)` connections for true per-tenant
+credentials on one upstream URL (today's `getToken` resolves one credential for the whole
+upstream connection, refreshed per call — not per-tenant on a shared URL; see `getToken`'s
+TSDoc in `src/config.ts`).

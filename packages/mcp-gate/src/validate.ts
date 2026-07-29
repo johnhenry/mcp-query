@@ -6,7 +6,7 @@
 import type { GateConfig } from "./config.js";
 
 const UPSTREAM_SHAPES =
-  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers? }';
+  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers?, getToken? }';
 
 function fail(msg: string): never {
   throw new Error(`invalid gate config: ${msg}`);
@@ -41,7 +41,9 @@ const aBoolean = (v: unknown) => typeof v === "boolean";
 const aString = (v: unknown) => typeof v === "string";
 const aFunction = (v: unknown) => typeof v === "function";
 
-function validateUpstream(name: string, up: unknown): void {
+/** Validate a single upstream spec by name. Exported so `Gate.addUpstream`/`.updateUpstream` (a
+ * live config change, not the whole `GateConfig`) can reuse the exact same shape checks. */
+export function validateGateUpstream(name: string, up: unknown): void {
   const where = `upstream "${name}"`;
   if (!isRecord(up)) fail(`${where} must be an object — ${UPSTREAM_SHAPES} (got ${typeOf(up)})`);
   const has = (k: string) => up[k] !== undefined;
@@ -61,9 +63,13 @@ function validateUpstream(name: string, up: unknown): void {
     checkType(up, "args", "an array of strings", isStringArray, where);
     checkType(up, "env", "a Record<string, string>", isStringRecord, where);
   } else if (has("url")) {
-    checkKeys(up, ["url", "headers"], `${where} (http)`);
+    checkKeys(up, ["url", "headers", "getToken"], `${where} (http)`);
     checkType(up, "url", "a string", aString, where);
     checkType(up, "headers", "a Record<string, string>", isStringRecord, where);
+    checkType(up, "getToken", "a function", aFunction, where);
+    if (has("getToken") && isRecord(up.headers) && up.headers.Authorization !== undefined) {
+      fail(`${where} has both "headers.Authorization" and "getToken" — pick one (getToken is called fresh per request; a static header never refreshes)`);
+    }
     try {
       new URL(up.url as string);
     } catch {
@@ -102,11 +108,11 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
-  for (const [name, up] of Object.entries(config.upstreams)) validateUpstream(name, up);
+  for (const [name, up] of Object.entries(config.upstreams)) validateGateUpstream(name, up);
 
   if (config.policy !== undefined) validatePolicy(config.policy);
   if (config.redact !== undefined) validateRedact(config.redact);
@@ -124,6 +130,7 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
   }
   checkType(config, "namespace", "a boolean", aBoolean, "GateConfig");
   checkType(config, "audit", "a function", aFunction, "GateConfig");
+  checkType(config, "partitionFrom", "a function", aFunction, "GateConfig");
   if (config.clientInfo !== undefined) {
     if (!isRecord(config.clientInfo)) fail(`"clientInfo" must be an object (got ${typeOf(config.clientInfo)})`);
     checkType(config.clientInfo, "name", "a string", aString, "clientInfo");

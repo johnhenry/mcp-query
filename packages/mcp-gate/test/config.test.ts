@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createGate, resolveUpstream, validateGateConfig, type GateConfig } from "../src/index.js";
 
 describe("declarative upstreams (spec → transport mapping)", () => {
@@ -14,6 +14,12 @@ describe("declarative upstreams (spec → transport mapping)", () => {
   it("maps { url, headers } to a Streamable HTTP transport factory", () => {
     const cfg = resolveUpstream({ url: "https://example.com/mcp", headers: { Authorization: "Bearer x" } });
     expect(cfg.transport()).toBeInstanceOf(StreamableHTTPClientTransport); // constructing doesn't connect
+  });
+
+  it("maps { url, getToken } to a transport with a per-request AuthProvider", async () => {
+    const getToken = () => "fresh-token";
+    const cfg = resolveUpstream({ url: "https://example.com/mcp", getToken });
+    expect(cfg.transport()).toBeInstanceOf(StreamableHTTPClientTransport);
   });
 
   it("passes factory-style ConnectionConfigs through untouched", () => {
@@ -36,6 +42,14 @@ describe("config validation", () => {
     await expect(
       createGate({ upstreams: { both: { command: "true", url: "https://example.com/mcp" } } } as unknown as GateConfig),
     ).rejects.toThrow(/upstream "both" has both "command" and "url"/);
+  });
+
+  it("rejects an http upstream with both headers.Authorization and getToken", () => {
+    expect(() =>
+      validateGateConfig({
+        upstreams: { up: { url: "https://example.com/mcp", headers: { Authorization: "Bearer x" }, getToken: () => "y" } },
+      }),
+    ).toThrow(/upstream "up".*both "headers\.Authorization" and "getToken"/s);
   });
 
   it("rejects an upstream matching no shape, naming the accepted shapes", () => {
@@ -81,6 +95,7 @@ describe("config validation", () => {
           fac: { transport: () => new StdioClientTransport({ command: "true" }), lazy: true, idleMs: 1000 },
           stdio: { command: "npx", args: ["-y", "pkg"], env: { A: "b" } },
           http: { url: "https://example.com/mcp", headers: undefined }, // explicit undefined counts as absent
+          httpToken: { url: "https://example.com/mcp", getToken: () => "x" },
         },
         policy: { allow: ["*.read*"], deny: ["*.rm"], denyDestructive: true },
         redact: [{ pattern: /x/g }, { pattern: "y", replacement: "[Y]" }],
