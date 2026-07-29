@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcpq",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A reactive, cached, embeddable MCP client for non-agentic apps. TanStack Query keys + RTK Query tags + LSP-client lifecycle, on top of the official MCP SDK.",
   "repository": {
     "type": "git",
@@ -97,9 +97,6 @@
       "optional": true
     },
     "@opentelemetry/api": {
-      "optional": true
-    },
-    "@modelcontextprotocol/server": {
       "optional": true
     }
   },
