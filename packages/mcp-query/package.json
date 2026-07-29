@@ -65,8 +65,8 @@
     }
   },
   "bin": {
-    "mcpq-codegen": "./dist/codegen/cli.js",
-    "mcpq-inspect": "./dist/cli/inspect.js"
+    "mcpq-codegen": "dist/codegen/cli.js",
+    "mcpq-inspect": "dist/cli/inspect.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js",
