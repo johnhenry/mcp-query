@@ -1,0 +1,60 @@
+name: Release (mcpq-tanstack)
+
+# Publish @johnhenry/mcpq-tanstack to npm.
+#   - Tag-triggered: push a tag like mcpq-tanstack-v0.1.0 (must match the package version).
+#   - Or run manually via workflow_dispatch (uses the version already in package.json).
+# Requires the NPM_TOKEN repo secret (shared with the mcpq release workflow).
+#
+# First publish uses --tag rc explicitly: a plain (non "-rc.N") version like
+# 0.1.0 would otherwise claim npm's `latest` dist-tag on its very first
+# publish (npm's own quirk) — matching this family's standing practice of not
+# claiming `latest` before a real stable release.
+on:
+  push:
+    tags: ["mcpq-tanstack-v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+
+      - name: Build mcp-query
+        # mcpq-tanstack imports @johnhenry/mcpq's subpath exports (./testing
+        # in tests), which resolve to dist/ — must exist first.
+        run: npm run build -w @johnhenry/mcpq
+
+      - name: Gate (typecheck + tests + build)
+        run: |
+          npm run typecheck -w @johnhenry/mcpq-tanstack
+          npm test -w @johnhenry/mcpq-tanstack
+          npm run build -w @johnhenry/mcpq-tanstack
+
+      - name: Verify tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/mcpq-tanstack/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#mcpq-tanstack-v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "tag mcpq-tanstack-v$TAG_VERSION does not match package version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcpq-tanstack
+        run: node -e "import('./dist/index.js').then(m => { if (!m.attachMcpqSync) throw new Error('missing attachMcpqSync export'); console.log('ok'); })"
+
+      - name: Publish to npm
+        run: npm publish --workspace @johnhenry/mcpq-tanstack --provenance --access public --tag rc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
