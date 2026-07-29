@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@johnhenry/mcpq": "*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0"
   },
   "devDependencies": {
     "tsx": "^4.22.4",

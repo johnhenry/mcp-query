@@ -11,7 +11,7 @@
 // optional --bearer / repeated --header "K: V"). `verify` exits non-zero on any BREAKING change.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { MCPClient } from "../../mcp-query/src/index.js";
 import { createGateway } from "../../mcp-query/src/server/index.js";
 import { diffContract, type Contract } from "./contract.js";

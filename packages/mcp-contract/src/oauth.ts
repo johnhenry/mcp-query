@@ -11,16 +11,61 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthTokens, OAuthClientInformationMixed, OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  UnauthorizedError,
+  type OAuthClientProvider,
+  type OAuthClientInformationContext,
+  type StoredOAuthTokens,
+  type StoredOAuthClientInformation,
+  type OAuthClientMetadata,
+} from "@modelcontextprotocol/client";
+
+interface IssuerEntry {
+  clientInformation?: StoredOAuthClientInformation;
+  tokens?: StoredOAuthTokens;
+}
 
 interface CacheState {
-  clientInformation?: OAuthClientInformationMixed;
-  tokens?: OAuthTokens;
+  /**
+   * Keyed by the authorization server's `issuer` identifier (SEP-2352 — credentials MUST
+   * be bound to the issuing authorization server, MUST NOT be reused across a different
+   * one). Legacy (pre-issuer-keying) caches land under `""` on migration.
+   */
+  byIssuer: Record<string, IssuerEntry>;
+  /**
+   * Most-recently-touched issuer — used when a caller asks with no `ctx` (the transport's
+   * per-request bearer-token read, per `OAuthClientProvider.tokens()`'s own contract: "do
+   * not return undefined for ctx === undefined").
+   */
+  lastIssuer?: string;
   codeVerifier?: string;
+}
+
+/** Old (pre-issuer-keying) on-disk shape — migrated into `byIssuer[""]` on load. */
+interface LegacyCacheState {
+  clientInformation?: StoredOAuthClientInformation;
+  tokens?: StoredOAuthTokens;
+  codeVerifier?: string;
+}
+
+function isLegacyCacheState(s: unknown): s is LegacyCacheState {
+  return !!s && typeof s === "object" && !("byIssuer" in s) && ("clientInformation" in s || "tokens" in s || "codeVerifier" in s);
+}
+
+function readCacheState(file: string): CacheState {
+  if (!existsSync(file)) return { byIssuer: {} };
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  if (isLegacyCacheState(parsed)) {
+    return {
+      byIssuer: { "": { clientInformation: parsed.clientInformation, tokens: parsed.tokens } },
+      lastIssuer: "",
+      codeVerifier: parsed.codeVerifier,
+    };
+  }
+  const s = parsed as CacheState;
+  return { byIssuer: s.byIssuer ?? {}, lastIssuer: s.lastIssuer, codeVerifier: s.codeVerifier };
 }
 
 /**
@@ -69,7 +114,12 @@ export function tokenCachePath(url: string): string {
   return join(homedir(), ".mcp-query", "oauth", `${host}.json`);
 }
 
-/** A file-backed OAuthClientProvider. `interactive: false` refuses to start a new flow. */
+/**
+ * A file-backed OAuthClientProvider. `interactive: false` refuses to start a new flow.
+ * Credentials are stored per authorization-server `issuer` (SEP-2352) — a host can front
+ * more than one issuer over its lifetime (e.g. a migration), and this provider must never
+ * hand back a different issuer's client registration or tokens.
+ */
 export class FileOAuthProvider implements OAuthClientProvider {
   lastAuthorizationUrl?: URL;
   private cache: CacheState;
@@ -78,12 +128,16 @@ export class FileOAuthProvider implements OAuthClientProvider {
     private readonly file: string,
     private readonly opts: { redirectUrl?: string; scope?: string; interactive?: boolean } = {},
   ) {
-    this.cache = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as CacheState) : {};
+    this.cache = readCacheState(file);
   }
 
   private persist(): void {
     mkdirSync(join(this.file, ".."), { recursive: true });
     writeFileSync(this.file, JSON.stringify(this.cache, null, 2));
+  }
+
+  private entry(issuer: string): IssuerEntry {
+    return (this.cache.byIssuer[issuer] ??= {});
   }
 
   get redirectUrl(): string {
@@ -97,22 +151,31 @@ export class FileOAuthProvider implements OAuthClientProvider {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
+      // SEP-837: retry-with-adjusted-metadata registration negotiation may ask for a
+      // different application_type; "native" matches this CLI's localhost-callback flow.
+      application_type: "native",
       ...(this.opts.scope ? { scope: this.opts.scope } : {}),
     };
   }
 
-  clientInformation(): OAuthClientInformationMixed | undefined {
-    return this.cache.clientInformation;
+  clientInformation(ctx?: OAuthClientInformationContext): StoredOAuthClientInformation | undefined {
+    const issuer = ctx?.issuer ?? this.cache.lastIssuer;
+    return issuer === undefined ? undefined : this.cache.byIssuer[issuer]?.clientInformation;
   }
-  saveClientInformation(info: OAuthClientInformationMixed): void {
-    this.cache.clientInformation = info;
+  saveClientInformation(info: StoredOAuthClientInformation, ctx?: OAuthClientInformationContext): void {
+    const issuer = ctx?.issuer ?? "";
+    this.entry(issuer).clientInformation = info;
+    this.cache.lastIssuer = issuer;
     this.persist();
   }
-  tokens(): OAuthTokens | undefined {
-    return this.cache.tokens;
+  tokens(ctx?: OAuthClientInformationContext): StoredOAuthTokens | undefined {
+    const issuer = ctx?.issuer ?? this.cache.lastIssuer;
+    return issuer === undefined ? undefined : this.cache.byIssuer[issuer]?.tokens;
   }
-  saveTokens(tokens: OAuthTokens): void {
-    this.cache.tokens = tokens;
+  saveTokens(tokens: StoredOAuthTokens, ctx?: OAuthClientInformationContext): void {
+    const issuer = ctx?.issuer ?? "";
+    this.entry(issuer).tokens = tokens;
+    this.cache.lastIssuer = issuer;
     this.persist();
   }
   saveCodeVerifier(v: string): void {
@@ -142,11 +205,11 @@ export function captureProvider(url: string): FileOAuthProvider {
   return new FileOAuthProvider(tokenCachePath(url), { interactive: false });
 }
 
-/** True when a usable cached token (or refresh token) exists for `url`. */
+/** True when a usable cached token (or refresh token) exists for `url`, for any issuer. */
 export function hasCachedAuth(url: string): boolean {
   try {
-    const s = JSON.parse(readFileSync(tokenCachePath(url), "utf8")) as CacheState;
-    return !!s.tokens?.access_token;
+    const s = readCacheState(tokenCachePath(url));
+    return Object.values(s.byIssuer).some((e) => !!e.tokens?.access_token);
   } catch {
     return false;
   }
@@ -230,7 +293,7 @@ export interface AuthenticateOptions {
 }
 
 /** Run the interactive browser-consent flow and return the obtained tokens. */
-export async function authenticate(url: string, opts: AuthenticateOptions = {}): Promise<OAuthTokens> {
+export async function authenticate(url: string, opts: AuthenticateOptions = {}): Promise<StoredOAuthTokens> {
   const cb = await startCallbackServer(opts.port);
   const redirectUrl = `http://localhost:${cb.port}/callback`;
   const provider = new FileOAuthProvider(tokenCachePath(url), { redirectUrl, scope: opts.scope, interactive: true });

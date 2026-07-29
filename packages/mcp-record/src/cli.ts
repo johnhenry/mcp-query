@@ -16,8 +16,8 @@
 // function-call string ('tool(a: 1)').
 
 import { readFile, writeFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import { createCassette, type Cassette } from "./cassette.js";
 import { recordTransport } from "./record.js";

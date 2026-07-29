@@ -3,20 +3,8 @@
 // the *actual recorded result* is returned. Repeated identical calls replay in recorded
 // order (stateful episodes), the last one sticking.
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  CompleteRequestSchema,
-  type ServerCapabilities,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Server, InMemoryTransport, type ServerCapabilities } from "@modelcontextprotocol/server";
+import type { Transport } from "@modelcontextprotocol/client";
 import { interactionKey, type Cassette } from "./cassette.js";
 
 /** Build an SDK Server that replays the cassette. Connect it to any server transport. */
@@ -48,20 +36,20 @@ export function replayServer(cassette: Cassette): Server {
   const handle = (method: string) => (req: { params?: unknown }) => lookup(method, req.params) as never;
 
   if (caps.tools) {
-    server.setRequestHandler(ListToolsRequestSchema, handle("tools/list"));
-    server.setRequestHandler(CallToolRequestSchema, handle("tools/call"));
+    server.setRequestHandler("tools/list", handle("tools/list"));
+    server.setRequestHandler("tools/call", handle("tools/call"));
   }
   if (caps.resources) {
-    server.setRequestHandler(ListResourcesRequestSchema, handle("resources/list"));
-    server.setRequestHandler(ReadResourceRequestSchema, handle("resources/read"));
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, handle("resources/templates/list"));
+    server.setRequestHandler("resources/list", handle("resources/list"));
+    server.setRequestHandler("resources/read", handle("resources/read"));
+    server.setRequestHandler("resources/templates/list", handle("resources/templates/list"));
   }
   if (caps.prompts) {
-    server.setRequestHandler(ListPromptsRequestSchema, handle("prompts/list"));
-    server.setRequestHandler(GetPromptRequestSchema, handle("prompts/get"));
+    server.setRequestHandler("prompts/list", handle("prompts/list"));
+    server.setRequestHandler("prompts/get", handle("prompts/get"));
   }
   if (caps.completions) {
-    server.setRequestHandler(CompleteRequestSchema, handle("completion/complete"));
+    server.setRequestHandler("completion/complete", handle("completion/complete"));
   }
   return server;
 }

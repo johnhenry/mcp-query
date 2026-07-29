@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { buildTransport, connectFromFlags } from "../src/connect.js";
 
 describe("connect helpers", () => {

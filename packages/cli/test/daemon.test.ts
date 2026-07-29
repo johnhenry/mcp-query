@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import net from "node:net";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 
 import { serverKey, readFrame, writeFrame, type DaemonRequest, type DaemonResponse } from "../src/daemon/protocol.js";

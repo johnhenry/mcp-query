@@ -2,10 +2,8 @@
 // connect to a live MCP server over stdio OR Streamable HTTP, capture its surface, close.
 // HTTP support lets these tools target *hosted* MCP servers, not just locally-spawned ones.
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { Client, StreamableHTTPClientTransport, type Transport } from "@modelcontextprotocol/client";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import { captureContract, type Contract } from "./contract.js";
 import { captureProvider, tokenNormalizingFetch } from "./oauth.js";
 

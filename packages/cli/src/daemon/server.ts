@@ -8,7 +8,7 @@
 
 import net from "node:net";
 import { appendFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { connectClient, type ConnectOptions } from "../../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../../mcp-contract/src/schema.js";
 import { coerceArgs } from "../invoke.js";

@@ -2,7 +2,7 @@
 // (tools + their input/output schemas + annotations, resources, templates, prompts),
 // plus capture-from-a-live-server and a breaking-change classifier built on schema.ts.
 
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { diffSchema, type JSONSchema, type SchemaChange } from "./schema.js";
 
 export interface ToolAnnotations {

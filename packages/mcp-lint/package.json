@@ -14,8 +14,7 @@
   },
   "dependencies": {
     "@johnhenry/mcpq": "*",
-    "@mcp-query/contract": "*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@mcp-query/contract": "*"
   },
   "devDependencies": {
     "tsx": "^4.22.4",

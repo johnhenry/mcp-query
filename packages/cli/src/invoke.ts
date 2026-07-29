@@ -11,7 +11,7 @@
 // by the tool's inputSchema, confirms destructive calls, and renders via formatResult.
 
 import { createInterface } from "node:readline";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { connectClient, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../mcp-contract/src/schema.js";
 

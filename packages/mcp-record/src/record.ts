@@ -2,8 +2,8 @@
 // pair every outgoing JSON-RPC request with its incoming response into a cassette as
 // traffic flows. Drop it in front of any upstream transport; use your app/tests normally.
 
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport } from "@modelcontextprotocol/client";
+import type { ServerCapabilities } from "@modelcontextprotocol/server";
 import { instrumentTransport, type TrafficEvent } from "../../mcp-query/src/core/instrument.js";
 import type { Cassette, Interaction } from "./cassette.js";
 

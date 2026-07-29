@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 
 import { registryVerbs } from "../src/registry-verbs.js";

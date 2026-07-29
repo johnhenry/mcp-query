@@ -4,7 +4,7 @@
 // or cross-invocation supervision — a single foreground process. The 80/20 of the daemon.
 
 import { createInterface, type Interface } from "node:readline";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { connectFor, opTools, opCall, opRead, opPrompt, opPing, type InvokeFlags } from "./invoke.js";
 
 const SESSION_VERBS = new Set(["tools", "resources", "prompts", "call", "read", "prompt", "ping", "help", "exit", "quit", "json", "human"]);

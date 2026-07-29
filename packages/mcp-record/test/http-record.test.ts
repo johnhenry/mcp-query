@@ -8,38 +8,51 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import { describe, it, expect, beforeAll, afterAll, vi, afterEach } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { Client } from "@modelcontextprotocol/client";
+import { Server, createMcpHandler } from "@modelcontextprotocol/server";
 import { run, recordSession } from "../src/cli.js";
 import { replayTransport } from "../src/replay.js";
 import type { Cassette } from "../src/cassette.js";
 
 const text = (r: unknown) => (r as { content: { text: string }[] }).content[0]!.text;
 
-/** A stateless Streamable HTTP MCP server (fresh Server+transport per request). */
+/**
+ * A stateless Streamable HTTP MCP server (fresh Server instance per request) via
+ * createMcpHandler's default `legacy: 'stateless'` serving — the v2 idiom for exactly the
+ * "no sessionIdGenerator" behavior v1's StreamableHTTPServerTransport used here. Bridges
+ * node:http to the handler's web-standard fetch, same pattern mockServer.ts's own
+ * in-process dispatch uses.
+ */
 function startHttpFixture(): Promise<{ url: string; httpServer: HttpServer; upstreamCalls: string[] }> {
   const upstreamCalls: string[] = [];
+  const buildServer = () => {
+    const server = new Server({ name: "http-fixture", version: "1.2.3" }, { capabilities: { tools: {} } });
+    server.setRequestHandler("tools/list", () =>
+      Promise.resolve({
+        tools: [{ name: "echo", description: "Echo a message", inputSchema: { type: "object", properties: { message: { type: "string" } } } }],
+      }),
+    );
+    server.setRequestHandler("tools/call", (r) => {
+      const message = String((r.params.arguments as { message?: unknown } | undefined)?.message);
+      upstreamCalls.push(message);
+      return Promise.resolve({ content: [{ type: "text", text: message }] });
+    });
+    return server;
+  };
+  const handler = createMcpHandler(buildServer);
   const httpServer = createServer((req, res) => {
     void (async () => {
-      const server = new Server({ name: "http-fixture", version: "1.2.3" }, { capabilities: { tools: {} } });
-      server.setRequestHandler(ListToolsRequestSchema, () =>
-        Promise.resolve({
-          tools: [{ name: "echo", description: "Echo a message", inputSchema: { type: "object", properties: { message: { type: "string" } } } }],
-        }),
-      );
-      server.setRequestHandler(CallToolRequestSchema, (r) => {
-        const message = String((r.params.arguments as { message?: unknown } | undefined)?.message);
-        upstreamCalls.push(message);
-        return Promise.resolve({ content: [{ type: "text", text: message }] });
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks);
+      const request = new Request(`http://localhost${req.url}`, {
+        method: req.method,
+        headers: req.headers as Record<string, string>,
+        body,
       });
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-      res.on("close", () => void transport.close());
-      await server.connect(transport);
-      let body = "";
-      for await (const chunk of req) body += chunk;
-      await transport.handleRequest(req, res, body ? (JSON.parse(body) as unknown) : undefined);
+      const response = await handler.fetch(request);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(Buffer.from(await response.arrayBuffer()));
     })().catch(() => {
       if (!res.headersSent) {
         res.statusCode = 500;

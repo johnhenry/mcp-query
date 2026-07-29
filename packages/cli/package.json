@@ -20,7 +20,7 @@
     "@mcp-query/bench": "*",
     "@mcp-query/record": "*",
     "@johnhenry/mcp-gate": "0.0.1",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/client": "2.0.0"
   },
   "devDependencies": {
     "tsx": "^4.22.4",

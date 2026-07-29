@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { summarize } from "../src/stats.js";
 import { runOp, benchmark } from "../src/bench.js";
