@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcp-gate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A config-driven MCP security/policy proxy — authorization, DLP redaction, rate-limit, circuit breaking, and audit, fronting many upstreams as one MCP endpoint. Built on mcp-query.",
   "repository": {
     "type": "git",
@@ -36,7 +36,7 @@
     "example:01": "tsx examples/01-library-mode.ts"
   },
   "dependencies": {
-    "@johnhenry/mcpq": "0.1.0",
+    "@johnhenry/mcpq": "0.1.1",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0"
   },

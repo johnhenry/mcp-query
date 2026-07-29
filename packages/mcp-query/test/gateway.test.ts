@@ -90,4 +90,21 @@ describe("createGateway", () => {
     expect(notified).toBe(true);
     expect((await consumer.listTools()).tools.map((t) => t.name)).toContain("b.ping2");
   });
+
+  it("doesn't reject/crash on a capability change when its server was never connected to a transport (library mode)", async () => {
+    // createGateway's `server` is optional — a caller can use `client` directly and never
+    // connect `server` to any transport at all (mcp-gate's "library mode"). A capability
+    // change must not throw "not connected" in that case; it has nowhere to notify, so it
+    // should just no-op. Regression test: this used to be an unhandled rejection (vitest
+    // fails a test with one in flight), because the internal `subscribeCapabilities`
+    // callback called `server.sendToolListChanged()` with no error handling at all.
+    const b = new MockMCPServer({ tools: [{ name: "ping" }] });
+    const upstream = new MCPClient({ servers: { b: { transport: b.transport } } });
+    await upstream.connect();
+    createGateway(upstream); // server intentionally never connected to a transport
+    b.spec.tools = [{ name: "ping" }, { name: "ping2" }];
+    await b.notifyToolListChanged();
+    await tick(30); // let the async subscribeCapabilities callback settle
+    expect(upstream.listTools("b").map((t) => t.name)).toContain("ping2"); // the client itself still updated
+  });
 });

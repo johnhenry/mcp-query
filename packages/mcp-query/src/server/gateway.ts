@@ -15,7 +15,7 @@
 // stamping ttlMs/cacheScope from the client's cache — are tracked in
 // https://github.com/johnhenry/mcp-query/issues/15.)
 
-import { Server } from "@modelcontextprotocol/server";
+import { Server, SdkError, SdkErrorCode } from "@modelcontextprotocol/server";
 import type { MCPClient } from "../core/client.js";
 
 export interface GatewayOptions {
@@ -88,10 +88,18 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
   });
 
   // ── live list_changed propagation ──
+  // Swallow "not connected": `server` is only wired to a transport if the caller chooses to
+  // serve it — library-mode callers use `client` directly and never connect `server` at all
+  // (see mcp-gate's README). A capability change on the client (a new/removed upstream, or
+  // an upstream's own list_changed) must not throw/reject just because nobody's listening.
+  const notifyIfConnected = (send: () => Promise<void>) =>
+    send().catch((e) => {
+      if (!(e instanceof SdkError) || e.code !== SdkErrorCode.NotConnected) throw e;
+    });
   client.subscribeCapabilities((_s, kind) => {
-    if (kind === "tools") void server.sendToolListChanged();
-    else if (kind === "resources") void server.sendResourceListChanged();
-    else void server.sendPromptListChanged();
+    if (kind === "tools") void notifyIfConnected(() => server.sendToolListChanged());
+    else if (kind === "resources") void notifyIfConnected(() => server.sendResourceListChanged());
+    else void notifyIfConnected(() => server.sendPromptListChanged());
   });
 
   return server;
