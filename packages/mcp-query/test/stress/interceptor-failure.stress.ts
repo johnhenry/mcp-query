@@ -8,6 +8,7 @@ import { MockMCPServer } from "../../src/testing/mockServer.js";
 import type { RequestInterceptor } from "../../src/core/interceptors.js";
 import { rateLimit } from "../../src/server/rateLimit.js";
 import { circuitBreaker, CircuitOpenError } from "../../src/server/circuitBreaker.js";
+import { x402Interceptor } from "../../src/server/x402Interceptor.js";
 import { seededRng, tick } from "./helpers.js";
 
 const CALLS = 500;
@@ -39,7 +40,14 @@ describe("interceptor chain under failure injection", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: server.transport } },
-      interceptors: [tagger, observer, chaos, rateLimit({ concurrency: 16 }).interceptor, observer],
+      interceptors: [
+        tagger,
+        observer,
+        chaos,
+        x402Interceptor({ enabled: true, gate: async () => "deny" }), // no 402 ever fires here — proves a configured-but-inert layer doesn't leak state or mask chaos's errors
+        rateLimit({ concurrency: 16 }).interceptor,
+        observer,
+      ],
     });
     await client.connect();
 

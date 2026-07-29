@@ -9,3 +9,7 @@ export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";
 export type { CircuitOptions, CircuitBreaker } from "./circuitBreaker.js";
 export { rateLimit } from "./rateLimit.js";
 export type { RateLimitOptions, RateLimit } from "./rateLimit.js";
+export { x402Interceptor, X402ChallengeError } from "./x402Interceptor.js";
+export type { X402InterceptorOptions, X402GateVerdict } from "./x402Interceptor.js";
+export { parseX402Challenge } from "./x402.js";
+export type { X402Challenge, X402PaymentRequirement } from "./x402.js";
