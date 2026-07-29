@@ -99,10 +99,10 @@ export interface GateConfig {
    *   authorization-policy denial; a rate-limit rejection or an open circuit breaker
    *   (`CircuitOpenError`) is `"error"`, not `"denied"`.
    * - **Not awaited.** mcpq's `run()` invokes this fire-and-forget; a returned Promise's
-   *   settlement is never waited on before the client call resolves. Gate wraps whatever
-   *   you pass here so a thrown error or rejected Promise can't crash the process or
-   *   produce an unhandled rejection — but the operation has already completed by the time
-   *   your callback runs regardless of what it does.
+   *   settlement is never waited on before the client call resolves (tracked upstream as
+   *   johnhenry/mcp-query#22). Gate wraps whatever you pass here so a thrown error or
+   *   rejected Promise can't crash the process or produce an unhandled rejection — but the
+   *   operation has already completed by the time your callback runs regardless of what it does.
    */
   audit?: (entry: CallAuditEntry) => void;
   clientInfo?: ClientInfo;
