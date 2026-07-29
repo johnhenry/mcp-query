@@ -41,7 +41,7 @@ async function gateClient() {
   await gate.server.connect(serverT);
   const client = new MCPClient({
     servers: { gate: { transport: () => clientT } },
-    interceptors: [traceInterceptor(), tenantMetaInterceptor(), rateLimit({ concurrency: 4 })],
+    interceptors: [traceInterceptor(), tenantMetaInterceptor(), rateLimit({ concurrency: 4 }).interceptor],
   });
   await client.connect();
   return { client, gate, mock };

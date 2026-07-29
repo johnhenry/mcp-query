@@ -31,8 +31,8 @@ const client = new MCPClient({
     metrics.interceptor(),
     tracing({ tracer: noopTracer }),
     authorize(denyDestructiveUnless((r) => r.context?.meta?.role === "admin")),
-    circuitBreaker({ threshold: 5 }),
-    rateLimit({ concurrency: 16 }),
+    circuitBreaker({ threshold: 5 }).interceptor,
+    rateLimit({ concurrency: 16 }).interceptor,
   ],
   onCall: (e) => console.log(`  [audit] ${e.principal ?? "-"} ${e.kind} ${e.target} -> ${e.outcome}`),
 });

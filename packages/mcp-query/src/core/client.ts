@@ -88,8 +88,25 @@ export interface MCPClientConfig {
   taskPollMs?: number;
   /** Client-wide default request timeouts, overridden per-call by `requestOptions`. */
   defaultRequestOptions?: RequestTimeoutOpts;
-  /** Durable audit sink — called for every read/call/query with its outcome + timing. */
-  onCall?: (entry: CallAuditEntry) => void;
+  /**
+   * Durable audit sink — called for every read/call/query with its outcome + timing.
+   *
+   * - Fires *after* the operation settles — an observability hook, not a veto/blocking
+   *   point. It cannot delay, retry, or reject the call; use an `authorize`-style
+   *   interceptor for that.
+   * - `entry.at` is `Date.now()` at op start; `entry.ms` is wall-clock duration to settle
+   *   (`Date.now() - at`), not monotonic — sensitive to system clock adjustments mid-call.
+   * - `entry.outcome` is `"ok" | "denied" | "error"`. `"denied"` means specifically an
+   *   `AuthorizationError` (mcp-query/server, code -32003); any other thrown error
+   *   (a rate-limit rejection, an open circuit breaker, an upstream failure) is `"error"`.
+   * - **Not awaited before the call settles.** `run()` invokes this after the operation
+   *   has already resolved/rejected — whatever `onCall` does cannot affect that outcome.
+   *   You may return `void` or a `Promise<void>`; if you return a Promise, mcpq awaits
+   *   it internally purely to catch a rejection (logged via `console.error`, never
+   *   rethrown or left unhandled) — this still cannot delay or affect the call itself.
+   *   A synchronous throw is caught the same way.
+   */
+  onCall?: (entry: CallAuditEntry) => void | Promise<void>;
 }
 
 /** One audited operation (every read/call/query) for a durable governance log. */
@@ -216,7 +233,7 @@ export class MCPClient {
   private taskPollMs: number;
   private defaultRequestOptions?: RequestTimeoutOpts;
   private interceptors: RequestInterceptor[];
-  private onCall?: (entry: CallAuditEntry) => void;
+  private onCall?: (entry: CallAuditEntry) => void | Promise<void>;
   private draining = false;
   private inFlight = new Set<Promise<unknown>>();
   private cacheStore?: CacheStore;
@@ -379,7 +396,16 @@ export class MCPClient {
   }
 
   private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string): void {
-    this.onCall?.({ at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error });
+    if (!this.onCall) return;
+    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error };
+    try {
+      const r = this.onCall(entry);
+      if (r && typeof (r as PromiseLike<unknown>).then === "function") {
+        Promise.resolve(r).catch((e) => console.error("[mcp-query] onCall rejected:", e));
+      }
+    } catch (e) {
+      console.error("[mcp-query] onCall threw:", e);
+    }
   }
 
   /**

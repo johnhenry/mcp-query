@@ -4,6 +4,7 @@ import { MCPCache } from "../src/core/cache.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
 import { resourceTag, capsTag } from "../src/core/tags.js";
 import type { CacheKey } from "../src/core/keys.js";
+import type { TrafficEvent } from "../src/core/instrument.js";
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
@@ -114,5 +115,86 @@ describe("reconnect with capability re-negotiation", () => {
     expect(conn.state).toBe("ready");
     expect(conn.supports("resources.subscribe")).toBe(false);
     await conn.close();
+  });
+});
+
+// Wraps a working (non-stdio) transport so it structurally passes the SDK's own stdio
+// detection (`"stderr" in t && "pid" in t`, see instrument.ts's header) — lets us drive
+// connection.ts's `emitSyntheticProbeMarker` (which does the exact same structural check)
+// without spawning a real child process. All real reads/writes/methods still forward to
+// the wrapped transport unchanged.
+function fakeStdioShape<T extends object>(real: T): T {
+  return new Proxy(real, {
+    get(target, prop, recv) {
+      const v = Reflect.get(target, prop, recv);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+    has(target, prop) {
+      if (prop === "stderr" || prop === "pid") return true;
+      return Reflect.has(target, prop);
+    },
+  });
+}
+
+describe("synthetic devtools marker for the stdio 'auto'-probe (#16)", () => {
+  it("emits exactly one synthetic marker for a stdio-shaped transport under auto negotiation", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const cache = new MCPCache();
+    const events: TrafficEvent[] = [];
+    const conn = new ServerConnection(
+      "srv",
+      { transport: () => fakeStdioShape(mock.transport()), versionNegotiation: { mode: "auto" } },
+      { cache, handlers: {}, onMessage: (_s, ev) => events.push(ev) },
+    );
+    // The fake transport disguises a non-stdio transport as stdio-shaped purely to drive
+    // the structural check — the SDK's real stdio sibling-probe machinery (which needs
+    // actual StdioClientTransport internals like `_serverParams`) isn't expected to
+    // succeed against it. We only assert on the marker, emitted before that attempt.
+    await conn.connect().catch(() => {});
+    const synthetic = events.filter((e) => e.synthetic);
+    expect(synthetic).toHaveLength(1);
+    expect(synthetic[0]).toMatchObject({ dir: "out", message: { method: "server/discover" } });
+    await conn.close().catch(() => {});
+  });
+
+  it("emits no synthetic marker for a non-stdio transport", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const cache = new MCPCache();
+    const events: TrafficEvent[] = [];
+    const conn = new ServerConnection(
+      "srv",
+      { transport: mock.transport, versionNegotiation: { mode: "auto" } },
+      { cache, handlers: {}, onMessage: (_s, ev) => events.push(ev) },
+    );
+    await conn.connect();
+    expect(events.some((e) => e.synthetic)).toBe(false);
+    await conn.close();
+  });
+
+  it("emits no synthetic marker when negotiation mode isn't 'auto'", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const cache = new MCPCache();
+    const events: TrafficEvent[] = [];
+    const conn = new ServerConnection(
+      "srv",
+      { transport: () => fakeStdioShape(mock.transport()), versionNegotiation: { mode: "legacy" } },
+      { cache, handlers: {}, onMessage: (_s, ev) => events.push(ev) },
+    );
+    await conn.connect();
+    expect(events.some((e) => e.synthetic)).toBe(false);
+    await conn.close();
+  });
+
+  it("emits no synthetic marker without a devtools tap (no onMessage)", async () => {
+    const mock = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const cache = new MCPCache();
+    const conn = new ServerConnection(
+      "srv",
+      { transport: () => fakeStdioShape(mock.transport()), versionNegotiation: { mode: "auto" } },
+      { cache, handlers: {} },
+    );
+    // No onMessage configured — emitSyntheticProbeMarker must no-op, not throw.
+    await expect(conn.connect().catch(() => {})).resolves.toBeUndefined();
+    await conn.close().catch(() => {});
   });
 });

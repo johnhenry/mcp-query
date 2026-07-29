@@ -29,7 +29,7 @@ export const client = makeProxyClient({
     },
   },
   clientInfo: { name: "switchboard", version: "0.0.1", title: "Switchboard" },
-  interceptors: [traceInterceptor(), tenantMetaInterceptor(), rateLimit({ concurrency: 4 })],
+  interceptors: [traceInterceptor(), tenantMetaInterceptor(), rateLimit({ concurrency: 4 }).interceptor],
 });
 
 void client.connect();

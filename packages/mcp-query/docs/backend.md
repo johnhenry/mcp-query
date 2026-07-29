@@ -53,10 +53,17 @@ target, principal, outcome }` (outcome ∈ ok | denied | error).
 
 ```ts
 import { circuitBreaker, rateLimit } from "@johnhenry/mcpq/server";
-interceptors: [circuitBreaker({ threshold: 5, cooldownMs: 10_000 }), rateLimit({ concurrency: 8 })]
+interceptors: [
+  circuitBreaker({ threshold: 5, cooldownMs: 10_000 }).interceptor,
+  rateLimit({ concurrency: 8 }).interceptor,
+]
 ```
 
-Per-server open/half-open + a concurrency cap with backpressure. For richer policies, plug
+Per-key (default: per-server) open/half-open + a concurrency cap with backpressure. Pass
+`keyFn: (op) => \`${op.server}::${op.context?.partition ?? ""}\`` to isolate state per tenant
+instead of sharing one budget/breaker across everyone hitting the same server. Both return
+`{ interceptor, dropServer(server) }` — call `dropServer` when a server is removed at runtime
+(e.g. after `client.removeServer`) to avoid leaking per-key state. For richer policies, plug
 cockatiel/bottleneck onto the same interceptor seam.
 
 ## Observability — metrics + health (`mcp-query/metrics`)

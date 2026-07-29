@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { describe, it, expect, vi } from "vitest";
+import { Client, InMemoryTransport, StreamableHTTPClientTransport, MissingRequiredClientCapabilityError } from "@modelcontextprotocol/client";
 import { MCPClient } from "../src/core/client.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
-import { createGateway } from "../src/server/gateway.js";
+import { createGateway, createGatewayHandler } from "../src/server/gateway.js";
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,5 +106,115 @@ describe("createGateway", () => {
     await b.notifyToolListChanged();
     await tick(30); // let the async subscribeCapabilities callback settle
     expect(upstream.listTools("b").map((t) => t.name)).toContain("ping2"); // the client itself still updated
+  });
+});
+
+/** In-process HTTP bridge to an McpHttpHandler — the SDK-documented testing pattern, same
+ * one MockMCPServer's own `transport` factory uses to serve `handler.fetch` without a
+ * real network listener. */
+function handlerTransport(handler: { fetch: (r: Request) => Promise<Response> }) {
+  return new StreamableHTTPClientTransport(new URL("http://gw.local/mcp"), {
+    fetch: (url, init) => handler.fetch(new Request(url, init)),
+  });
+}
+
+describe("createGatewayHandler (modern-era HTTP serving, #15)", () => {
+  it("serves tools/list and tools/call over the modern (2026-07-28) HTTP path", async () => {
+    const a = new MockMCPServer({ tools: [{ name: "echo", handler: (x) => ({ content: [{ type: "text", text: String(x.msg) }] }) }] });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    const handler = createGatewayHandler(upstream);
+
+    const consumer = new Client({ name: "consumer", version: "1" }, { capabilities: {} });
+    await consumer.connect(handlerTransport(handler));
+
+    expect((await consumer.listTools()).tools.map((t) => t.name)).toEqual(["a.echo"]);
+    const r = (await consumer.callTool({ name: "a.echo", arguments: { msg: "hi" } })) as { content: { text: string }[] };
+    expect(r.content[0]!.text).toBe("hi");
+
+    await consumer.close();
+    await handler.close();
+    await upstream.close();
+    await a.close();
+  });
+
+  it("stamps ttlMs/cacheScope on tools/list from the client's own cache entry", async () => {
+    const a = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    upstream.listTools("a"); // ensure the toolList cache entry exists before the gateway reads it
+    const handler = createGatewayHandler(upstream);
+
+    const consumer = new Client({ name: "consumer", version: "1" }, { capabilities: {} });
+    await consumer.connect(handlerTransport(handler));
+    const result = (await consumer.listTools()) as { tools: unknown[]; ttlMs?: number; cacheScope?: string };
+    expect(typeof result.ttlMs).toBe("number");
+    expect(result.ttlMs).toBeGreaterThan(0);
+
+    await consumer.close();
+    await handler.close();
+    await upstream.close();
+    await a.close();
+  });
+
+  it("translates an upstream MissingRequiredClientCapabilityError (-32021) into GatewayUpstreamCapabilityError (-32004)", async () => {
+    const a = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    vi.spyOn(upstream, "callTool").mockRejectedValueOnce(
+      new MissingRequiredClientCapabilityError({ requiredCapabilities: { sampling: {} } }),
+    );
+    const handler = createGatewayHandler(upstream);
+    const consumer = new Client({ name: "consumer", version: "1" }, { capabilities: {} });
+    await consumer.connect(handlerTransport(handler));
+
+    await expect(consumer.callTool({ name: "a.echo", arguments: {} })).rejects.toMatchObject({ code: -32004 });
+
+    await consumer.close();
+    await handler.close();
+    await upstream.close();
+    await a.close();
+  });
+
+  it("upstream list_changed fans out to a subscriptions/listen consumer", async () => {
+    const a = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    const handler = createGatewayHandler(upstream);
+
+    const consumer = new MCPClient({
+      servers: { gw: { transport: () => handlerTransport(handler) } },
+      versions: ["2026-07-28"],
+    });
+    await consumer.connect();
+    expect(consumer.listTools("gw").map((t) => t.name)).toEqual(["a.echo"]);
+
+    a.spec.tools = [{ name: "echo" }, { name: "echo2" }];
+    await a.notifyToolListChanged();
+    await tick(150); // upstream -> aggregator's subscribeCapabilities -> handler.notify -> listen stream -> consumer re-list
+
+    expect(consumer.listTools("gw").map((t) => t.name).sort()).toEqual(["a.echo", "a.echo2"]);
+
+    await consumer.close();
+    await handler.close();
+    await upstream.close();
+    await a.close();
+  });
+
+  it("close() unsubscribes from the client — a post-close capability change doesn't throw", async () => {
+    const a = new MockMCPServer({ tools: [{ name: "echo" }] });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    const handler = createGatewayHandler(upstream);
+    await handler.close();
+
+    // If unsubscribe didn't happen, this would call handler.notify.toolsChanged() on a
+    // torn-down handler — assert it doesn't throw/reject unhandled.
+    a.spec.tools = [{ name: "echo" }, { name: "echo2" }];
+    await expect(a.notifyToolListChanged()).resolves.not.toThrow();
+    await tick(30);
+
+    await upstream.close();
+    await a.close();
   });
 });

@@ -246,6 +246,25 @@ export class ServerConnection {
     return this.deps.onMessage ? instrumentTransport(t, (ev) => this.deps.onMessage!(this.name, ev)) : t;
   }
 
+  /**
+   * If the upcoming `client.connect()` will run the stdio `'auto'`-negotiation sibling
+   * probe, emit a synthetic devtools marker for it — the probe always runs on a fresh,
+   * un-instrumented sibling transport (never `this.rawTransport`), so its `server/discover`
+   * traffic structurally cannot cross `instrumentTransport`'s tap (see that file's header
+   * for why this is a visibility gap, not a correctness/safety one). Call after
+   * `makeTransport()` so `this.rawTransport` is the transport this connect will use, and
+   * only reachable from the fresh-connect path (the resume path pins `prior: {kind:
+   * "legacy"}`, which never probes). No-op without a devtools tap, on a non-stdio
+   * transport, or when negotiation isn't `"auto"` (a `{pin}`/`"legacy"` mode never probes).
+   */
+  private emitSyntheticProbeMarker(): void {
+    if (!this.deps.onMessage) return;
+    if (resolveNegotiation(this.cfg, this.deps).versionNegotiation.mode !== "auto") return;
+    const t = this.rawTransport as unknown as Record<string, unknown> | undefined;
+    if (!t || !("stderr" in t) || !("pid" in t)) return; // structural stdio check, mirrors the SDK's own detectProbeTransportKind
+    this.deps.onMessage(this.name, { dir: "out", message: { method: "server/discover" }, synthetic: true });
+  }
+
   // ── lifecycle ────────────────────────────────────────────────────────────
   async connect(): Promise<void> {
     this.setState("connecting");
@@ -308,7 +327,9 @@ export class ServerConnection {
     // MUST see capability changes, so a cached era verdict (`prior`) is not
     // reused here — correctness over the probe round trip. (Callers that want
     // zero-probe reconnects can pin versionNegotiation instead.)
-    await this.client.connect(this.makeTransport());
+    const transport = this.makeTransport();
+    this.emitSyntheticProbeMarker();
+    await this.client.connect(transport);
     this.capabilities = this.client.getServerCapabilities() ?? {};
     this.protocolVersion = this.client.getServerVersion()?.version ?? "";
     const sessionId = this.rawTransport?.sessionId;

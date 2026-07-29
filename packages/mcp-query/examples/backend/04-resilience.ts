@@ -16,7 +16,7 @@ const mock = new MockMCPServer({
 
 const client = new MCPClient({
   servers: { svc: { transport: mock.transport } },
-  interceptors: [circuitBreaker({ threshold: 2, cooldownMs: 100, now: () => clock }), rateLimit({ concurrency: 2 })],
+  interceptors: [circuitBreaker({ threshold: 2, cooldownMs: 100, now: () => clock }).interceptor, rateLimit({ concurrency: 2 }).interceptor],
 });
 await client.connect();
 

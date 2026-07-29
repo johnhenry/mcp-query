@@ -39,7 +39,7 @@ describe("interceptor chain under failure injection", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: server.transport } },
-      interceptors: [tagger, observer, chaos, rateLimit({ concurrency: 16 }), observer],
+      interceptors: [tagger, observer, chaos, rateLimit({ concurrency: 16 }).interceptor, observer],
     });
     await client.connect();
 
@@ -76,7 +76,7 @@ describe("interceptor chain under failure injection", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: server.transport } },
-      interceptors: [rateLimit({ concurrency: 4 })],
+      interceptors: [rateLimit({ concurrency: 4 }).interceptor],
     });
     await client.connect();
 
@@ -104,7 +104,7 @@ describe("interceptor chain under failure injection", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: server.transport } },
-      interceptors: [circuitBreaker({ threshold: 3, cooldownMs: 1_000, now: () => now })],
+      interceptors: [circuitBreaker({ threshold: 3, cooldownMs: 1_000, now: () => now }).interceptor],
     });
     await client.connect();
 
