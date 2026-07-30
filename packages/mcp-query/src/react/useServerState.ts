@@ -2,7 +2,8 @@
 // "github: reconnecting" / "degraded" / "ready". The dual of the capability hooks:
 // they observe *what* a server offers, this observes *whether it's reachable*.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useVersioned } from "@johnhenry/agent-query-core/react";
 import { useMCPClient } from "./provider.js";
 import type { ServerState } from "../core/types.js";
 
@@ -17,7 +18,7 @@ export interface UseServerStateResult {
 
 export function useServerState(server: string): UseServerStateResult {
   const client = useMCPClient();
-  useSyncExternalStore(
+  useVersioned(
     useCallback((cb) => client.subscribeServerState(cb), [client]),
     () => client.serverStateVersion(),
     () => client.serverStateVersion(),

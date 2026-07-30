@@ -18,7 +18,7 @@ function messageText(m: SamplingMessage): string {
 }
 
 export function InteractionCard({ interaction, resolve }: Props) {
-  const { id, type, phase, server, payload, manual } = interaction;
+  const { id, type, phase, peer, payload, manual } = interaction;
   const [reason, setReason] = useState("");
 
   // A "confirm" is modeled as an elicitation with no fields (see simulate.ts) — label it as
@@ -66,7 +66,7 @@ export function InteractionCard({ interaction, resolve }: Props) {
           {manual && <span className="pill pill-manual">manual</span>}
         </div>
         <div className="card-meta">
-          <span className="server">{server}</span>
+          <span className="server">{peer}</span>
           <span className="dot">·</span>
           <span className="age" title={new Date(interaction.createdAt).toLocaleString()}>
             {age}

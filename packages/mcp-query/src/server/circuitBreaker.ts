@@ -12,9 +12,9 @@ export interface CircuitOptions {
   cooldownMs?: number;
   now?: () => number;
   /**
-   * Group operations into buckets sharing breaker state. Default `(op) => op.server` — one
+   * Group operations into buckets sharing breaker state. Default `(op) => op.peer` — one
    * breaker per upstream server, matching pre-0.2.0 behavior exactly. Pass e.g.
-   * `(op) => \`${op.server}::${op.context?.partition ?? ""}\`` for per-tenant isolation on a
+   * `(op) => \`${op.peer}::${op.context?.partition ?? ""}\`` for per-tenant isolation on a
    * shared server/gateway (one tenant tripping the breaker doesn't fail-fast every other
    * tenant). Called on every op; keep it cheap and pure.
    */
@@ -32,7 +32,7 @@ export class CircuitOpenError extends Error {
 export interface CircuitBreaker {
   interceptor: RequestInterceptor;
   /**
-   * Drop all state for keys produced (by `keyFn`) while `op.server === server` — for cleanup
+   * Drop all state for keys produced (by `keyFn`) while `op.peer === server` — for cleanup
    * when a server is removed at runtime. Correct for any `keyFn` — see `RateLimit.dropServer`'s
    * doc in `rateLimit.ts` for why this can't be string-prefix matching.
    */
@@ -43,14 +43,14 @@ export function circuitBreaker(opts: CircuitOptions = {}): CircuitBreaker {
   const threshold = opts.threshold ?? 5;
   const cooldown = opts.cooldownMs ?? 10_000;
   const now = opts.now ?? (() => Date.now());
-  const keyFn = opts.keyFn ?? ((op: Operation) => op.server);
+  const keyFn = opts.keyFn ?? ((op: Operation) => op.peer);
   const state = new Map<string, { failures: number; openedAt?: number }>();
   const keyServer = new Map<string, string>();
 
   return {
     interceptor: async (op, next) => {
       const k = keyFn(op);
-      keyServer.set(k, op.server);
+      keyServer.set(k, op.peer);
       const s = state.get(k) ?? { failures: 0 };
       if (s.openedAt !== undefined) {
         if (now() - s.openedAt < cooldown) throw new CircuitOpenError(k);

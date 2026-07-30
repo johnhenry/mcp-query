@@ -122,7 +122,7 @@ describe("audit log & sinks", () => {
     broker.addAuditSink(sink);
     await broker.handleSampling("a", sreq("x"));
     await broker.handleSampling("b", sreq("y"));
-    expect(broker.auditLog().map((e) => e.server)).toEqual(["a", "b"]);
+    expect(broker.auditLog().map((e) => e.peer)).toEqual(["a", "b"]);
     expect(sink).toHaveBeenCalledTimes(2);
   });
 });

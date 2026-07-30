@@ -18,8 +18,8 @@ export function tracing(opts: TracingOptions = {}): RequestInterceptor {
   const propagate = opts.propagate ?? true;
 
   return (op, next) =>
-    tracer.startActiveSpan(`mcp.${op.kind} ${op.server}.${op.target}`, async (span) => {
-      span.setAttribute("mcp.server", op.server);
+    tracer.startActiveSpan(`mcp.${op.kind} ${op.peer}.${op.target}`, async (span) => {
+      span.setAttribute("mcp.server", op.peer);
       span.setAttribute("mcp.operation", op.kind);
       span.setAttribute("mcp.target", op.target);
       const principal = (op.context?.meta as { principal?: unknown } | undefined)?.principal;

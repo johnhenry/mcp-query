@@ -2,7 +2,8 @@
 // *_list_changed notification (dynamic registration), because the connection layer
 // invalidates the matching `caps:` tag, which we observe here.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { useCacheEntry } from "@johnhenry/agent-query-core/react";
 import { useMCPClient } from "./provider.js";
 import type { CacheKey } from "../core/keys.js";
 import type { Prompt, Resource, ResourceTemplate, Tool } from "../core/types.js";
@@ -16,12 +17,10 @@ function useCapsList<T>(server: string, kind: "tools" | "resources" | "prompts",
         ? { kind: "resourceList", server }
         : { kind: "promptList", server };
 
-  // Subscribe to the caps cache entry so a re-list (list_changed) re-renders us.
-  useSyncExternalStore(
-    useCallback((cb) => client.cache.subscribe(key, cb), [client, server, kind]),
-    () => client.cache.getVersion(key),
-    () => client.cache.getVersion(key),
-  );
+  // Subscribe to the caps cache entry so a re-list (list_changed) re-renders us — the
+  // entry itself isn't the data source (read() pulls from the connection's own Map),
+  // useCacheEntry is used purely for its subscribe/re-render side effect here.
+  useCacheEntry(client.cache, key);
   return read();
 }
 
@@ -44,11 +43,7 @@ export function usePromptList(opts: { server: string }): { prompts: Prompt[] } {
 export function useResourceTemplates(opts: { server: string }): { templates: ResourceTemplate[] } {
   const client = useMCPClient();
   const key: CacheKey = { kind: "templateList", server: opts.server };
-  useSyncExternalStore(
-    useCallback((cb) => client.cache.subscribe(key, cb), [client, opts.server]),
-    () => client.cache.getVersion(key),
-    () => client.cache.getVersion(key),
-  );
+  useCacheEntry(client.cache, key);
   return { templates: client.listResourceTemplates(opts.server) };
 }
 

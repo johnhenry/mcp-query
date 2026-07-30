@@ -4,17 +4,19 @@
 // staleness, subscriber count, and a live event log. This is a layout skeleton, not
 // styled production UI.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useVersioned } from "@johnhenry/agent-query-core/react";
 import { useMCPClient } from "../react/provider.js";
 import type { DevtoolsHub } from "./protocol.js";
 
 export function MCPDevtools({ hub }: { hub: DevtoolsHub }) {
   const client = useMCPClient();
-  const events = useSyncExternalStore(
+  useVersioned(
     useCallback((cb) => hub.subscribe(cb), [hub]),
-    () => hub.events(),
-    () => hub.events(),
+    () => hub.getVersion(),
+    () => hub.getVersion(),
   );
+  const events = hub.events();
 
   return (
     <div className="mcpq-devtools" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 12 }}>
@@ -109,7 +111,7 @@ export function MCPDevtools({ hub }: { hub: DevtoolsHub }) {
 function InteractionsPane() {
   const client = useMCPClient();
   const broker = client.interactions;
-  useSyncExternalStore(
+  useVersioned(
     useCallback((cb) => (broker ? broker.subscribe(cb) : () => {}), [broker]),
     () => broker?.getVersion() ?? 0,
     () => 0,
@@ -121,7 +123,7 @@ function InteractionsPane() {
       {broker.list().length === 0 && <em>none</em>}
       {broker.list().map((i) => (
         <div key={i.id}>
-          <strong>{i.server}</strong> <code>{i.type}</code> ({i.phase}){i.manual ? " ✍️ author a response" : ""}
+          <strong>{i.peer}</strong> <code>{i.type}</code> ({i.phase}){i.manual ? " ✍️ author a response" : ""}
           {i.manual ? (
             <button
               onClick={() =>
@@ -148,7 +150,7 @@ function InteractionsPane() {
       <ol reversed>
         {broker.auditLog().slice(-50).reverse().map((e) => (
           <li key={e.id}>
-            <strong>{e.server}</strong> <code>{e.type}</code> → {e.outcome}
+            <strong>{e.peer}</strong> <code>{e.type}</code> → {e.outcome}
             {e.reason ? ` (${e.reason})` : ""}
           </li>
         ))}

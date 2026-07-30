@@ -29,7 +29,7 @@ export class Approvals extends Reactive {
       <section class="card">
         <h3>Audit</h3>
         <ol class="audit" role="list">
-          ${broker.auditLog().slice(-50).reverse().map((e) => `<li><code>${esc(e.type)}</code> <span class="muted">${esc(e.server)}</span> → ${esc(e.outcome)}${e.reason ? ` (${esc(e.reason)})` : ""}</li>`).join("")}
+          ${broker.auditLog().slice(-50).reverse().map((e) => `<li><code>${esc(e.type)}</code> <span class="muted">${esc(e.peer)}</span> → ${esc(e.outcome)}${e.reason ? ` (${esc(e.reason)})` : ""}</li>`).join("")}
         </ol>
       </section>`;
 
@@ -42,7 +42,7 @@ export class Approvals extends Reactive {
     for (const i of pending) {
       const card = document.createElement("div");
       card.className = "interaction card";
-      card.innerHTML = `<p><b>${esc(i.server)}</b> requests <code>${esc(i.type)}</code> <span class="muted">(${esc(i.phase)})</span></p>
+      card.innerHTML = `<p><b>${esc(i.peer)}</b> requests <code>${esc(i.type)}</code> <span class="muted">(${esc(i.phase)})</span></p>
         <pre class="output">${esc(JSON.stringify(i.payload, null, 2))}</pre>`;
 
       if (i.type === "sampling" && i.manual) {

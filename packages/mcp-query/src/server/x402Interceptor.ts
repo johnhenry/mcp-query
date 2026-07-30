@@ -48,13 +48,13 @@ export class X402ChallengeError extends Error {
   readonly code = -32005;
   constructor(
     readonly challenge: X402Challenge,
-    readonly op: Pick<Operation, "kind" | "server" | "target">,
+    readonly op: Pick<Operation, "kind" | "peer" | "target">,
     readonly nonIdempotent = false,
   ) {
     super(
       nonIdempotent
-        ? `x402 payment required for ${op.kind} ${op.server}.${op.target} — not retried (non-idempotent)`
-        : `x402 payment required for ${op.kind} ${op.server}.${op.target}`,
+        ? `x402 payment required for ${op.kind} ${op.peer}.${op.target} — not retried (non-idempotent)`
+        : `x402 payment required for ${op.kind} ${op.peer}.${op.target}`,
     );
     this.name = "X402ChallengeError";
   }

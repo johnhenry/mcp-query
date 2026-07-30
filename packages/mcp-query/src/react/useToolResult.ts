@@ -2,7 +2,8 @@
 // reactive, cached, auto-running query: same ergonomics as useResource but keyed by
 // (tool, args). Use for tools annotated readOnlyHint (search, lookups, computed views).
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect } from "react";
+import { useCacheEntry } from "@johnhenry/agent-query-core/react";
 import { useMCPClient } from "./provider.js";
 import { argsHash, type CacheKey } from "../core/keys.js";
 import type { MCPError, Tag } from "../core/types.js";
@@ -29,12 +30,7 @@ export function useToolResult<A extends Record<string, unknown>, T = unknown>(
   const resolved = server ?? resolveServer(client, name);
   const key: CacheKey = { kind: "toolResult", server: resolved, tool: bare(name), argsHash: argsHash(args) };
 
-  useSyncExternalStore(
-    useCallback((cb) => client.cache.subscribe(key, cb), [client, name, resolved, argsHash(args)]),
-    () => client.cache.getVersion(key),
-    () => client.cache.getVersion(key),
-  );
-  const entry = client.cache.getSnapshot(key);
+  const entry = useCacheEntry(client.cache, key);
 
   const refetch = useCallback(
     () => client.queryTool(name, args, { server, providesTags }).then(() => {}),
@@ -68,7 +64,7 @@ export function useToolResult<A extends Record<string, unknown>, T = unknown>(
   const raw = entry?.data;
   return {
     data: raw === undefined ? undefined : select ? select(raw) : (raw as T),
-    error: entry?.error,
+    error: entry?.error as MCPError | undefined,
     isLoading: !entry || entry.status === "fetching" || (entry.status === "idle" && !skip),
     isStale: client.cache.isStale(key),
     refetch,

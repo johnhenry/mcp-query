@@ -34,7 +34,7 @@ describe("InteractionBroker — approval flows", () => {
     expect(queued[0]!.type).toBe("sampling");
     expect(queued[0]!.phase).toBe("request");
     expect(queued[0]!.manual).toBe(true);
-    expect(queued[0]!.server).toBe("everything");
+    expect(queued[0]!.peer).toBe("everything");
 
     // Human authors the response (editedResult) and approves.
     const authored = {

@@ -33,7 +33,7 @@ describe("circuitBreaker", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: mock.transport } },
-      interceptors: [circuitBreaker({ threshold: 1, cooldownMs: 100_000, keyFn: (op) => `${op.server}::${op.context?.partition ?? ""}` }).interceptor],
+      interceptors: [circuitBreaker({ threshold: 1, cooldownMs: 100_000, keyFn: (op) => `${op.peer}::${op.context?.partition ?? ""}` }).interceptor],
     });
     await client.connect();
     await expect(client.callTool("s.flaky", {}, { context: { partition: "a" } })).rejects.toBeTruthy(); // "a" opens
@@ -46,7 +46,7 @@ describe("circuitBreaker", () => {
 
   it("dropServer prunes state for keys not prefixed by server (works for any keyFn)", async () => {
     const mock = new MockMCPServer({ tools: [{ name: "flaky", handler: () => { throw new Error("down"); } }] });
-    // Deliberately server-agnostic keyFn: the key doesn't encode op.server at all, so a
+    // Deliberately server-agnostic keyFn: the key doesn't encode op.peer at all, so a
     // naive prefix-matching dropServer (string.startsWith(`${server}::`)) would fail here.
     const cb = circuitBreaker({ threshold: 1, cooldownMs: 100_000, keyFn: (op) => `${op.context?.partition ?? "default"}` });
     const client = new MCPClient({ servers: { s: { transport: mock.transport } }, interceptors: [cb.interceptor] });
@@ -82,7 +82,7 @@ describe("rateLimit", () => {
     });
     const client = new MCPClient({
       servers: { s: { transport: mock.transport } },
-      interceptors: [rateLimit({ concurrency: 1, keyFn: (op) => `${op.server}::${op.context?.partition ?? ""}` }).interceptor],
+      interceptors: [rateLimit({ concurrency: 1, keyFn: (op) => `${op.peer}::${op.context?.partition ?? ""}` }).interceptor],
     });
     await client.connect();
     await Promise.all([

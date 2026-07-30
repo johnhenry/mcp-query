@@ -42,7 +42,7 @@ export function Audit() {
               <span className="tl-time">{clockTime(e.at)}</span>
               <span className={`tl-outcome out-${outcomeClass(e.outcome)}`}>{outcomeLabel(e.outcome)}</span>
               <span className="tl-type">{e.type}</span>
-              <span className="tl-server">{e.server}</span>
+              <span className="tl-server">{e.peer}</span>
               {e.reason && <span className="tl-reason">“{e.reason}”</span>}
             </li>
           ))}

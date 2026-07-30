@@ -2,10 +2,8 @@
 // (with an interceptor stack: authorize → circuit-break → rate-limit → redact) behind a
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
-import { MCPClient, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcpq";
-import { authorize, createGateway } from "@johnhenry/mcpq/server";
-import { rateLimit, type TenantRateLimit } from "./rateLimit.js";
-import { circuitBreaker, type TenantCircuitBreaker } from "./circuitBreaker.js";
+import { MCPClient, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcpq";
+import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcpq/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig, type GateUpstream } from "./config.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
@@ -15,7 +13,15 @@ export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
 export { compilePolicy, policyListFilter, resolveUpstream } from "./config.js";
 export { validateGateConfig } from "./validate.js";
-export { CircuitOpenError } from "./circuitBreaker.js";
+export { CircuitOpenError } from "@johnhenry/mcpq/server";
+
+/**
+ * Per-(server, tenant) keying for rateLimit()/circuitBreaker() — mcpq's own defaults key
+ * by `op.peer` alone (server-only). With no partition ever set (before partitionFrom
+ * populates one), every key collapses to `${server}::`, identical across all tenants —
+ * so an unconfigured gate behaves exactly like the un-tenant-aware default.
+ */
+const tenantKey = (op: Operation) => `${op.peer}::${op.context?.partition ?? ""}`;
 
 export interface Gate {
   /** The gateway re-server (a v2-SDK Server — mcp-query moved to @modelcontextprotocol/server). Connect it to a transport (stdio / Streamable HTTP) to serve it — optional, see "library mode" in the README. */
@@ -47,9 +53,9 @@ export async function createGate(config: GateConfig): Promise<Gate> {
   // Order is the onion (outermost first): resolve tenant, deny early, protect, then redact the result.
   const interceptors: RequestInterceptor[] = [populatePartition];
   if (config.policy) interceptors.push(authorize(compilePolicy(config.policy)));
-  const cb: TenantCircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker(config.circuitBreaker) : undefined;
+  const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
-  const rl: TenantRateLimit | undefined = config.rateLimit ? rateLimit(config.rateLimit) : undefined;
+  const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;
   if (rl) interceptors.push(rl.interceptor);
   if (config.redact?.length) interceptors.push(redact(config.redact));
 

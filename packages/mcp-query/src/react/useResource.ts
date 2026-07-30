@@ -2,7 +2,8 @@
 // auto-provides the URI tag, optionally subscribes for live updates, and re-fetches
 // in the background when the entry goes stale (cache-and-network).
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect } from "react";
+import { useCacheEntry } from "@johnhenry/agent-query-core/react";
 import { useMCPClient } from "./provider.js";
 import type { CacheKey } from "../core/keys.js";
 import type { MCPError, Tag } from "../core/types.js";
@@ -37,12 +38,7 @@ export function useResource<T = unknown>(uri: string, opts: UseResourceOptions<T
 
   // Observe a per-entry version counter (entries are mutated in place, so their
   // reference is stable — the version is what changes on each update).
-  useSyncExternalStore(
-    useCallback((cb) => client.cache.subscribe(key, cb), [client, uri, server]),
-    () => client.cache.getVersion(key),
-    () => client.cache.getVersion(key),
-  );
-  const entry = client.cache.getSnapshot(key);
+  const entry = useCacheEntry(client.cache, key);
 
   const refetch = useCallback(
     () => client.readResource(uri, { server, subscribe, staleTime, providesTags }).then(() => {}),
@@ -78,7 +74,9 @@ export function useResource<T = unknown>(uri: string, opts: UseResourceOptions<T
   const raw = entry?.data;
   return {
     data: raw === undefined ? undefined : select ? select(raw) : (raw as T),
-    error: entry?.error,
+    // mcpq's cache only ever holds MCPError (set via client.ts's toError()); the base
+    // Error type on CacheEntry (agent-query-core, protocol-agnostic) is narrowed here.
+    error: entry?.error as MCPError | undefined,
     isLoading: !entry || entry.status === "fetching" || (entry.status === "idle" && !skip),
     isStale: client.cache.isStale(key),
     refetch,

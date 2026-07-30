@@ -38,7 +38,7 @@ function httpError402(body: X402Challenge | string = CHALLENGE): MCPError {
 function makeOp(overrides: Partial<Operation> = {}): Operation {
   return {
     kind: "call",
-    server: "s",
+    peer: "s",
     target: "paid-tool",
     args: {},
     state: {},

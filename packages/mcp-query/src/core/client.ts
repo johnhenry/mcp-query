@@ -258,7 +258,7 @@ export class MCPClient {
     // Mirror the broker's audit trail into devtools as host-call events.
     if (this.interactions && this.devtools) {
       this.interactions.addAuditSink((e) =>
-        this.devtools?.emit({ type: "host-call", server: e.server, kind: e.type as "sampling" | "elicitation" }),
+        this.devtools?.emit({ type: "host-call", server: e.peer, kind: e.type as "sampling" | "elicitation" }),
       );
     }
     this.cache =
@@ -397,7 +397,7 @@ export class MCPClient {
 
   private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string): void {
     if (!this.onCall) return;
-    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.server, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error };
+    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error };
     try {
       const r = this.onCall(entry);
       if (r && typeof (r as PromiseLike<unknown>).then === "function") {
@@ -472,8 +472,8 @@ export class MCPClient {
   async readResource(uri: string, opts: ReadResourceOpts = {}): Promise<unknown> {
     await this.wake(this.hint(uri, opts.server));
     const { server } = this.router.resolveResource(uri, opts.server);
-    const op: Operation = { kind: "read", server, target: uri, context: opts.context, state: {} };
-    return this.run(op, (o) => this.execRead(o.server, o.target, { ...opts, context: o.context }));
+    const op: Operation = { kind: "read", peer: server, target: uri, context: opts.context, state: {} };
+    return this.run(op, (o) => this.execRead(o.peer, o.target, { ...opts, context: o.context }));
   }
 
   private execRead(server: string, uri: string, opts: ReadResourceOpts): Promise<unknown> {
@@ -530,7 +530,7 @@ export class MCPClient {
   ): Promise<R> {
     await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "call", server, target: def.name, def, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "call", peer: server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
   }
 
@@ -727,7 +727,7 @@ export class MCPClient {
   ): Promise<TaskHandle<R>> {
     await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "call", server, target: def.name, def, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "call", peer: server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) =>
       this.execCallToolTask<R>(server, def, o.args as Record<string, unknown>, { ...opts, context: o.context }),
     ) as Promise<TaskHandle<R>>;
@@ -990,7 +990,7 @@ export class MCPClient {
   ): Promise<R> {
     await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "query", server, target: def.name, def, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "query", peer: server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execQuery<R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
   }
 

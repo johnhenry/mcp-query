@@ -28,7 +28,7 @@ export function setPolicyConfig(next: PolicyConfig): void {
 /** Simple console audit sink (also visible in the in-app Audit timeline). */
 function onAudit(entry: AuditEntry): void {
   // eslint-disable-next-line no-console
-  console.debug("[audit]", entry.outcome, entry.type, entry.server, entry.reason ?? "");
+  console.debug("[audit]", entry.outcome, entry.type, entry.peer, entry.reason ?? "");
 }
 
 export const broker = new InteractionBroker({

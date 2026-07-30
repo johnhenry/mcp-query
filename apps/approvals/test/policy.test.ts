@@ -53,8 +53,8 @@ describe("policy verdict", () => {
 describe("NDJSON export", () => {
   it("serializes one JSON object per line", () => {
     const entries: AuditEntry[] = [
-      { id: 1, at: 1000, server: "everything", type: "sampling", outcome: "approved" },
-      { id: 2, at: 2000, server: "everything", type: "elicitation", outcome: "denied", reason: "no thanks" },
+      { id: 1, at: 1000, peer: "everything", type: "sampling", outcome: "approved" },
+      { id: 2, at: 2000, peer: "everything", type: "elicitation", outcome: "denied", reason: "no thanks" },
     ];
     const ndjson = toNDJSON(entries);
     const lines = ndjson.split("\n");

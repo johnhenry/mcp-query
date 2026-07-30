@@ -10,10 +10,10 @@ const logging: RequestInterceptor = async (op, next) => {
   const start = Date.now();
   try {
     const r = await next(op);
-    console.log(`  [trace] ${op.kind} ${op.server}.${op.target} ok ${Date.now() - start}ms`);
+    console.log(`  [trace] ${op.kind} ${op.peer}.${op.target} ok ${Date.now() - start}ms`);
     return r;
   } catch (e) {
-    console.log(`  [trace] ${op.kind} ${op.server}.${op.target} FAILED: ${(e as Error).message}`);
+    console.log(`  [trace] ${op.kind} ${op.peer}.${op.target} FAILED: ${(e as Error).message}`);
     throw e;
   }
 };

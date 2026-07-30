@@ -14,15 +14,20 @@
 // The one real, still-open gap: that sibling is a brand-new, un-instrumented transport,
 // so its `server/discover` probe traffic never crosses this tap — connection.ts emits a
 // synthetic marker event for it instead of leaving devtools with a silent hole.
+//
+// Issue #18: the Proxy-wrapping logic itself is now @johnhenry/agent-query-core's
+// instrumentTransport (byte-identical, just generalized to a structural TransportLike
+// instead of importing the SDK's own Transport type). mcpq's `synthetic?: boolean`
+// (added for the #16 stdio-probe-visibility fix, consumed by connection.ts's direct
+// synthetic-marker `onTraffic` calls — core has no reason to know about it) stays as a
+// local overlay on TrafficEvent rather than being upstreamed in this pass.
 
-import type { MessageExtraInfo, Transport } from "@modelcontextprotocol/client";
+import { instrumentTransport as coreInstrumentTransport, type TrafficEvent as CoreTrafficEvent, type TransportLike } from "@johnhenry/agent-query-core";
+import type { Transport } from "@modelcontextprotocol/client";
 
 export type TrafficDirection = "out" | "in";
 
-export interface TrafficEvent {
-  dir: TrafficDirection;
-  /** A JSON-RPC message (request / response / notification). */
-  message: { method?: string; id?: string | number; params?: unknown; result?: unknown; error?: unknown };
+export interface TrafficEvent extends CoreTrafficEvent {
   /**
    * True for a marker event standing in for traffic this tap structurally cannot observe
    * (e.g. the stdio 'auto'-negotiation probe, which runs on a disposable, un-instrumented
@@ -33,33 +38,9 @@ export interface TrafficEvent {
 }
 
 export function instrumentTransport(inner: Transport, onTraffic: (e: TrafficEvent) => void): Transport {
-  let handler: ((m: unknown, extra?: MessageExtraInfo) => void) | undefined;
-  // Tap incoming once; everything the consumer set goes through `handler`.
-  // v2's onmessage carries a second arg (authInfo/classification) — forward it,
-  // or modern-era inbound classification breaks downstream.
-  inner.onmessage = (m, extra) => {
-    onTraffic({ dir: "in", message: m as TrafficEvent["message"] });
-    handler?.(m, extra);
-  };
-
-  return new Proxy(inner, {
-    get(target, prop, recv) {
-      if (prop === "onmessage") return handler;
-      if (prop === "send") {
-        return (message: unknown, options?: unknown) => {
-          onTraffic({ dir: "out", message: message as TrafficEvent["message"] });
-          return (target.send as (m: unknown, o?: unknown) => Promise<void>)(message, options);
-        };
-      }
-      const v = Reflect.get(target, prop, recv);
-      return typeof v === "function" ? v.bind(target) : v;
-    },
-    set(target, prop, value) {
-      if (prop === "onmessage") {
-        handler = value as typeof handler;
-        return true;
-      }
-      return Reflect.set(target, prop, value, target);
-    },
-  });
+  // Transport's onmessage is generically typed (<T extends JSONRPCMessage>), which doesn't
+  // structurally satisfy TransportLike's `(message: unknown, extra?: unknown) => void` in
+  // TS's eyes even though the runtime shape is exactly what core's Proxy wrapper needs
+  // (it never inspects the message type, only forwards it) — an intentional boundary cast.
+  return coreInstrumentTransport(inner as unknown as TransportLike, onTraffic) as unknown as Transport;
 }

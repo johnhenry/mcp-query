@@ -35,7 +35,7 @@ export function authorize(
   return async (op, next) => {
     const verdict = await policy({
       kind: op.kind,
-      server: op.server,
+      server: op.peer,
       target: op.target,
       args: op.args,
       context: op.context,
@@ -43,7 +43,7 @@ export function authorize(
       readOnly: op.def?.annotations?.readOnlyHint === true,
     });
     if (verdict === "deny") {
-      throw new AuthorizationError(`denied: ${op.kind} ${op.server}.${op.target}`);
+      throw new AuthorizationError(`denied: ${op.kind} ${op.peer}.${op.target}`);
     }
     return next(op);
   };

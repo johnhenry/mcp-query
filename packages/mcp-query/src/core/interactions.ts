@@ -11,7 +11,29 @@
 // multi-round-trip driver invokes the same handlers for requests a server embeds
 // in an `input_required` result. The policy gate, approval queue, and audit trail
 // apply identically to both delivery paths.
+//
+// Issue #18: a thin, MCP-flavored subclass of @johnhenry/agent-query-core's
+// InteractionBroker<D> — decide()/enqueue()/record()/resolve()/subscribe()/etc. are all
+// inherited unchanged (mcpq's own private versions of these were structurally identical
+// to core's, just server-flavored). handleSampling/handleElicitation keep their EXACT
+// original control flow (including the manual-sampling "always enqueue even when policy
+// auto-allows, since a human must author the result" branch, which doesn't map cleanly
+// onto core's higher-level gate() helper) — only the PolicyContext object literal passed
+// into decide() changes shape (`peer` in place of `server`, since that's core's own
+// PolicyContext). PolicyContext itself stays mcpq's own local, `server`-named type
+// (decoupled from core's, same as AuthzRequest/CallAuditEntry) so callers' policy
+// functions don't need to change. Interaction/AuditEntry are NOT locally redefined —
+// they're re-exported straight from core, which means their `.server` is really `.peer`
+// now (see devtools/Panel.tsx, react/interactions.ts, and every other reader).
 
+import {
+  InteractionBroker as CoreInteractionBroker,
+  type BaseDecision,
+  type AuditEntry as CoreAuditEntry,
+  type InteractionBrokerOptions as CoreInteractionBrokerOptions,
+  type PolicyContext as CorePolicyContext,
+  type PolicyVerdict as CorePolicyVerdict,
+} from "@johnhenry/agent-query-core";
 import type { ElicitationRequest, HostHandlers } from "./types.js";
 
 export type InteractionType = "sampling" | "elicitation" | "confirm";
@@ -20,44 +42,25 @@ export type InteractionType = "sampling" | "elicitation" | "confirm";
 export type InteractionPhase = "request" | "response";
 
 /** Trust policy verdict per request. */
-export type PolicyVerdict = "allow" | "deny" | "ask";
+export type PolicyVerdict = CorePolicyVerdict;
 
+/** mcpq's own decoupled PolicyContext — kept `server`-named so policy functions don't change. */
 export interface PolicyContext {
   server: string;
   type: InteractionType;
   payload: unknown;
 }
 
-export interface Interaction {
-  id: number;
-  type: InteractionType;
-  phase: InteractionPhase;
-  server: string;
-  /** sampling request params, elicitation {message, requestedSchema}, or {result}. */
-  payload: unknown;
-  /** True when the human must *author* the result (manual sampling), not just approve. */
-  manual?: boolean;
-  createdAt: number;
-}
+/** Re-exported straight from core — `.peer`, not `.server` (see file header). */
+export type { Interaction, AuditEntry } from "@johnhenry/agent-query-core";
 
-export interface InteractionDecision {
-  action: "approve" | "deny";
+export interface InteractionDecision extends BaseDecision {
   /** sampling request-phase: replace the messages sent to the model. */
   editedMessages?: unknown;
   /** sampling response-phase: replace the result returned to the server (redaction). */
   editedResult?: unknown;
   /** elicitation: the structured content the user supplied. */
   content?: unknown;
-  reason?: string;
-}
-
-export interface AuditEntry {
-  id: number;
-  at: number;
-  server: string;
-  type: InteractionType;
-  outcome: "auto-allow" | "auto-deny" | "approved" | "denied" | "error";
-  reason?: string;
 }
 
 export interface InteractionBrokerOptions {
@@ -74,7 +77,7 @@ export interface InteractionBrokerOptions {
   /** When true, every human-approved sampling result also gets a response-review step. */
   reviewResponses?: boolean;
   /** Audit sink (also kept in an in-memory ring buffer). */
-  onAudit?: (entry: AuditEntry) => void;
+  onAudit?: (entry: CoreAuditEntry) => void;
   now?: () => number;
 }
 
@@ -85,52 +88,34 @@ function unavailable(msg: string): Error & { code: number } {
   return Object.assign(new Error(msg), { code: -32601 });
 }
 
-export class InteractionBroker {
-  private pending = new Map<number, { interaction: Interaction; resolve: (d: InteractionDecision) => void }>();
-  private audit: AuditEntry[] = [];
-  private listeners = new Set<() => void>();
-  private auditSinks = new Set<(e: AuditEntry) => void>();
-  private seq = 0;
-  private version = 0;
-  private now: () => number;
+export class InteractionBroker extends CoreInteractionBroker<InteractionDecision> {
+  private mcpOpts: InteractionBrokerOptions;
 
-  constructor(private opts: InteractionBrokerOptions = {}) {
-    this.now = opts.now ?? (() => Date.now());
-    if (opts.onAudit) this.auditSinks.add(opts.onAudit);
+  constructor(opts: InteractionBrokerOptions = {}) {
+    const coreOpts: CoreInteractionBrokerOptions = {
+      now: opts.now,
+      onAudit: opts.onAudit,
+      policy: opts.policy
+        ? (ctx: CorePolicyContext) => opts.policy!({ server: ctx.peer, type: ctx.type as InteractionType, payload: ctx.payload })
+        : undefined,
+    };
+    super(coreOpts);
+    this.mcpOpts = opts;
   }
-
-  // ── reactive store (for hooks/devtools) ─────────────────────────────────
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  };
-  getVersion = (): number => this.version;
-  list = (): Interaction[] => [...this.pending.values()].map((p) => p.interaction);
-  auditLog = (): readonly AuditEntry[] => this.audit;
-  addAuditSink = (fn: (e: AuditEntry) => void): (() => void) => {
-    this.auditSinks.add(fn);
-    return () => this.auditSinks.delete(fn);
-  };
-
-  /** UI settles a pending interaction. */
-  resolve = (id: number, decision: InteractionDecision): void => {
-    const entry = this.pending.get(id);
-    if (!entry) return;
-    this.pending.delete(id);
-    entry.resolve(decision);
-    this.bump();
-  };
 
   // ── server→client entry points (installed per-server by MCPClient) ───────
   async handleSampling(server: string, params: unknown): Promise<unknown> {
-    const verdict = await this.decide({ server, type: "sampling", payload: params });
+    const verdict = await this.decide({ peer: server, type: "sampling", payload: params });
     if (verdict === "deny") {
       this.record(server, "sampling", "auto-deny");
       throw declined("sampling denied by policy");
     }
 
     // Manual mode: a human authors the response in the UI (the Inspector pattern).
-    if (this.opts.manualSampling) {
+    // Always enqueues, even when policy auto-allows — there's no model to call, a human
+    // must author the result regardless — so this deliberately doesn't use gate()'s
+    // "allow skips the queue" shortcut.
+    if (this.mcpOpts.manualSampling) {
       const d = await this.enqueue("sampling", "request", server, params, true);
       if (d.action === "deny") {
         this.record(server, "sampling", "denied", d.reason);
@@ -155,13 +140,13 @@ export class InteractionBroker {
       if (d.editedMessages !== undefined) messages = d.editedMessages;
     }
 
-    if (!this.opts.model) {
+    if (!this.mcpOpts.model) {
       this.record(server, "sampling", "error", "no model configured");
       throw unavailable("no sampling model configured");
     }
-    let result = await this.opts.model({ ...(params as object), messages });
+    let result = await this.mcpOpts.model({ ...(params as object), messages });
 
-    if (this.opts.reviewResponses && verdict === "ask") {
+    if (this.mcpOpts.reviewResponses && verdict === "ask") {
       const d = await this.enqueue("sampling", "response", server, { result });
       if (d.action === "deny") {
         this.record(server, "sampling", "denied", "response rejected");
@@ -175,7 +160,7 @@ export class InteractionBroker {
   }
 
   async handleElicitation(server: string, params: ElicitationRequest): Promise<{ action: string; content?: unknown }> {
-    const verdict = await this.decide({ server, type: "elicitation", payload: params });
+    const verdict = await this.decide({ peer: server, type: "elicitation", payload: params });
     if (verdict === "deny") {
       this.record(server, "elicitation", "auto-deny");
       return { action: "decline" };
@@ -196,41 +181,8 @@ export class InteractionBroker {
   /** Build server-bound HostHandlers that route sampling/elicitation through the broker. */
   handlersFor(server: string, base: HostHandlers): HostHandlers {
     const h: HostHandlers = { roots: base.roots };
-    if (this.opts.model || this.opts.manualSampling) h.sampling = (p) => this.handleSampling(server, p);
+    if (this.mcpOpts.model || this.mcpOpts.manualSampling) h.sampling = (p) => this.handleSampling(server, p);
     h.elicitation = (p) => this.handleElicitation(server, p) as ReturnType<NonNullable<HostHandlers["elicitation"]>>;
     return h;
-  }
-
-  // ── internals ────────────────────────────────────────────────────────────
-  private async decide(ctx: PolicyContext): Promise<PolicyVerdict> {
-    return this.opts.policy ? await this.opts.policy(ctx) : "ask";
-  }
-
-  private enqueue(
-    type: InteractionType,
-    phase: InteractionPhase,
-    server: string,
-    payload: unknown,
-    manual = false,
-  ): Promise<InteractionDecision> {
-    const id = ++this.seq;
-    const interaction: Interaction = { id, type, phase, server, payload, manual, createdAt: this.now() };
-    return new Promise<InteractionDecision>((resolve) => {
-      this.pending.set(id, { interaction, resolve });
-      this.bump();
-    });
-  }
-
-  private record(server: string, type: InteractionType, outcome: AuditEntry["outcome"], reason?: string): void {
-    const entry: AuditEntry = { id: ++this.seq, at: this.now(), server, type, outcome, reason };
-    this.audit.push(entry);
-    if (this.audit.length > 500) this.audit.shift();
-    for (const sink of this.auditSinks) sink(entry);
-    this.bump();
-  }
-
-  private bump(): void {
-    this.version++;
-    for (const fn of this.listeners) fn();
   }
 }

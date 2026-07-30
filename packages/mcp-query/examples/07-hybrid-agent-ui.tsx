@@ -68,7 +68,7 @@ function ApprovalCenter() {
     <>
       {interactions.map((i) => (
         <dialog key={i.id} open>
-          The agent on <b>{i.server}</b> requests <code>{i.type}</code>.
+          The agent on <b>{i.peer}</b> requests <code>{i.type}</code>.
           <button onClick={() => resolve(i.id, { action: "approve" })}>allow</button>
           <button onClick={() => resolve(i.id, { action: "deny" })}>deny</button>
         </dialog>

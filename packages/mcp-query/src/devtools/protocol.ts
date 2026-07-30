@@ -1,7 +1,15 @@
 // Devtools event protocol. The client emits these; a panel (in-app, or piped to a
 // browser extension over postMessage / a WebSocket) renders them. Kept deliberately
 // serializable so it can cross a process/iframe boundary like Apollo/React Query devtools.
+//
+// Issue #18: DevtoolsHub is now a thin subclass of @johnhenry/agent-query-core's generic
+// DevtoolsHub<TEvent>. mcpq's own DevtoolsEvent stays a closed, MCP-flavored union — every
+// variant already carries a literal `type:` discriminant, so it satisfies core's
+// `TEvent extends DevtoolsEventBase` constraint structurally, with zero changes to the
+// union itself. Core's hub also gained getVersion() (mcpq's Panel.tsx doesn't need it —
+// it re-invokes hub.events() directly as its own snapshot — but it's available).
 
+import { DevtoolsHub as CoreDevtoolsHub, type DevtoolsSink as CoreDevtoolsSink } from "@johnhenry/agent-query-core";
 import type { ServerCapabilities, ServerState } from "../core/types.js";
 
 export type DevtoolsEvent =
@@ -15,28 +23,13 @@ export type DevtoolsEvent =
   | { type: "log"; server: string; level: string; data: unknown }
   | { type: "auth"; member: string; phase: string; detail?: unknown };
 
-export interface DevtoolsSink {
-  emit(e: DevtoolsEvent): void;
-}
+export type DevtoolsSink = CoreDevtoolsSink<DevtoolsEvent>;
 
 /** A ring-buffer sink that also fans out to subscribers — what the Panel reads. */
-export class DevtoolsHub implements DevtoolsSink {
-  private buf: DevtoolsEvent[] = [];
-  private subs = new Set<() => void>();
-  constructor(private capacity = 500) {}
-
-  emit(e: DevtoolsEvent): void {
-    this.buf.push(e);
-    if (this.buf.length > this.capacity) this.buf.shift();
-    for (const fn of this.subs) fn();
-  }
-  events(): readonly DevtoolsEvent[] {
-    return this.buf;
-  }
-  // Arrow property (bound) so it can be passed unbound to subscribe-style consumers —
-  // matching InteractionBroker.subscribe and MCPClient.subscribeServerState.
-  subscribe = (fn: () => void): (() => void) => {
-    this.subs.add(fn);
-    return () => this.subs.delete(fn);
-  };
+export class DevtoolsHub extends CoreDevtoolsHub<DevtoolsEvent> {
+  // Core's subscribe is a regular (unbound) method; mcpq's own contract (see
+  // test/inspector.test.ts) requires it to stay safely callable detached from `this` —
+  // matching InteractionBroker.subscribe (an arrow property in core) and
+  // MCPClient.subscribeServerState. Re-bind via an arrow-property override.
+  override subscribe = (fn: () => void): (() => void) => super.subscribe(fn);
 }

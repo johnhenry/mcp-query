@@ -131,7 +131,7 @@ function ApprovalCenter() {
     <>
       {interactions.map((i) => (
         <dialog key={i.id} open>
-          <p><b>{i.server}</b> requests <code>{i.type}</code> ({i.phase})</p>
+          <p><b>{i.peer}</b> requests <code>{i.type}</code> ({i.phase})</p>
           <pre>{JSON.stringify(i.payload, null, 2)}</pre>
           <button onClick={() => resolve(i.id, { action: "approve" })}>Approve</button>
           <button onClick={() => resolve(i.id, { action: "deny" })}>Deny</button>

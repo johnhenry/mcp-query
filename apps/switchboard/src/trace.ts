@@ -46,7 +46,7 @@ export function traceInterceptor(): RequestInterceptor {
       traceBus.push({
         at: Date.now(),
         kind: op.kind,
-        server: op.server,
+        server: op.peer,
         target: op.target,
         tenant: (op.context?.meta as { tenant?: string } | undefined)?.tenant,
         ms: performance.now() - t0,
@@ -58,7 +58,7 @@ export function traceInterceptor(): RequestInterceptor {
       traceBus.push({
         at: Date.now(),
         kind: op.kind,
-        server: op.server,
+        server: op.peer,
         target: op.target,
         tenant: (op.context?.meta as { tenant?: string } | undefined)?.tenant,
         ms: performance.now() - t0,

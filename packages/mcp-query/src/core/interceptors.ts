@@ -3,6 +3,15 @@
 // instrumentTransport). Interceptors can short-circuit (return or throw without calling
 // next), observe result/error/timing, and mutate the operation (context, args) before it
 // runs. Authorization, tracing, rate-limiting, redaction all hang here.
+//
+// Structurally compatible with @johnhenry/agent-query-core's own Operation (issue #18):
+// same field set, `peer` instead of `server` (matching core's generalization), just with
+// mcpq's own narrower/typed `kind`/`def`/`context` in place of core's generic
+// string/unknown/OperationContext — so a value here upcasts cleanly to core's Operation,
+// without core's generic types leaking into every interceptor implementation (authorize.ts
+// etc. want a real `Tool`/`CallContext`, not `unknown`). The dispatch loop itself
+// (runInterceptors) is trivial and kept local rather than re-exported, since core's version
+// is hardcoded to its own (wider) Operation type.
 
 import type { CallContext } from "./client.js";
 import type { Tool } from "./types.js";
@@ -11,7 +20,7 @@ export type OperationKind = "read" | "call" | "query";
 
 export interface Operation {
   kind: OperationKind;
-  server: string;
+  peer: string;
   /** Resource URI (read) or tool name (call/query). */
   target: string;
   /** Tool arguments (call/query); undefined for reads. Mutable. */

@@ -8,9 +8,9 @@ export interface RateLimitOptions {
   /** Max concurrent operations per key. Default 8. */
   concurrency?: number;
   /**
-   * Group operations into buckets sharing a concurrency budget. Default `(op) => op.server`
+   * Group operations into buckets sharing a concurrency budget. Default `(op) => op.peer`
    * — one budget per upstream server, matching pre-0.2.0 behavior exactly. Pass e.g.
-   * `(op) => \`${op.server}::${op.context?.partition ?? ""}\`` for per-tenant isolation on a
+   * `(op) => \`${op.peer}::${op.context?.partition ?? ""}\`` for per-tenant isolation on a
    * shared server/gateway (a busy tenant's calls no longer throttle every other tenant's).
    * Called on every op; keep it cheap and pure.
    */
@@ -20,7 +20,7 @@ export interface RateLimitOptions {
 export interface RateLimit {
   interceptor: RequestInterceptor;
   /**
-   * Drop all state for keys produced (by `keyFn`) while `op.server === server` — for cleanup
+   * Drop all state for keys produced (by `keyFn`) while `op.peer === server` — for cleanup
    * when a server is removed at runtime (e.g. `MCPClient.removeServer`). Correct for any
    * `keyFn`, including one that doesn't encode `server` in the key at all: key→server
    * provenance is tracked explicitly, not inferred by string-matching the key.
@@ -30,7 +30,7 @@ export interface RateLimit {
 
 export function rateLimit(opts: RateLimitOptions = {}): RateLimit {
   const max = opts.concurrency ?? 8;
-  const keyFn = opts.keyFn ?? ((op: Operation) => op.server);
+  const keyFn = opts.keyFn ?? ((op: Operation) => op.peer);
   const active = new Map<string, number>();
   const queues = new Map<string, Array<() => void>>();
   const keyServer = new Map<string, string>();
@@ -57,7 +57,7 @@ export function rateLimit(opts: RateLimitOptions = {}): RateLimit {
   return {
     interceptor: async (op, next) => {
       const k = keyFn(op);
-      keyServer.set(k, op.server);
+      keyServer.set(k, op.peer);
       await acquire(k);
       try {
         return await next(op);
