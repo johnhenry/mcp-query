@@ -1,5 +1,5 @@
-// React glue shared by the four React example apps (socialgpt-studio, ops-cockpit,
-// approvals, notebook). Builds an MCPClient wired to the WS proxy, a thin provider
+// React glue shared by the three React example apps (ops-cockpit, approvals,
+// notebook). Builds an MCPClient wired to the WS proxy, a thin provider
 // wrapper, a schema-driven form, and result/JSON renderers. Dependency-light: React
 // only — no UI framework. The Web-Components Console imports the sibling modules
 // (../proxy, ../schema-form, ../reactive, ../transport, ../oauth) directly, not this file.

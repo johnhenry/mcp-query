@@ -7,4 +7,3 @@ dist/
 # (regen with: npm run codegen -w @mcp-query/prompt-studio)
 !apps/prompt-studio/src/mcp.gen.ts
 coverage/
-apps/socialgpt-studio/backend/dist-embed.json

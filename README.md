@@ -45,7 +45,6 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 | App | What it shows | Stack |
 |---|---|---|
 | **[inspector](apps/inspector)** | Protocol **debugger** — raw message log, manual sampling, OAuth stepper, cache view | Web Components |
-| **[socialgpt-studio](apps/socialgpt-studio)** | **One backend, two consumers** — a creator-analytics UI over the live OAuth-gated [SocialGPT](https://mcp.gpt.social/mcp) tool surface an agent also uses | React, **Deno desktop** (+ token-injecting backend proxy) |
 | **[console](apps/console)** | **Capability discovery** — a polished operator UI auto-generated from *any* server's tools/resources/prompts | Web Components |
 | **[ops-cockpit](apps/ops-cockpit)** | **Aggregation + live tiles** — a NOC dashboard over many servers, reactive on health + `list_changed` | React |
 | **[approvals](apps/approvals)** | **Human-in-the-loop** — agent sampling/elicitation proposals approved/edited in a queue, on the `InteractionBroker` | React |
@@ -53,6 +52,8 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 | **[composer](apps/composer)** | **Tools as *input*** — a chat where the *user* drives MCP tools to assemble grounded input (the inverse of agentic tool use), with a pluggable model picker via [ai.matey](https://github.com/johnhenry/ai.matey) | React |
 | **[prompt-studio](apps/prompt-studio)** | **Prompts as a product surface** — run server prompts with live `completion/complete` typeahead (incl. dependent completions), expand resource templates into subscribed reads, over codegen-typed hooks | React |
 | **[switchboard](apps/switchboard)** | **One governed endpoint, many tenants** — an `@johnhenry/mcp-gate` sidecar fronting local + live remote upstreams, an interceptor trace waterfall, and per-tenant cache partitions via `client.scope()` | React |
+
+> **Moved:** `socialgpt-studio` was removed from this repo. It now lives in the Scrollmark platform monorepo as `socialgpt/studio`, merged with the Atlas content-analysis views.
 
 Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
 it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
@@ -65,8 +66,8 @@ framework-agnostic core.
       <b><a href="apps/ops-cockpit">ops-cockpit</a></b> — a NOC dashboard with live health tiles over many servers at once.
     </td>
     <td width="50%" valign="top">
-      <a href="apps/socialgpt-studio"><img src="apps/socialgpt-studio/screenshots/creator.png" alt="socialgpt-studio"></a><br>
-      <b><a href="apps/socialgpt-studio">socialgpt-studio</a></b> — creator analytics over a live, OAuth-gated MCP server.
+      <a href="apps/prompt-studio"><img src="apps/prompt-studio/screenshots/runner.png" alt="prompt-studio"></a><br>
+      <b><a href="apps/prompt-studio">prompt-studio</a></b> — server prompts as a product surface, with live completions.
     </td>
   </tr>
   <tr>
