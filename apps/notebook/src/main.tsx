@@ -12,7 +12,7 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { makeProxyClient, AppProvider, useProxyServersReady } from "@app-shared";
-import { useTool } from "@johnhenry/mcpq/react";
+import { useTool } from "@johnhenry/mcp-query/react";
 import { renderMarkdown } from "./markdown.js";
 import { baseName, type FileEntry } from "./fs.js";
 import { useFileTree, useLiveFile, useSearch } from "./hooks.js";

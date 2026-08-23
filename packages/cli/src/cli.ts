@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// mcpq — the unified MCP CLI. One umbrella over three families of verbs:
+// mcp-query — the unified MCP CLI. One umbrella over three families of verbs:
 //
 //   Tools     codegen · inspect · contract · lint · docs · bench · record · gate
 //             → delegate to the existing per-tool CLI (lazy-loaded).
@@ -8,10 +8,10 @@
 //   Client    tools · call · read · prompt · ping
 //             → drive a live server (registered name | URL | inline flags).
 //
-//   mcpq lint everything                     # tool verb, by registered name
-//   mcpq add linear https://mcp.linear.app/sse
-//   mcpq tools linear                        # list a live server's tools
-//   mcpq call linear 'create_issue(title: "Bug", team: "ENG")'
+//   mcp-query lint everything                     # tool verb, by registered name
+//   mcp-query add linear https://mcp.linear.app/sse
+//   mcp-query tools linear                        # list a live server's tools
+//   mcp-query call linear 'create_issue(title: "Bug", team: "ENG")'
 
 import {
   addServer,
@@ -101,9 +101,9 @@ export function helpText(): string {
     return `${title}\n${lines.join("\n")}`;
   };
   return [
-    "mcpq — the unified MCP CLI",
+    "mcp-query — the unified MCP CLI",
     "",
-    "Usage: mcpq <verb> [args] [--json|--raw]",
+    "Usage: mcp-query <verb> [args] [--json|--raw]",
     "",
     section(
       "Tools",
@@ -126,11 +126,11 @@ export function helpText(): string {
     ]),
     "",
     "Examples:",
-    '  mcpq add linear https://mcp.linear.app/sse',
-    "  mcpq servers --json",
-    "  mcpq tools linear",
-    '  mcpq call linear \'create_issue(title: "Bug", team: "ENG")\'',
-    "  mcpq lint everything            # tool verb by registered name",
+    '  mcp-query add linear https://mcp.linear.app/sse',
+    "  mcp-query servers --json",
+    "  mcp-query tools linear",
+    '  mcp-query call linear \'create_issue(title: "Bug", team: "ENG")\'',
+    "  mcp-query lint everything            # tool verb by registered name",
     "",
   ].join("\n");
 }
@@ -153,12 +153,12 @@ const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
 };
 
 async function runRegistry(verb: string, p: Parsed): Promise<void> {
-  rejectUnknownFlags(`mcpq ${verb}`, p.flags, REGISTRY_VERB_FLAGS[verb] ?? []);
+  rejectUnknownFlags(`mcp-query ${verb}`, p.flags, REGISTRY_VERB_FLAGS[verb] ?? []);
   const scope = (str(p.flags.scope) as Scope | undefined) ?? "home";
   switch (verb) {
     case "add": {
       const [name, maybeUrl] = p.positionals;
-      if (!name) throw new Error("usage: mcpq add <name> (<url> | --command <c> [--args <a>] | --url <u>) [--header \"K: V\"]…");
+      if (!name) throw new Error("usage: mcp-query add <name> (<url> | --command <c> [--args <a>] | --url <u>) [--header \"K: V\"]…");
       const headers = headersToRecord(p.headers);
       const entry: RegistryEntry = {};
       if (str(p.flags.description)) entry.description = str(p.flags.description);
@@ -187,7 +187,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
         return;
       }
       if (!list.length) {
-        console.log("no servers registered — add one:  mcpq add <name> <url|--command …>");
+        console.log("no servers registered — add one:  mcp-query add <name> <url|--command …>");
         return;
       }
       const rows = list.map((s) => ({
@@ -202,7 +202,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     case "remove":
     case "rm": {
       const [name] = p.positionals;
-      if (!name) throw new Error("usage: mcpq remove <name>");
+      if (!name) throw new Error("usage: mcp-query remove <name>");
       // removeServer only honors `--config` when a scope is given (scope picks the config path);
       // default to "home" so an explicit --config is targeted rather than ignored.
       const rmScope = (str(p.flags.scope) as Scope | undefined) ?? (str(p.flags.config) ? "home" : undefined);
@@ -212,7 +212,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     }
     case "get": {
       const [name] = p.positionals;
-      if (!name) throw new Error("usage: mcpq get <name>");
+      if (!name) throw new Error("usage: mcp-query get <name>");
       const entry = getServer(name, { config: str(p.flags.config) });
       if (!entry) {
         console.error(`"${name}" not found`);
@@ -223,7 +223,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     }
     case "import": {
       const [source] = p.positionals;
-      if (!source) throw new Error("usage: mcpq import <claude|cursor|vscode|path>");
+      if (!source) throw new Error("usage: mcp-query import <claude|cursor|vscode|path>");
       const servers = importFrom(source);
       let count = 0;
       for (const [name, entry] of Object.entries(servers)) {
@@ -235,7 +235,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     }
     case "login": {
       const [ref] = p.positionals;
-      if (!ref) throw new Error("usage: mcpq login <name|url> [--scope home|project]");
+      if (!ref) throw new Error("usage: mcp-query login <name|url> [--scope home|project]");
       const opts = resolveServer(ref, { config: str(p.flags.config) });
       if (!opts.url) throw new Error(`"${ref}" is not an http/sse server (OAuth applies to remote servers only)`);
       console.error(`authenticating ${opts.url} …`);
@@ -245,7 +245,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     }
     case "logout": {
       const [ref] = p.positionals;
-      if (!ref) throw new Error("usage: mcpq logout <name|url>");
+      if (!ref) throw new Error("usage: mcp-query logout <name|url>");
       const opts = resolveServer(ref, { config: str(p.flags.config) });
       if (!opts.url) throw new Error(`"${ref}" is not an http/sse server`);
       const path = tokenCachePath(opts.url);
@@ -360,12 +360,12 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
     }
     case "read": {
       const uri = tokens.shift();
-      if (!uri) throw new Error("usage: mcpq read <server> <uri>");
+      if (!uri) throw new Error("usage: mcp-query read <server> <uri>");
       return client.read(serverRef, uri, f);
     }
     case "prompt": {
       const name = tokens.shift();
-      if (!name) throw new Error("usage: mcpq prompt <server> <name> [args…]");
+      if (!name) throw new Error("usage: mcp-query prompt <server> <name> [args…]");
       return client.prompt(serverRef, name, tokens, f);
     }
     default:
@@ -375,7 +375,7 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
 
 // ── daemon ────────────────────────────────────────────────────────────────────────
 //
-// `mcpq daemon start|status|stop|logs` manages the keep-alive daemon directly; the
+// `mcp-query daemon start|status|stop|logs` manages the keep-alive daemon directly; the
 // per-call `--daemon` flag on a client verb routes that one invocation through it.
 
 function modeOf(f: InvokeFlags): OutputMode {
@@ -385,7 +385,7 @@ function modeOf(f: InvokeFlags): OutputMode {
 }
 
 async function runDaemonVerb(sub: string | undefined, p: Parsed): Promise<void> {
-  rejectUnknownFlags(`mcpq daemon ${sub ?? "status"}`, p.flags, ["json"]);
+  rejectUnknownFlags(`mcp-query daemon ${sub ?? "status"}`, p.flags, ["json"]);
   switch (sub ?? "status") {
     case "start": {
       await daemonStart();
@@ -435,7 +435,7 @@ async function runDaemonVerb(sub: string | undefined, p: Parsed): Promise<void> 
 
 /** Build the DaemonRequest for a `--daemon` client verb, send it, and render the result. */
 async function runClientViaDaemon(verb: string, serverRef: string | undefined, tokens: string[], f: InvokeFlags): Promise<void> {
-  const opts = resolveInvoke(serverRef, f, "mcpq-daemon");
+  const opts = resolveInvoke(serverRef, f, "mcp-query-daemon");
   let req: DaemonRequest;
   switch (verb) {
     case "tools":
@@ -455,13 +455,13 @@ async function runClientViaDaemon(verb: string, serverRef: string | undefined, t
     }
     case "read": {
       const uri = tokens.shift();
-      if (!uri) throw new Error("usage: mcpq read <server> <uri> --daemon");
+      if (!uri) throw new Error("usage: mcp-query read <server> <uri> --daemon");
       req = { op: "read", opts, uri };
       break;
     }
     case "prompt": {
       const name = tokens.shift();
-      if (!name) throw new Error("usage: mcpq prompt <server> <name> [args…] --daemon");
+      if (!name) throw new Error("usage: mcp-query prompt <server> <name> [args…] --daemon");
       const parsed = parseCallArgs(name, tokens);
       req = { op: "prompt", opts, name, args: parsed.args };
       break;
@@ -516,13 +516,13 @@ function renderDaemonResult(verb: string, result: unknown, f: InvokeFlags): void
 /**
  * Nicety: for tool verbs WITHOUT their own subcommands (lint/docs/bench/codegen/inspect),
  * if the first token is a bare word (not a `-flag`), rewrite it to `--server <word>` so
- * `mcpq lint everything` works.
+ * `mcp-query lint everything` works.
  *
  * contract/record own their subcommands, and their live-server subcommands take file
  * positionals too — so the bare word AFTER the subcommand is rewritten only when it
- * actually resolves (a registered name or a URL): `mcpq contract snapshot everything`
- * becomes `snapshot --server everything`, while `mcpq record inspect tape.json` and
- * `mcpq contract diff old.json new.json` pass through untouched.
+ * actually resolves (a registered name or a URL): `mcp-query contract snapshot everything`
+ * becomes `snapshot --server everything`, while `mcp-query record inspect tape.json` and
+ * `mcp-query contract diff old.json new.json` pass through untouched.
  */
 const SERVER_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
   contract: new Set(["snapshot", "verify", "diff"]),
@@ -544,14 +544,14 @@ export function rewriteToolArgs(verb: string, rest: string[], isRegistered: (nam
 }
 
 async function runTool(verb: string, rest: string[]): Promise<void> {
-  // `mcpq <tool> --help` used to fall through to the tool CLI, which errored with
+  // `mcp-query <tool> --help` used to fall through to the tool CLI, which errored with
   // "provide --url or --command" — answer it at the umbrella instead.
   if (rest.includes("--help") || rest.includes("-h")) {
-    console.log(`mcpq ${verb} — ${registryVerbs[verb]!.describe}\n`);
+    console.log(`mcp-query ${verb} — ${registryVerbs[verb]!.describe}\n`);
     console.log(
       subcommandVerbs.has(verb)
-        ? `usage: mcpq ${verb} <subcommand> [<registered-name> | --command <c> [--args <a>] | --url <u>] [flags]`
-        : `usage: mcpq ${verb} (<registered-name> | --command <c> [--args <a>] | --url <u>) [flags]`,
+        ? `usage: mcp-query ${verb} <subcommand> [<registered-name> | --command <c> [--args <a>] | --url <u>] [flags]`
+        : `usage: mcp-query ${verb} (<registered-name> | --command <c> [--args <a>] | --url <u>) [flags]`,
     );
     return;
   }
@@ -562,7 +562,7 @@ async function runTool(verb: string, rest: string[]): Promise<void> {
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
-  process.env.MCPQ_UMBRELLA = "1"; // delegated tool CLIs word their hints as mcpq verbs
+  process.env.MCPQ_UMBRELLA = "1"; // delegated tool CLIs word their hints as mcp-query verbs
   const verb = argv[0];
   const rest = argv.slice(1);
 
@@ -588,7 +588,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const msg = e instanceof Error ? e.message : String(e);
     // Some servers put the SDK's "MCP error <code>: " prefix in their message and the
     // client-side McpError adds it again — collapse the duplicate for readable output.
-    console.error("[mcpq]", msg.replace(/^(MCP error -?\d+: )\1/, "$1"));
+    console.error("[mcp-query]", msg.replace(/^(MCP error -?\d+: )\1/, "$1"));
     process.exit(1);
   });
 }

@@ -1,4 +1,4 @@
-// `mcpq session <server>` — an interactive REPL holding ONE live connection for the
+// `mcp-query session <server>` — an interactive REPL holding ONE live connection for the
 // sitting. Successive commands share the same session (stateful stdio servers like a
 // browser keep their tab/cookies between commands) without any background daemon, socket,
 // or cross-invocation supervision — a single foreground process. The 80/20 of the daemon.
@@ -120,7 +120,7 @@ async function dispatch(client: Client, line: string, f: InvokeFlags): Promise<"
 
 export async function session(serverRef: string | undefined, f: InvokeFlags): Promise<void> {
   const name = serverRef ?? f.url ?? f.command ?? "server";
-  const { client, close } = await connectFor(serverRef, f, "mcpq-session");
+  const { client, close } = await connectFor(serverRef, f, "mcp-query-session");
   try {
     const list = await client.listTools().then((r) => r.tools).catch(() => []);
     console.error(`● connected to ${name} — ${list.length} tools. Type "help" or "exit".`);

@@ -13,7 +13,7 @@ import {
   importFrom,
 } from "../src/registry.js";
 
-const tmp = () => join(mkdtempSync(join(tmpdir(), "mcpq-reg-")), "servers.json");
+const tmp = () => join(mkdtempSync(join(tmpdir(), "mcp-query-reg-")), "servers.json");
 
 beforeEach(() => {
   delete process.env.MCPQ_TEST_VAR;
@@ -40,7 +40,7 @@ describe("registry", () => {
   });
 
   it("throws a helpful error for an unknown name", () => {
-    expect(() => resolveServer("nope", { config: tmp() })).toThrow(/mcpq add nope/);
+    expect(() => resolveServer("nope", { config: tmp() })).toThrow(/mcp-query add nope/);
   });
 
   it("expands ${VAR} and ${VAR:-default} from the environment", () => {
@@ -69,7 +69,7 @@ describe("registry", () => {
   });
 
   it("imports servers from a Claude-shaped config (nested under projects)", () => {
-    const file = join(mkdtempSync(join(tmpdir(), "mcpq-imp-")), "claude.json");
+    const file = join(mkdtempSync(join(tmpdir(), "mcp-query-imp-")), "claude.json");
     writeFileSync(file, JSON.stringify({ projects: { "/a": { mcpServers: { fs: { command: "fs-server" } } }, "/b": { mcpServers: { gh: { command: "gh-server" } } } } }));
     expect(Object.keys(importFrom(file)).sort()).toEqual(["fs", "gh"]);
   });

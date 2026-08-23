@@ -10,9 +10,9 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { MCPClient, type ClientInfo, type InteractionBroker, type RequestInterceptor } from "@johnhenry/mcpq";
-import type { DevtoolsHub } from "@johnhenry/mcpq/devtools";
-import { MCPProvider } from "@johnhenry/mcpq/react";
+import { MCPClient, type ClientInfo, type InteractionBroker, type RequestInterceptor } from "@johnhenry/mcp-query";
+import type { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
+import { MCPProvider } from "@johnhenry/mcp-query/react";
 import { WebSocketProxyTransport } from "../transport.js";
 import type { TargetSpec } from "../transport.js";
 

@@ -2,7 +2,7 @@
 // (tool content, resource text, structured output) before it reaches the agent. This is
 // the one piece the gate adds beyond mcp-query's stock interceptors.
 
-import type { RequestInterceptor } from "@johnhenry/mcpq";
+import type { RequestInterceptor } from "@johnhenry/mcp-query";
 
 export interface RedactRule {
   /** A RegExp (use the `g` flag) or a string compiled to a global RegExp. */

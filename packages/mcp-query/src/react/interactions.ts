@@ -3,7 +3,7 @@
 // surfaces the trail. Both no-op gracefully when no broker is configured.
 //
 // Issue #18: thin re-exports of @johnhenry/agent-query-core's own generic
-// useInteractions<D>/useAuditLog, parameterized by mcpq's InteractionDecision — the
+// useInteractions<D>/useAuditLog, parameterized by mcp-query's InteractionDecision — the
 // generic machinery (useSyncExternalStore over broker.subscribe/getVersion) is
 // identical to what these hooks used to inline.
 

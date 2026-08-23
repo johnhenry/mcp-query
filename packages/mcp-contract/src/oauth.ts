@@ -146,7 +146,7 @@ export class FileOAuthProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: "mcpq",
+      client_name: "mcp-query",
       redirect_uris: [this.redirectUrl],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -188,11 +188,11 @@ export class FileOAuthProvider implements OAuthClientProvider {
   }
   redirectToAuthorization(authorizationUrl: URL): void {
     if (!this.opts.interactive) {
-      // Name the command the user actually ran: under the mcpq umbrella the fix is
-      // `mcpq login`, standalone it's `mcp-contract auth` (mcpq sets MCPQ_UMBRELLA).
+      // Name the command the user actually ran: under the mcp-query umbrella the fix is
+      // `mcp-query login`, standalone it's `mcp-contract auth` (mcp-query sets MCPQ_UMBRELLA).
       throw new Error(
         process.env.MCPQ_UMBRELLA === "1"
-          ? `authorization required — run:  mcpq login <name|url>`
+          ? `authorization required — run:  mcp-query login <name|url>`
           : `authorization required — run:  mcp-contract auth --url <server>`,
       );
     }

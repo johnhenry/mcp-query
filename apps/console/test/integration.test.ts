@@ -2,8 +2,8 @@
 // Console's render helpers turn discovered capabilities + a tool call into the right DOM.
 
 import { describe, it, expect } from "vitest";
-import { MCPClient, isReadOnly, isDestructive } from "@johnhenry/mcpq";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPClient, isReadOnly, isDestructive } from "@johnhenry/mcp-query";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { renderToolResult, type ToolResult } from "../src/lib/render.js";
 
 function makeServer() {

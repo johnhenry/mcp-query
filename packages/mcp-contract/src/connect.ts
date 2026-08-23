@@ -54,7 +54,7 @@ export function buildTransport(opts: ConnectOptions): Transport {
 
 /** Connect a live SDK client from connect options; caller is responsible for `close()`. */
 export async function connectClient(opts: ConnectOptions): Promise<{ client: Client; close: () => Promise<void> }> {
-  const client = new Client({ name: opts.clientName ?? "mcpq", version: "0.0.1" }, { capabilities: {} });
+  const client = new Client({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: {} });
   await client.connect(buildTransport(opts));
   return { client, close: () => client.close().catch(() => {}) };
 }

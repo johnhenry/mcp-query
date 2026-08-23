@@ -1,5 +1,5 @@
 // The keep-alive daemon: a background process holding upstream MCP connections alive and
-// serving CLI invocations over a unix socket. Successive `mcpq … --daemon <server>` reuse
+// serving CLI invocations over a unix socket. Successive `mcp-query … --daemon <server>` reuse
 // the SAME live upstream connection (important for slow/stateful stdio servers like a
 // browser, which should NOT be re-spawned per call).
 //

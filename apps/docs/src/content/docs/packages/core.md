@@ -1,5 +1,5 @@
 ---
-title: "mcpq"
+title: "mcp-query"
 ---
 
 **A reactive, cached, embeddable MCP client for ordinary (non-agentic) applications.**
@@ -83,7 +83,7 @@ The conceptual analysis behind every choice lives in [`docs/`](./docs):
   policy, and an audit log.
 - [**docs/inspector.md**](./docs/inspector.md) — Inspector-style debugging on mcp-query: raw
   JSON-RPC message log, manual (human-as-model) sampling, OAuth-debug recorder, and the
-  `mcpq-inspect` CLI + per-request timeouts.
+  `mcp-query-inspect` CLI + per-request timeouts.
 - [**docs/webmcp.md**](./docs/webmcp.md) — *experimental* WebMCP bridge: expose backend tools
   to an in-browser agent (`bridgeToWebMCP`), and consume page tools (`webMcpToolServer`).
 
@@ -133,9 +133,9 @@ The MCP bonus: a chunk of the invalidation you'd hand-declare in RTK Query is
 ## Usage
 
 ```tsx
-import { MCPClient } from "@johnhenry/mcpq";
-import { MCPProvider, useResource, useTool, useTools } from "@johnhenry/mcpq/react";
-import { DevtoolsHub, MCPDevtools } from "@johnhenry/mcpq/devtools";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { MCPProvider, useResource, useTool, useTools } from "@johnhenry/mcp-query/react";
+import { DevtoolsHub, MCPDevtools } from "@johnhenry/mcp-query/devtools";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -250,7 +250,7 @@ via codegen) · human-in-the-loop broker (sampling + elicitation, trust policy, 
 Chrome built-in AI sampling · codegen + typed hooks · ping · completion (incl. dependent
 completions via `context.arguments`) · dynamic add/remove server · read retry · devtools ·
 raw JSON-RPC message log · manual (human-as-model) sampling · OAuth-debug recorder ·
-`mcpq-inspect` CLI + per-request timeouts. **180+ tests, green** (plus the opt-in
+`mcp-query-inspect` CLI + per-request timeouts. **180+ tests, green** (plus the opt-in
 stress suite: `npm run test:stress`).
 
 ## File map

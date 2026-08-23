@@ -19,11 +19,11 @@ export default defineConfig({
   // Aliases (most-specific first) so Vite/esbuild transpiles mcp-query + @app-shared source.
   resolve: {
     alias: [
-      { find: "@johnhenry/mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
-      { find: "@johnhenry/mcpq/react", replacement: resolve(lib, "react/index.ts") },
-      { find: "@johnhenry/mcpq/server", replacement: resolve(lib, "server/index.ts") },
-      { find: "@johnhenry/mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
-      { find: "@johnhenry/mcpq", replacement: resolve(lib, "index.ts") },
+      { find: "@johnhenry/mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
+      { find: "@johnhenry/mcp-query/react", replacement: resolve(lib, "react/index.ts") },
+      { find: "@johnhenry/mcp-query/server", replacement: resolve(lib, "server/index.ts") },
+      { find: "@johnhenry/mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "@johnhenry/mcp-query", replacement: resolve(lib, "index.ts") },
       { find: /^@app-shared\/(.*)$/, replacement: resolve(shared, "$1") },
       { find: "@app-shared", replacement: resolve(shared, "react/index.tsx") },
     ],

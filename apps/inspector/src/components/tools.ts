@@ -1,5 +1,5 @@
 import { Reactive, esc } from "../lib/reactive.js";
-import { isDestructive, isReadOnly } from "@johnhenry/mcpq";
+import { isDestructive, isReadOnly } from "@johnhenry/mcp-query";
 import { client, hub, activeServer } from "../lib/store.js";
 import { buildSchemaForm } from "../lib/schema-form.js";
 

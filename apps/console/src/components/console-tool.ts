@@ -3,7 +3,7 @@
 
 import { Reactive, esc } from "@app-shared/reactive";
 import { buildSchemaForm } from "@app-shared/schema-form";
-import { isDestructive, isReadOnly } from "@johnhenry/mcpq";
+import { isDestructive, isReadOnly } from "@johnhenry/mcp-query";
 import { client, activeServer } from "../lib/store.js";
 import { renderToolResult, coerceArgs, type ToolResult } from "../lib/render.js";
 

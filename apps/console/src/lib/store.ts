@@ -3,8 +3,8 @@
 // inspector (a protocol debugger) there is no message log or composer here — the
 // DevtoolsHub is kept only so panels can cheaply re-render on protocol activity.
 
-import { MCPClient } from "@johnhenry/mcpq";
-import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { WebSocketProxyTransport, type TargetSpec } from "@app-shared/transport";
 import { BrowserOAuthProvider } from "@app-shared/oauth";

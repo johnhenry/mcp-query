@@ -8,10 +8,10 @@
 // The broker's `policy(ctx)` is driven by a *live* PolicyConfig held here, so the
 // Policy editor screen can change verdicts at runtime without rebuilding anything.
 
-import { InteractionBroker } from "@johnhenry/mcpq";
+import { InteractionBroker } from "@johnhenry/mcp-query";
 import { makeProxyClient } from "@app-shared";
 import { loadPolicy, makePolicyVerdict, type PolicyConfig } from "./policy.js";
-import type { AuditEntry } from "@johnhenry/mcpq";
+import type { AuditEntry } from "@johnhenry/mcp-query";
 
 /** Server the demo connects to (advertises trigger-sampling / trigger-elicitation tools). */
 export const EVERYTHING_SERVER = "everything";

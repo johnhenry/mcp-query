@@ -13,12 +13,12 @@
     "noEmit": true,
     "paths": {
       "@johnhenry/mcp-gate": ["../../packages/mcp-gate/src/index.ts"],
-      "@johnhenry/mcpq": ["../../packages/mcp-query/src/index.ts"],
-      "@johnhenry/mcpq/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
-      "@johnhenry/mcpq/react": ["../../packages/mcp-query/src/react/index.ts"],
-      "@johnhenry/mcpq/server": ["../../packages/mcp-query/src/server/index.ts"],
-      "@johnhenry/mcpq/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"],
-      "@johnhenry/mcpq/testing": ["../../packages/mcp-query/src/testing/mockServer.ts"],
+      "@johnhenry/mcp-query": ["../../packages/mcp-query/src/index.ts"],
+      "@johnhenry/mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
+      "@johnhenry/mcp-query/react": ["../../packages/mcp-query/src/react/index.ts"],
+      "@johnhenry/mcp-query/server": ["../../packages/mcp-query/src/server/index.ts"],
+      "@johnhenry/mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"],
+      "@johnhenry/mcp-query/testing": ["../../packages/mcp-query/src/testing/mockServer.ts"],
       "@app-shared": ["../shared/src/react/index.tsx"],
       "@app-shared/*": ["../shared/src/*"]
     }

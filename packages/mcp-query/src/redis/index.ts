@@ -16,11 +16,11 @@ export interface RedisLike {
 }
 
 export interface RedisStoreOptions {
-  /** Key prefix. Default "mcpq:". */
+  /** Key prefix. Default "mcp-query:". */
   prefix?: string;
   /** TTL for stored entries, ms (optional). */
   ttlMs?: number;
-  /** Pub/sub channel. Default "mcpq:invalidate". */
+  /** Pub/sub channel. Default "mcp-query:invalidate". */
   channel?: string;
 }
 
@@ -29,8 +29,8 @@ export interface RedisStoreOptions {
  * distributed invalidation). Entries are JSON; invalidations are published as tag arrays.
  */
 export function createRedisCacheStore(redis: RedisLike, subscriber?: RedisLike, opts: RedisStoreOptions = {}): CacheStore {
-  const prefix = opts.prefix ?? "mcpq:";
-  const channel = opts.channel ?? "mcpq:invalidate";
+  const prefix = opts.prefix ?? "mcp-query:";
+  const channel = opts.channel ?? "mcp-query:invalidate";
   const k = (key: string) => prefix + key;
 
   return {

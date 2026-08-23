@@ -1,9 +1,9 @@
-name: Release (mcpq-tanstack)
+name: Release (mcp-query-tanstack)
 
-# Publish @johnhenry/mcpq-tanstack to npm.
-#   - Tag-triggered: push a tag like mcpq-tanstack-v0.1.0 (must match the package version).
+# Publish @johnhenry/mcp-query-tanstack to npm.
+#   - Tag-triggered: push a tag like mcp-query-tanstack-v0.1.0 (must match the package version).
 #   - Or run manually via workflow_dispatch (uses the version already in package.json).
-# Requires the NPM_TOKEN repo secret (shared with the mcpq release workflow).
+# Requires the NPM_TOKEN repo secret (shared with the mcp-query release workflow).
 #
 # First publish uses --tag rc explicitly: a plain (non "-rc.N") version like
 # 0.1.0 would otherwise claim npm's `latest` dist-tag on its very first
@@ -14,7 +14,7 @@ name: Release (mcpq-tanstack)
 # re-running a release or dispatching twice is safe.
 on:
   push:
-    tags: ["mcpq-tanstack-v*"]
+    tags: ["mcp-query-tanstack-v*"]
   workflow_dispatch:
 
 # Shared with the other release workflows in this repo so two packages never
@@ -41,28 +41,28 @@ jobs:
       - run: npm ci
 
       - name: Build mcp-query
-        # mcpq-tanstack imports @johnhenry/mcpq's subpath exports (./testing
+        # mcp-query-tanstack imports @johnhenry/mcp-query's subpath exports (./testing
         # in tests), which resolve to dist/ — must exist first.
-        run: npm run build -w @johnhenry/mcpq
+        run: npm run build -w @johnhenry/mcp-query
 
       - name: Gate (typecheck + tests + build)
         run: |
-          npm run typecheck -w @johnhenry/mcpq-tanstack
-          npm test -w @johnhenry/mcpq-tanstack
-          npm run build -w @johnhenry/mcpq-tanstack
+          npm run typecheck -w @johnhenry/mcp-query-tanstack
+          npm test -w @johnhenry/mcp-query-tanstack
+          npm run build -w @johnhenry/mcp-query-tanstack
 
       - name: Verify tag matches package version
         if: github.ref_type == 'tag'
         run: |
-          PKG_VERSION=$(node -p "require('./packages/mcpq-tanstack/package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#mcpq-tanstack-v}"
+          PKG_VERSION=$(node -p "require('./packages/mcp-query-tanstack/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#mcp-query-tanstack-v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "tag mcpq-tanstack-v$TAG_VERSION does not match package version $PKG_VERSION" >&2
+            echo "tag mcp-query-tanstack-v$TAG_VERSION does not match package version $PKG_VERSION" >&2
             exit 1
           fi
 
       - name: Publish smoke (import the built entrypoint)
-        working-directory: packages/mcpq-tanstack
+        working-directory: packages/mcp-query-tanstack
         run: node -e "import('./dist/index.js').then(m => { if (!m.attachMcpqSync) throw new Error('missing attachMcpqSync export'); console.log('ok'); })"
 
       - name: No NPM_TOKEN — skipping publish
@@ -75,11 +75,11 @@ jobs:
         # Idempotent: `npm view` exits non-zero for a version that isn't on the
         # registry yet, which is the signal to publish.
         run: |
-          PKG_VERSION=$(node -p "require('./packages/mcpq-tanstack/package.json').version")
-          if npm view "@johnhenry/mcpq-tanstack@$PKG_VERSION" version >/dev/null 2>&1; then
-            echo "::notice title=Already published::@johnhenry/mcpq-tanstack@$PKG_VERSION is already on npm; nothing to do."
+          PKG_VERSION=$(node -p "require('./packages/mcp-query-tanstack/package.json').version")
+          if npm view "@johnhenry/mcp-query-tanstack@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=Already published::@johnhenry/mcp-query-tanstack@$PKG_VERSION is already on npm; nothing to do."
             exit 0
           fi
-          npm publish --workspace @johnhenry/mcpq-tanstack --provenance --access public --tag rc
+          npm publish --workspace @johnhenry/mcp-query-tanstack --provenance --access public --tag rc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

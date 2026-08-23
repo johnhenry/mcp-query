@@ -1,17 +1,17 @@
-// queryOptions() factories bridging mcpq's own reads into TanStack Query.
+// queryOptions() factories bridging mcp-query's own reads into TanStack Query.
 // Sync propagation (attachMcpqSync, in bridge.ts) is what actually keeps a
 // bridged query's TanStack cache entry fresh on protocol push / optimistic
 // patch — the queryFn here only supplies the FIRST fetch + the type-safe
 // queryKey/queryFn pairing queryOptions() exists for.
 
 import { queryOptions, type UseQueryOptions } from "@tanstack/react-query";
-import { argsHash, type CallToolOpts, type MCPClient, type QueryToolOpts, type ReadResourceOpts, type Tool } from "@johnhenry/mcpq";
+import { argsHash, type CallToolOpts, type MCPClient, type QueryToolOpts, type ReadResourceOpts, type Tool } from "@johnhenry/mcp-query";
 import { listQueryKey, resourceQueryKey, toolResultQueryKey } from "./keys.js";
 import { ensureSynced } from "./bridge.js";
 
 /**
  * Bridges a READ-ONLY tool (annotated `readOnlyHint`) as a query — the
- * TanStack-side analog of mcpq's own `useToolResult` hook. Do not use for
+ * TanStack-side analog of mcp-query's own `useToolResult` hook. Do not use for
  * side-effecting tool calls; see `mcpqToolMutationOptions` for those.
  */
 export function mcpqToolQueryOptions<A extends Record<string, unknown>, R = unknown>(

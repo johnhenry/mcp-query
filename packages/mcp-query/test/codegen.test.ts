@@ -93,7 +93,7 @@ describe("generateToolTypes", () => {
   });
 
   it("produces output that compiles as valid TypeScript under --strict", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mcpq-gen-"));
+    const dir = mkdtempSync(join(tmpdir(), "mcp-query-gen-"));
     const file = join(dir, "gen.ts");
     writeFileSync(file, code, "utf8");
     const program = ts.createProgram([file], {

@@ -1,5 +1,5 @@
 // Prompt catalog — reactive to prompts/list_changed via usePromptList.
-import { usePromptList } from "@johnhenry/mcpq/react";
+import { usePromptList } from "@johnhenry/mcp-query/react";
 
 export function PromptGallery({ server, onPick }: { server: string; onPick: (name: string) => void }) {
   const { prompts } = usePromptList({ server });

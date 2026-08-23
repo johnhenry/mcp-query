@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@mcp-query/app-shared": "*",
-    "@johnhenry/mcpq": "*",
+    "@johnhenry/mcp-query": "*",
     "@modelcontextprotocol/client": "2.0.0"
   },
   "devDependencies": {

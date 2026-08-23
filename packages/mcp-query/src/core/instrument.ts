@@ -17,7 +17,7 @@
 //
 // Issue #18: the Proxy-wrapping logic itself is now @johnhenry/agent-query-core's
 // instrumentTransport (byte-identical, just generalized to a structural TransportLike
-// instead of importing the SDK's own Transport type). mcpq's `synthetic?: boolean`
+// instead of importing the SDK's own Transport type). mcp-query's `synthetic?: boolean`
 // (added for the #16 stdio-probe-visibility fix, consumed by connection.ts's direct
 // synthetic-marker `onTraffic` calls — core has no reason to know about it) stays as a
 // local overlay on TrafficEvent rather than being upstreamed in this pass.

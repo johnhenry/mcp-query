@@ -6,8 +6,8 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import { MCPClient } from "@johnhenry/mcpq";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { AppProvider } from "@app-shared";
 import {
   assembleMessage,

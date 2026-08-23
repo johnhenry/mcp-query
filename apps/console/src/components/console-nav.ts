@@ -3,7 +3,7 @@
 // move, Enter to open). Re-renders on list_changed via subscribeCapabilities.
 
 import { Reactive, esc } from "@app-shared/reactive";
-import { isDestructive, isReadOnly } from "@johnhenry/mcpq";
+import { isDestructive, isReadOnly } from "@johnhenry/mcp-query";
 import { client, activeServer } from "../lib/store.js";
 
 export type Kind = "tool" | "resource" | "prompt";

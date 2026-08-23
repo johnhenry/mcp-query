@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Codegen CLI. Connects to an MCP server (stdio), drains tools/list, and writes a
 // typed module. Usage:
-//   mcpq-codegen --command mcp-server-filesystem --args "/work" --out src/mcp.gen.ts
+//   mcp-query-codegen --command mcp-server-filesystem --args "/work" --out src/mcp.gen.ts
 //
 // The pure generator (generate.ts) is what carries the test weight; this is the
 // thin I/O wrapper around it.
@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): Record<string, string> {
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const a = parseArgs(argv);
   if (!a.command) {
-    console.error("usage: mcpq-codegen --command <cmd> [--args <space-separated>] [--negotiate auto|legacy|pin:<rev>] --out <file.ts>");
+    console.error("usage: mcp-query-codegen --command <cmd> [--args <space-separated>] [--negotiate auto|legacy|pin:<rev>] --out <file.ts>");
     process.exit(1);
   }
   // CLIs keep the SDK's conservative 'legacy' negotiation default (spawn-per-invocation
@@ -58,7 +58,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   // opt in with --negotiate auto|legacy|pin:<revision>.
   const negotiate = a.negotiate ? parseNegotiate(a.negotiate) : undefined;
   const client = new Client(
-    { name: "mcpq-codegen", version: "0.1.0" },
+    { name: "mcp-query-codegen", version: "0.1.0" },
     { capabilities: {}, ...(negotiate ? { versionNegotiation: negotiate } : {}) },
   );
   await client.connect(

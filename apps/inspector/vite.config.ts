@@ -10,9 +10,9 @@ export default defineConfig({
   resolve: {
     alias: [
       // Point at protocol.ts (DevtoolsHub) directly — index.ts also re-exports the React Panel.
-      { find: "@johnhenry/mcpq/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
-      { find: "@johnhenry/mcpq/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
-      { find: "@johnhenry/mcpq", replacement: resolve(lib, "index.ts") },
+      { find: "@johnhenry/mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
+      { find: "@johnhenry/mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "@johnhenry/mcp-query", replacement: resolve(lib, "index.ts") },
     ],
   },
   // Pinned port (matches WEB_PORT in the `dev` script) so the proxy's printed URL is correct.

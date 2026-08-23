@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
-    "@johnhenry/mcpq": "*"
+    "@johnhenry/mcp-query": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",

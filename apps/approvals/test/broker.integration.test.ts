@@ -4,7 +4,7 @@
 // what useInteractions().resolve(id, decision) does in the app.
 
 import { describe, it, expect } from "vitest";
-import { InteractionBroker, type AuditEntry, type InteractionDecision } from "@johnhenry/mcpq";
+import { InteractionBroker, type AuditEntry, type InteractionDecision } from "@johnhenry/mcp-query";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 

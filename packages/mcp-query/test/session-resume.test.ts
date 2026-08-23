@@ -62,13 +62,13 @@ describe("session stores", () => {
       setItem: (k: string, v: string) => void backing.set(k, v),
       removeItem: (k: string) => void backing.delete(k),
     };
-    const store = webStorageSessionStore("mcpq:srv", storage);
+    const store = webStorageSessionStore("mcp-query:srv", storage);
     expect(await store.get()).toBeUndefined();
     await store.set({ sessionId: "abc" });
-    expect(backing.get("mcpq:srv")).toBeTruthy();
+    expect(backing.get("mcp-query:srv")).toBeTruthy();
     expect((await store.get())?.sessionId).toBe("abc");
     await store.clear();
-    expect(backing.has("mcpq:srv")).toBe(false);
+    expect(backing.has("mcp-query:srv")).toBe(false);
   });
 
   it("webStorageSessionStore treats corrupt JSON as absent", async () => {

@@ -6,7 +6,7 @@
 //
 // Structurally compatible with @johnhenry/agent-query-core's own Operation (issue #18):
 // same field set, `peer` instead of `server` (matching core's generalization), just with
-// mcpq's own narrower/typed `kind`/`def`/`context` in place of core's generic
+// mcp-query's own narrower/typed `kind`/`def`/`context` in place of core's generic
 // string/unknown/OperationContext — so a value here upcasts cleanly to core's Operation,
 // without core's generic types leaking into every interceptor implementation (authorize.ts
 // etc. want a real `Tool`/`CallContext`, not `unknown`). The dispatch loop itself

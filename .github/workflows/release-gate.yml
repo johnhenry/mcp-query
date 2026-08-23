@@ -3,7 +3,7 @@ name: Release (mcp-gate)
 # Publish @johnhenry/mcp-gate to npm.
 #   - Tag-triggered: push a tag like gate-v0.0.1 (must match the package version).
 #   - Or run manually via workflow_dispatch (uses the version already in package.json).
-# Requires the NPM_TOKEN repo secret (shared with the mcpq release workflow).
+# Requires the NPM_TOKEN repo secret (shared with the mcp-query release workflow).
 #
 # Publishing is idempotent: a version already on the registry is skipped, so
 # re-running a release or dispatching twice is safe.
@@ -36,9 +36,9 @@ jobs:
       - run: npm ci
 
       - name: Build mcp-query
-        # mcp-gate imports @johnhenry/mcpq's subpath exports (./server,
+        # mcp-gate imports @johnhenry/mcp-query's subpath exports (./server,
         # ./testing), which resolve to dist/ — must exist first.
-        run: npm run build -w @johnhenry/mcpq
+        run: npm run build -w @johnhenry/mcp-query
 
       - name: Gate (typecheck + tests + build)
         run: |

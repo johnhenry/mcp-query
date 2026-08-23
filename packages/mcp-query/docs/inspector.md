@@ -14,7 +14,7 @@ emitted as `request` / `response` / `notification` events (with `dir`, method, i
 response timing). This is the Inspector's defining "see every message" feature.
 
 ```ts
-import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
+import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 
 const hub = new DevtoolsHub();
 const client = new MCPClient({ servers, devtools: hub });
@@ -54,7 +54,7 @@ step (client registration, token read/write, the authorization redirect, PKCE ve
 with secrets redacted, and exposes `authSteps()`:
 
 ```ts
-import { instrumentAuthProvider } from "@johnhenry/mcpq";
+import { instrumentAuthProvider } from "@johnhenry/mcp-query";
 
 const provider = instrumentAuthProvider(myOAuthProvider, (step) => hub.emit({ type: "auth", member: step.member, phase: step.phase }));
 const client = new MCPClient({
@@ -67,14 +67,14 @@ Token values are never logged — only `{ hasAccessToken, hasRefreshToken }`.
 
 ## 4. CLI mode + per-request timeouts
 
-A scripting/CI CLI (`mcpq-inspect`, or `npm run inspect`) dispatches any method and
+A scripting/CI CLI (`mcp-query-inspect`, or `npm run inspect`) dispatches any method and
 prints JSON:
 
 ```bash
-mcpq-inspect --command npx --args "-y @modelcontextprotocol/server-everything" --method tools/list
-mcpq-inspect --command … --method tools/call --tool echo --arg message=hi --arg count=3
-mcpq-inspect --url https://mcp.example.com --transport http --method resources/list
-mcpq-inspect --command … --method ping
+mcp-query-inspect --command npx --args "-y @modelcontextprotocol/server-everything" --method tools/list
+mcp-query-inspect --command … --method tools/call --tool echo --arg message=hi --arg count=3
+mcp-query-inspect --url https://mcp.example.com --transport http --method resources/list
+mcp-query-inspect --command … --method ping
 ```
 
 Supported `--method`: `tools/list`, `tools/call`, `resources/list`,

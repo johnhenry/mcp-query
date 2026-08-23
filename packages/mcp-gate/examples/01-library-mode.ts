@@ -6,7 +6,7 @@
 // Run: npx tsx examples/01-library-mode.ts   (uses the in-memory mock — no network)
 
 import { createGate } from "../src/index.js";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 
 const docs = new MockMCPServer({
   tools: [
@@ -22,7 +22,7 @@ const gate = await createGate({
   redact: [{ pattern: /\d{3}-\d{2}-\d{4}/g, replacement: "[SSN]" }],
 });
 
-// gate.client is a full mcpq MCPClient — call it directly, no server/transport involved.
+// gate.client is a full mcp-query MCPClient — call it directly, no server/transport involved.
 const r1 = (await gate.client.callTool("docs.echo", { message: "hi" })) as { content: { text: string }[] };
 console.log("direct call:", r1.content[0]?.text); // hi
 

@@ -1,6 +1,6 @@
 // The 8 tool verbs — each an umbrella over an existing tool package's `cli.ts`.
 // Every entry lazily `import()`s the tool's CLI so we only pay its module cost when
-// the verb is actually invoked, and so `mcpq --help` stays instant. Each loaded module
+// the verb is actually invoked, and so `mcp-query --help` stays instant. Each loaded module
 // exposes `run(argv: string[]): Promise<void>` (the shared CLI entry contract).
 
 export interface ToolCli {

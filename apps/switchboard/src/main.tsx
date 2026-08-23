@@ -11,7 +11,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { makeProxyClient, AppProvider } from "@app-shared";
-import { rateLimit } from "@johnhenry/mcpq/server";
+import { rateLimit } from "@johnhenry/mcp-query/server";
 import { traceInterceptor, tenantMetaInterceptor } from "./trace.js";
 import { App } from "./App.js";
 import "./styles.css";

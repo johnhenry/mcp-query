@@ -6,7 +6,7 @@ features live in optional subpath exports (`mcp-query/server`, `/metrics`, `/ses
 `/redis`) so the core stays small.
 
 ```bash
-npm i @johnhenry/mcpq @modelcontextprotocol/client
+npm i @johnhenry/mcp-query @modelcontextprotocol/client
 ```
 
 The shape it fits: a **long-lived aggregator / server-side agent runtime** (BFF, gateway,
@@ -37,7 +37,7 @@ const client = new MCPClient({ servers, interceptors: [authz, breaker, limiter, 
 ## Authorization + audit (`mcp-query/server`)
 
 ```ts
-import { authorize, denyDestructiveUnless } from "@johnhenry/mcpq/server";
+import { authorize, denyDestructiveUnless } from "@johnhenry/mcp-query/server";
 
 interceptors: [authorize(({ context, destructive }) =>
   context?.meta?.role === "admin" || !destructive ? "allow" : "deny")]
@@ -52,7 +52,7 @@ target, principal, outcome }` (outcome ∈ ok | denied | error).
 ## Resilience (`mcp-query/server`)
 
 ```ts
-import { circuitBreaker, rateLimit } from "@johnhenry/mcpq/server";
+import { circuitBreaker, rateLimit } from "@johnhenry/mcp-query/server";
 interceptors: [
   circuitBreaker({ threshold: 5, cooldownMs: 10_000 }).interceptor,
   rateLimit({ concurrency: 8 }).interceptor,
@@ -69,7 +69,7 @@ cockatiel/bottleneck onto the same interceptor seam.
 ## Observability — metrics + health (`mcp-query/metrics`)
 
 ```ts
-import { MetricsCollector } from "@johnhenry/mcpq/metrics";
+import { MetricsCollector } from "@johnhenry/mcp-query/metrics";
 const metrics = new MetricsCollector();
 new MCPClient({ servers, interceptors: [metrics.interceptor()] });
 app.get("/metrics", (_, res) => res.type("text/plain").send(metrics.prometheus()));
@@ -82,7 +82,7 @@ For OpenTelemetry, wrap `@opentelemetry/api` as a tracing interceptor (propagate
 ## Gateway — re-serve upstreams as one MCP endpoint (`mcp-query/server`)
 
 ```ts
-import { createGateway } from "@johnhenry/mcpq/server";
+import { createGateway } from "@johnhenry/mcp-query/server";
 const gateway = createGateway(client, { namespace: true });   // an SDK Server
 await gateway.connect(transport);   // expose over stdio / Streamable HTTP
 ```
@@ -93,7 +93,7 @@ propagates `*_list_changed`. The deployable "single endpoint fronting many."
 ## Per-principal sessions + graceful shutdown (`mcp-query/session`)
 
 ```ts
-import { SessionManager } from "@johnhenry/mcpq/session";
+import { SessionManager } from "@johnhenry/mcp-query/session";
 const sessions = new SessionManager({
   ttl: 5 * 60_000,
   create: async (principal) => { const c = new MCPClient({ servers: serversFor(principal) }); await c.connect(); return c; },
@@ -112,7 +112,7 @@ L1 stays synchronous in-process (the hooks need it); an optional async **L2** sh
 across instances and broadcasts invalidations.
 
 ```ts
-import { createRedisCacheStore } from "@johnhenry/mcpq/redis";
+import { createRedisCacheStore } from "@johnhenry/mcp-query/redis";
 const cacheStore = createRedisCacheStore(redis, redisSubscriber); // bring your own ioredis
 new MCPClient({ servers, cacheStore });
 ```
