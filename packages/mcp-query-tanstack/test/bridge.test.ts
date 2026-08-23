@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { MCPClient } from "@johnhenry/mcpq";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { ensureSynced } from "../src/bridge.js";
 import { resourceQueryKey } from "../src/keys.js";
 
@@ -43,7 +43,7 @@ describe("ensureSynced (live sync bridge)", () => {
     await client.close();
   });
 
-  it("releases the mcpq-side subscription when TanStack removes the query (gc)", async () => {
+  it("releases the mcp-query-side subscription when TanStack removes the query (gc)", async () => {
     const mock = new MockMCPServer({ resources: [{ uri: "mem://a", read: () => ({ text: "v1" }) }] });
     const client = new MCPClient({ servers: { s: { transport: mock.transport } } });
     await client.connect();

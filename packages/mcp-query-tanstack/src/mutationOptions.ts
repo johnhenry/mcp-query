@@ -1,14 +1,14 @@
-// mutationOptions() factories for side-effecting mcpq tool calls. Optimistic
+// mutationOptions() factories for side-effecting mcp-query tool calls. Optimistic
 // updates are NOT reimplemented here on the TanStack side — call the
 // adapter's own `optimistic`/`patch()` mechanism inside your own mutationFn
-// (mcpq's `CallToolOpts.optimistic`) and the sync bridge propagates it
+// (mcp-query's `CallToolOpts.optimistic`) and the sync bridge propagates it
 // automatically, the same way it propagates a server-confirmed write. True
 // TanStack-native optimistic APIs (onMutate + manual setQueryData + rollback
 // context) are an explicit v2 candidate, not built here.
 
 import { mutationOptions } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import type { CallToolOpts, MCPClient, Tag } from "@johnhenry/mcpq";
+import type { CallToolOpts, MCPClient, Tag } from "@johnhenry/mcp-query";
 import { tagToQueryKeyPrefix } from "./keys.js";
 
 export interface McpqToolMutationExtra {

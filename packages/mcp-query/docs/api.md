@@ -21,8 +21,8 @@ A complete catalog of the public surface. Conceptual background lives in
 ## Client construction
 
 ```ts
-import { MCPClient, InteractionBroker } from "@johnhenry/mcpq";
-import { StdioClientTransport } from "@johnhenry/mcpq/transports";
+import { MCPClient, InteractionBroker } from "@johnhenry/mcp-query";
+import { StdioClientTransport } from "@johnhenry/mcp-query/transports";
 
 const client = new MCPClient({
   servers: {
@@ -39,7 +39,7 @@ const client = new MCPClient({
 ```
 
 `clientInfo` is what servers see during `initialize` (the SDK's `Implementation`); it defaults
-to `{ name: "mcpq", version: … }`. `defaultRequestOptions` sets client-wide
+to `{ name: "mcp-query", version: … }`. `defaultRequestOptions` sets client-wide
 `timeout`/`resetTimeoutOnProgress`/`maxTotalTimeout`, merged *under* any per-call
 `requestOptions`. (The SDK also supports `title`/`websiteUrl`/`icons` on `Implementation` and
 `enforceStrictCapabilities` — only `title` is surfaced today; the rest are a documented future
@@ -90,7 +90,7 @@ connection is the truth. Era-dependent surfaces (the deprecated
 vs `resources/subscribe`, SEP-2549 cache hints, per-request `CallContext.logLevel`)
 switch on it automatically; app code using the hooks/broker/cache never branches.
 
-CLI note: `mcpq-inspect` and `mcpq-codegen` keep the conservative v1 default and
+CLI note: `mcp-query-inspect` and `mcp-query-codegen` keep the conservative v1 default and
 expose `--negotiate auto|legacy|pin:<revision>` (spawn-per-invocation stdio tools
 should not pay the probe by default).
 
@@ -106,11 +106,11 @@ reload/reconnect re-`initialize`s into a *fresh* session, so the server forgets 
 Opt in with a `sessionStore` and a factory that forwards the context:
 
 ```ts
-import { webStorageSessionStore } from "@johnhenry/mcpq";
+import { webStorageSessionStore } from "@johnhenry/mcp-query";
 
 servers: {
   api: {
-    sessionStore: webStorageSessionStore("mcpq:api"), // window.sessionStorage — same-tab lifetime
+    sessionStore: webStorageSessionStore("mcp-query:api"), // window.sessionStorage — same-tab lifetime
     transport: (ctx) => {
       const t = new StreamableHTTPClientTransport(url, { sessionId: ctx?.sessionId });
       if (ctx?.protocolVersion) t.setProtocolVersion(ctx.protocolVersion);
@@ -195,7 +195,7 @@ import {
   MCPProvider, useResource, useTool, useToolResult,
   useTools, useResourceList, usePromptList, useResourceTemplates, usePrompt,
   useServerState, useInteractions, useAuditLog,
-} from "@johnhenry/mcpq/react";
+} from "@johnhenry/mcp-query/react";
 
 <MCPProvider client={client}>…</MCPProvider>
 ```
@@ -256,7 +256,7 @@ const { state, isReady, supports } = useServerState("github");
 ## Cache
 
 ```ts
-import { resourceTag, capsTag, serverTag, entityTag } from "@johnhenry/mcpq";
+import { resourceTag, capsTag, serverTag, entityTag } from "@johnhenry/mcp-query";
 
 // invalidation (RTK-Query style)
 client.cache.invalidateTags([resourceTag("github", "github://issues")]);
@@ -277,7 +277,7 @@ rollback();
 **Persistence / hydration** (offline, SSR):
 
 ```ts
-import { persistCache } from "@johnhenry/mcpq";
+import { persistCache } from "@johnhenry/mcp-query";
 
 const stop = persistCache(client.cache, window.localStorage, { key: "myapp", debounce: 250 });
 // or manually: const snap = client.cache.dehydrate(); newCache.hydrate(snap);
@@ -286,7 +286,7 @@ const stop = persistCache(client.cache, window.localStorage, { key: "myapp", deb
 ## Annotations & structured output
 
 ```ts
-import { isReadOnly, isDestructive, isIdempotent, structuredContent, contentAnnotations, isToolError } from "@johnhenry/mcpq";
+import { isReadOnly, isDestructive, isIdempotent, structuredContent, contentAnnotations, isToolError } from "@johnhenry/mcp-query";
 
 if (isDestructive(tool)) confirmFirst();
 const data = structuredContent<{ total: number }>(result); // the structuredContent field
@@ -297,8 +297,8 @@ if (isToolError(result)) showToolError(result);
 ## Human-in-the-loop
 
 ```tsx
-import { InteractionBroker, chromeBuiltinAISampling } from "@johnhenry/mcpq";
-import { useInteractions, useAuditLog } from "@johnhenry/mcpq/react";
+import { InteractionBroker, chromeBuiltinAISampling } from "@johnhenry/mcp-query";
+import { useInteractions, useAuditLog } from "@johnhenry/mcp-query/react";
 
 const broker = new InteractionBroker({
   model: chromeBuiltinAISampling(),
@@ -333,7 +333,7 @@ Emits `GeneratedToolMap`, `ToolName`, `ToolArgs`/`ToolResult`, plus `GeneratedPr
 and `ResourceTemplateUri`. Feed the tool map to the typed hook factory:
 
 ```tsx
-import { createTypedHooks } from "@johnhenry/mcpq/react";
+import { createTypedHooks } from "@johnhenry/mcp-query/react";
 import type { GeneratedToolMap } from "./mcp.gen";
 
 const { useTool, useToolResult } = createTypedHooks<GeneratedToolMap>();
@@ -347,7 +347,7 @@ on the transport itself (OAuth 2.1 for Streamable HTTP), so no special client AP
 needed:
 
 ```ts
-import { StreamableHTTPClientTransport } from "@johnhenry/mcpq/transports";
+import { StreamableHTTPClientTransport } from "@johnhenry/mcp-query/transports";
 
 const client = new MCPClient({
   servers: {
@@ -362,8 +362,8 @@ const client = new MCPClient({
 ## Devtools
 
 ```tsx
-import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
-import { MCPDevtools } from "@johnhenry/mcpq/devtools";
+import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
+import { MCPDevtools } from "@johnhenry/mcp-query/devtools";
 
 const hub = new DevtoolsHub();
 const client = new MCPClient({ servers, devtools: hub });

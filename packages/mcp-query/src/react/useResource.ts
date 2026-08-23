@@ -74,7 +74,7 @@ export function useResource<T = unknown>(uri: string, opts: UseResourceOptions<T
   const raw = entry?.data;
   return {
     data: raw === undefined ? undefined : select ? select(raw) : (raw as T),
-    // mcpq's cache only ever holds MCPError (set via client.ts's toError()); the base
+    // mcp-query's cache only ever holds MCPError (set via client.ts's toError()); the base
     // Error type on CacheEntry (agent-query-core, protocol-agnostic) is narrowed here.
     error: entry?.error as MCPError | undefined,
     isLoading: !entry || entry.status === "fetching" || (entry.status === "idle" && !skip),

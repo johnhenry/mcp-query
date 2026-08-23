@@ -14,13 +14,13 @@
 //
 // Issue #18: a thin, MCP-flavored subclass of @johnhenry/agent-query-core's
 // InteractionBroker<D> — decide()/enqueue()/record()/resolve()/subscribe()/etc. are all
-// inherited unchanged (mcpq's own private versions of these were structurally identical
+// inherited unchanged (mcp-query's own private versions of these were structurally identical
 // to core's, just server-flavored). handleSampling/handleElicitation keep their EXACT
 // original control flow (including the manual-sampling "always enqueue even when policy
 // auto-allows, since a human must author the result" branch, which doesn't map cleanly
 // onto core's higher-level gate() helper) — only the PolicyContext object literal passed
 // into decide() changes shape (`peer` in place of `server`, since that's core's own
-// PolicyContext). PolicyContext itself stays mcpq's own local, `server`-named type
+// PolicyContext). PolicyContext itself stays mcp-query's own local, `server`-named type
 // (decoupled from core's, same as AuthzRequest/CallAuditEntry) so callers' policy
 // functions don't need to change. Interaction/AuditEntry are NOT locally redefined —
 // they're re-exported straight from core, which means their `.server` is really `.peer`
@@ -44,7 +44,7 @@ export type InteractionPhase = "request" | "response";
 /** Trust policy verdict per request. */
 export type PolicyVerdict = CorePolicyVerdict;
 
-/** mcpq's own decoupled PolicyContext — kept `server`-named so policy functions don't change. */
+/** mcp-query's own decoupled PolicyContext — kept `server`-named so policy functions don't change. */
 export interface PolicyContext {
   server: string;
   type: InteractionType;

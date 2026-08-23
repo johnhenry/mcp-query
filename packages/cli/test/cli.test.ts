@@ -204,7 +204,7 @@ describe("(e) registry-name rewrite for tool verbs", () => {
 
 describe("(f) unknown-flag rejection on registry verbs", () => {
   it("rejects a typo'd flag, naming the verb and its known flags", async () => {
-    await expect(run(["servers", "--jsonx"])).rejects.toThrow(/unknown flag --jsonx for mcpq servers \(known: --json, --config\)/);
+    await expect(run(["servers", "--jsonx"])).rejects.toThrow(/unknown flag --jsonx for mcp-query servers \(known: --json, --config\)/);
   });
 
   it("still accepts the verb's own flags", async () => {

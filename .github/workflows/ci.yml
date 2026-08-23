@@ -17,10 +17,10 @@ jobs:
       - run: npm ci
 
       - name: Build mcp-query
-        # Other workspaces (e.g. mcp-gate) import @johnhenry/mcpq's subpath
+        # Other workspaces (e.g. mcp-gate) import @johnhenry/mcp-query's subpath
         # exports (./server, ./testing), which resolve to dist/ — must exist
         # before their typecheck/test runs, not just before this repo's own.
-        run: npm run build -w @johnhenry/mcpq
+        run: npm run build -w @johnhenry/mcp-query
 
       - name: Typecheck (all workspaces)
         run: npm run typecheck

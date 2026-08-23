@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { evaluatePolicy, makePolicyVerdict, ruleMatches, type PolicyConfig } from "../src/policy.js";
 import { toNDJSON } from "../src/audit.js";
-import type { AuditEntry } from "@johnhenry/mcpq";
+import type { AuditEntry } from "@johnhenry/mcp-query";
 
 describe("policy verdict", () => {
   const config: PolicyConfig = {

@@ -2,10 +2,10 @@
 // A generic inspect CLI (MCP Inspector's CLI-mode analog) for scripting / CI. Dogfoods
 // MCPClient against any server and prints JSON. Examples:
 //
-//   mcpq-inspect --command npx --args "-y @modelcontextprotocol/server-everything" --method tools/list
-//   mcpq-inspect --command … --method tools/call --tool echo --arg message=hi
-//   mcpq-inspect --url https://mcp.example.com --transport http --method resources/list
-//   mcpq-inspect --command … --method ping
+//   mcp-query-inspect --command npx --args "-y @modelcontextprotocol/server-everything" --method tools/list
+//   mcp-query-inspect --command … --method tools/call --tool echo --arg message=hi
+//   mcp-query-inspect --url https://mcp.example.com --transport http --method resources/list
+//   mcp-query-inspect --command … --method ping
 
 import { MCPClient } from "../core/client.js";
 import { SSEClientTransport, StreamableHTTPClientTransport, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";

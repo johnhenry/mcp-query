@@ -3,7 +3,7 @@
 //   colon + JSON      echo:'{"message":"hi"}'
 //   function-call     'echo(message: "hi", n: 2)'
 //
-// `mcpq call` historically used the function-call form while `mcp-bench --call` /
+// `mcp-query call` historically used the function-call form while `mcp-bench --call` /
 // `mcp-record --call` used colon+JSON — every CLI now accepts both. The parser lives
 // here (not in packages/cli) because the dependency direction is cli → tools, and
 // mcp-contract is the de-facto shared library for the tool CLIs.

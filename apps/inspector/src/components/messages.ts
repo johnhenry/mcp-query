@@ -1,7 +1,7 @@
 import { Reactive, esc } from "../lib/reactive.js";
 import { client, hub } from "../lib/store.js";
 import { persistEvent, clearEvents } from "../lib/idb.js";
-import type { DevtoolsEvent } from "@johnhenry/mcpq/devtools";
+import type { DevtoolsEvent } from "@johnhenry/mcp-query/devtools";
 
 // The raw JSON-RPC message log — the Inspector's signature view. Live request/response/
 // notification stream (from mcp-query's instrumentTransport → devtools events), filterable,

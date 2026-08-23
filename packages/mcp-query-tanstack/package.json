@@ -1,13 +1,13 @@
 {
-  "name": "@johnhenry/mcpq-tanstack",
-  "version": "0.1.0",
-  "description": "TanStack Query bridge for @johnhenry/mcpq — queryOptions/mutationOptions factories that sync mcpq's own reactive cache into TanStack Query, including protocol push and optimistic updates, with zero extra refetches.",
+  "name": "@johnhenry/mcp-query-tanstack",
+  "version": "0.0.0",
+  "description": "TanStack Query bridge for @johnhenry/mcp-query — queryOptions/mutationOptions factories that sync mcp-query's own reactive cache into TanStack Query, including protocol push and optimistic updates, with zero extra refetches.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/johnhenry/mcp-query.git",
-    "directory": "packages/mcpq-tanstack"
+    "directory": "packages/mcp-query-tanstack"
   },
-  "homepage": "https://github.com/johnhenry/mcp-query/tree/main/packages/mcpq-tanstack",
+  "homepage": "https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-query-tanstack",
   "bugs": "https://github.com/johnhenry/mcp-query/issues",
   "license": "MIT",
   "type": "module",
@@ -31,12 +31,12 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@johnhenry/mcpq": "0.3.0",
+    "@johnhenry/mcp-query": "0.0.0",
     "@tanstack/react-query": "^5.0.0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
-    "@johnhenry/mcpq": "0.3.0",
+    "@johnhenry/mcp-query": "0.0.0",
     "@tanstack/react-query": "^5.101.4",
     "react": "^19.2.7",
     "typescript": "^5.9.3",

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
-    "@johnhenry/mcpq": "*",
+    "@johnhenry/mcp-query": "*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ws": "^8.18.0"

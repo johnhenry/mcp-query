@@ -3,7 +3,7 @@
 // own concurrency cap and a circuit breaker per upstream — kill the spawned
 // server-everything process and calls fast-fail until its cooldown ends.
 import { useState } from "react";
-import { useMCPClient } from "@johnhenry/mcpq/react";
+import { useMCPClient } from "@johnhenry/mcp-query/react";
 import type { Tenant } from "../tenants.js";
 
 export function ChaosPanel({ tenant }: { tenant: Tenant }) {

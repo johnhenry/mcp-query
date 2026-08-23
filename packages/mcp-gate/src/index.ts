@@ -2,8 +2,8 @@
 // (with an interceptor stack: authorize → circuit-break → rate-limit → redact) behind a
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
-import { MCPClient, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcpq";
-import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcpq/server";
+import { MCPClient, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
+import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig, type GateUpstream } from "./config.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
@@ -13,10 +13,10 @@ export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
 export { compilePolicy, policyListFilter, resolveUpstream } from "./config.js";
 export { validateGateConfig } from "./validate.js";
-export { CircuitOpenError } from "@johnhenry/mcpq/server";
+export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 
 /**
- * Per-(server, tenant) keying for rateLimit()/circuitBreaker() — mcpq's own defaults key
+ * Per-(server, tenant) keying for rateLimit()/circuitBreaker() — mcp-query's own defaults key
  * by `op.peer` alone (server-only). With no partition ever set (before partitionFrom
  * populates one), every key collapses to `${server}::`, identical across all tenants —
  * so an unconfigured gate behaves exactly like the un-tenant-aware default.
@@ -61,7 +61,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
 
   const rawAudit: (entry: CallAuditEntry) => unknown =
     config.audit ?? ((e) => console.error(`[gate] ${e.principal ?? "-"} ${e.kind} ${e.server}.${e.target} -> ${e.outcome}`));
-  // mcpq calls onCall fire-and-forget (not awaited — see the "audit" TSDoc on GateConfig for
+  // mcp-query calls onCall fire-and-forget (not awaited — see the "audit" TSDoc on GateConfig for
   // the full contract); this wrapper only adds crash-safety, catching a sync throw or an
   // async rejection so a broken audit sink can't take down the process or produce an
   // unhandled rejection. It cannot make the operation wait on audit completion.

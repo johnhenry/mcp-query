@@ -1,7 +1,7 @@
 // Fill a prompt's arguments (with server-driven typeahead) and render the resulting
 // message array as a chat-style transcript — prompts/get, actually used.
 import { useMemo, useState } from "react";
-import { usePrompt, usePromptList } from "@johnhenry/mcpq/react";
+import { usePrompt, usePromptList } from "@johnhenry/mcp-query/react";
 import { JsonView } from "@app-shared";
 import { CompletionInput } from "./CompletionInput.js";
 

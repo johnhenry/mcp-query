@@ -1,7 +1,7 @@
 // Transport re-exports — the v2 SDK transports mcp-query connections are built
 // from, republished so consumers construct transports from the SAME package copy
 // the client validates against (v1/v2 SDK objects must never mix). Import from
-// `@johnhenry/mcpq/transports` instead of depending on @modelcontextprotocol/client
+// `@johnhenry/mcp-query/transports` instead of depending on @modelcontextprotocol/client
 // directly.
 //
 // Note: `StdioClientTransport` intentionally lives on its own subpath in the SDK

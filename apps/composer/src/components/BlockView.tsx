@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { ResultView } from "@app-shared";
-import { useMCPClient } from "@johnhenry/mcpq/react";
+import { useMCPClient } from "@johnhenry/mcp-query/react";
 import {
   resultToText,
   serializeArgs,

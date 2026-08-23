@@ -1,7 +1,7 @@
 // The CLI client side of the daemon: spawn it on demand and talk to it over the unix
 // socket. ONE REQUEST PER SOCKET CONNECTION — connect, write one frame, read one frame.
 //
-// `ensureDaemon` lazily spawns the daemon DETACHED + unref'd so the foreground `mcpq`
+// `ensureDaemon` lazily spawns the daemon DETACHED + unref'd so the foreground `mcp-query`
 // process can exit while the daemon keeps upstream connections alive for the next call.
 
 import net from "node:net";

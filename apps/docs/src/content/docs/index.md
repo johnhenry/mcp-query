@@ -29,7 +29,7 @@ and they stack:
 
 | Package | What it does | When you reach for it |
 |---|---|---|
-| **[@mcp-query/cli](/packages/cli/)** | The unified **`mcpq`** CLI: one entry point over every tool below (`mcpq lint`/`docs`/`bench`/…), **plus a server registry** (`mcpq add`, honoring the `.mcp.json`/`mcpServers` standard) and **client verbs** (`mcpq tools`/`call`/`read`) to drive any registered server. | You want **one command** for the whole toolkit and to call your MCP servers by name from the terminal. |
+| **[@mcp-query/cli](/packages/cli/)** | The unified **`mcp-query`** CLI: one entry point over every tool below (`mcp-query lint`/`docs`/`bench`/…), **plus a server registry** (`mcp-query add`, honoring the `.mcp.json`/`mcpServers` standard) and **client verbs** (`mcp-query tools`/`call`/`read`) to drive any registered server. | You want **one command** for the whole toolkit and to call your MCP servers by name from the terminal. |
 | **[mcp-query](/packages/core/)** | The reactive, cached, embeddable MCP **client**: TanStack-Query-style document cache, RTK-Query tags, LSP-client lifecycle, React hooks, codegen, an interceptor chain, and optional server-side modules (gateway, metrics, OTel, sessions, Redis L2). | You're **consuming** MCP servers from an app or backend and want a real data layer, not raw SDK calls. |
 | **[@johnhenry/mcp-gate](/packages/gate/)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
 | **[@mcp-query/contract](/packages/contract/)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
@@ -99,30 +99,30 @@ framework-agnostic core.
   a *cassette* freezes the **real results** for offline replay. Use both — contract in CI,
   cassettes in tests.
 
-## The `mcpq` CLI
+## The `mcp-query` CLI
 
 One entry point over the whole toolkit, a server registry, and a terminal MCP client:
 
 ```bash
 # register a server once (stdio or hosted; honors ~/.mcp-query/servers.json + project .mcp.json)
-mcpq add everything --command npx --args "-y @modelcontextprotocol/server-everything"
-mcpq add linear https://mcp.linear.app/mcp        # hosted
-mcpq login linear                                  # browser OAuth (DCR+PKCE), token cached + auto-refreshed
-mcpq servers                                       # list them
-mcpq import claude                                 # pull servers from Claude/Cursor/VS Code configs
+mcp-query add everything --command npx --args "-y @modelcontextprotocol/server-everything"
+mcp-query add linear https://mcp.linear.app/mcp        # hosted
+mcp-query login linear                                  # browser OAuth (DCR+PKCE), token cached + auto-refreshed
+mcp-query servers                                       # list them
+mcp-query import claude                                 # pull servers from Claude/Cursor/VS Code configs
 
 # drive any registered server (by name) from the terminal
-mcpq tools everything                              # list tools as typed signatures
-mcpq call everything echo --message hi             # flag style …
-mcpq call everything 'get-sum(a: 2, b: 40)'        # … or function-call style (coerced by inputSchema)
-mcpq read everything file:///x   ·   mcpq ping everything
-mcpq session everything                            # interactive REPL on ONE live connection
-mcpq call --daemon everything echo --message hi    # keep-alive daemon reuses the connection
-mcpq daemon status   ·   mcpq daemon stop          # across invocations (great for stateful stdio servers)
+mcp-query tools everything                              # list tools as typed signatures
+mcp-query call everything echo --message hi             # flag style …
+mcp-query call everything 'get-sum(a: 2, b: 40)'        # … or function-call style (coerced by inputSchema)
+mcp-query read everything file:///x   ·   mcp-query ping everything
+mcp-query session everything                            # interactive REPL on ONE live connection
+mcp-query call --daemon everything echo --message hi    # keep-alive daemon reuses the connection
+mcp-query daemon status   ·   mcp-query daemon stop          # across invocations (great for stateful stdio servers)
 
 # every tool is a verb — and accepts a registered name
-mcpq lint everything   ·   mcpq docs linear --out API.md   ·   mcpq bench everything --call echo:'{}'
-mcpq contract snapshot everything --out api.json   ·   mcpq gate ./gate.config.ts
+mcp-query lint everything   ·   mcp-query docs linear --out API.md   ·   mcp-query bench everything --call echo:'{}'
+mcp-query contract snapshot everything --out api.json   ·   mcp-query gate ./gate.config.ts
 ```
 
 `.mcp.json`/`mcpServers` configs from Claude, Cursor, and VS Code are read natively (no secrets
@@ -138,7 +138,7 @@ npm run build               # build the publishable mcp-query package (dist/)
 npm run typecheck           # typecheck all workspaces
 
 # work in one package
-npm test -w @johnhenry/mcpq
+npm test -w @johnhenry/mcp-query
 npm test -w @johnhenry/mcp-gate
 npm run dev -w @mcp-query/inspector
 ```

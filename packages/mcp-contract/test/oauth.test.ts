@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FileOAuthProvider, captureProvider, hasCachedAuth } from "../src/oauth.js";
 import type { StoredOAuthTokens, OAuthClientInformationFull } from "@modelcontextprotocol/client";
 
-const tmpFile = () => join(mkdtempSync(join(tmpdir(), "mcpq-oauth-")), "tokens.json");
+const tmpFile = () => join(mkdtempSync(join(tmpdir(), "mcp-query-oauth-")), "tokens.json");
 
 describe("FileOAuthProvider", () => {
   it("persists client info, tokens, and code verifier across instances", () => {

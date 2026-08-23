@@ -2,8 +2,8 @@
 // human-in-the-loop, a devtools hub for the message log, and small signals the panels
 // react to (active server, editable roots).
 
-import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "@johnhenry/mcpq";
-import { DevtoolsHub } from "@johnhenry/mcpq/devtools";
+import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "@johnhenry/mcp-query";
+import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { WebSocketProxyTransport, type TargetSpec } from "./transport.js";
 import { BrowserOAuthProvider } from "./oauth.js";

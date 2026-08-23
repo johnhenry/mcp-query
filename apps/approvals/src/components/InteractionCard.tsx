@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { SchemaForm, type JSONSchemaLike } from "@app-shared";
-import type { Interaction, InteractionDecision } from "@johnhenry/mcpq";
+import type { Interaction, InteractionDecision } from "@johnhenry/mcp-query";
 import { ago } from "../time.js";
 
 interface Props {

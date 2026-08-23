@@ -1,4 +1,4 @@
-// Wire protocol + shared paths for the `mcpq` keep-alive daemon.
+// Wire protocol + shared paths for the `mcp-query` keep-alive daemon.
 //
 // The daemon holds upstream MCP connections alive and serves CLI invocations over a local
 // unix socket. ONE REQUEST PER SOCKET CONNECTION: socket connections are short-lived (one

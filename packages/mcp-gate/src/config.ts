@@ -6,8 +6,8 @@
 
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcpq/server";
-import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcpq";
+import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
+import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
 
 /** Declarative policy: glob-matched `server.tool` allow/deny lists + a destructive switch. */
@@ -90,7 +90,7 @@ export interface GateConfig {
    * stderr. The only persistence hook gate has — everything else in gate is in-memory —
    * so a real deployment typically wires this straight into a DB table.
    *
-   * Contract (verified against `@johnhenry/mcpq`'s `MCPClient.run()`):
+   * Contract (verified against `@johnhenry/mcp-query`'s `MCPClient.run()`):
    * - Fires *after* the operation settles — it's an observability hook, not a veto/blocking
    *   point. It cannot delay, retry, or reject the call; use `policy` for that.
    * - `entry.at` is `Date.now()` at op start; `entry.ms` is wall-clock duration to settle
@@ -98,7 +98,7 @@ export interface GateConfig {
    * - `entry.outcome` is `"ok" | "denied" | "error"`. `"denied"` means specifically an
    *   authorization-policy denial; a rate-limit rejection or an open circuit breaker
    *   (`CircuitOpenError`) is `"error"`, not `"denied"`.
-   * - **Not awaited.** mcpq's `run()` invokes this fire-and-forget; a returned Promise's
+   * - **Not awaited.** mcp-query's `run()` invokes this fire-and-forget; a returned Promise's
    *   settlement is never waited on before the client call resolves (tracked upstream as
    *   johnhenry/mcp-query#22). Gate wraps whatever you pass here so a thrown error or
    *   rejected Promise can't crash the process or produce an unhandled rejection — but the

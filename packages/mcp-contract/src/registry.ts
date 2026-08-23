@@ -121,7 +121,7 @@ const isUrl = (ref: string): boolean => /^https?:\/\//i.test(ref);
 export function resolveServer(ref: string, opts: RegistryOptions = {}): ConnectOptions {
   if (isUrl(ref)) return { url: ref, headers: {} };
   const entry = loadRegistry(opts)[ref];
-  if (!entry) throw new Error(`unknown server "${ref}" — add it with:  mcpq add ${ref} <url|--command …>`);
+  if (!entry) throw new Error(`unknown server "${ref}" — add it with:  mcp-query add ${ref} <url|--command …>`);
   return entryToConnectOptions(entry);
 }
 
@@ -176,7 +176,7 @@ export function getServer(name: string, opts: RegistryOptions = {}): RegistryEnt
   return loadRegistry(opts)[name];
 }
 
-/** Known config locations for `mcpq import <source>`. */
+/** Known config locations for `mcp-query import <source>`. */
 function sourcePath(source: string): string {
   switch (source) {
     case "claude":

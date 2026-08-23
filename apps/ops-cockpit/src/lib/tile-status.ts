@@ -1,7 +1,7 @@
 // Pure data helpers for the cockpit tiles. Kept framework-free so they can be unit
 // tested directly (no DOM, no client) and reused by both the live UI and the tests.
 
-import type { ServerState } from "@johnhenry/mcpq";
+import type { ServerState } from "@johnhenry/mcp-query";
 
 /** A coarse health classification used for tile coloring + sorting. */
 export type TileStatus = "healthy" | "warming" | "degraded" | "failed" | "offline";

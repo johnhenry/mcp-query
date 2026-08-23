@@ -44,18 +44,18 @@ runtime).
 > `@modelcontextprotocol/server-everything`. A preview build with the 2026-07-28
 > migration (v2 SDK, dual-era support, `versions` negotiation) is in progress on
 > [PR #17](https://github.com/johnhenry/mcp-query/pull/17), held until the spec
-> finalizes on the 28th — try it via the `rc` dist-tag: `npm install @johnhenry/mcpq@rc`.
+> finalizes on the 28th — try it via the `rc` dist-tag: `npm install @johnhenry/mcp-query@rc`.
 > See [Supported protocol versions](#supported-protocol-versions) below.
 
 ## Install
 
 ```bash
-npm install @johnhenry/mcpq
+npm install @johnhenry/mcp-query
 ```
 
 This installs `latest` (`0.0.1`), which speaks MCP 2025-11-25 (v1) only. To preview
 the in-progress 2026-07-28 migration ahead of its release, install the `rc` tag instead:
-`npm install @johnhenry/mcpq@rc`.
+`npm install @johnhenry/mcp-query@rc`.
 
 ## Supported protocol versions
 
@@ -139,7 +139,7 @@ The conceptual analysis behind every choice lives in [`docs/`](./docs):
   policy, and an audit log.
 - [**docs/inspector.md**](./docs/inspector.md) — Inspector-style debugging on mcp-query: raw
   JSON-RPC message log, manual (human-as-model) sampling, OAuth-debug recorder, and the
-  `mcpq-inspect` CLI + per-request timeouts.
+  `mcp-query-inspect` CLI + per-request timeouts.
 - [**docs/webmcp.md**](./docs/webmcp.md) — *experimental* WebMCP bridge: expose backend tools
   to an in-browser agent (`bridgeToWebMCP`), and consume page tools (`webMcpToolServer`).
 
@@ -192,9 +192,9 @@ The MCP bonus: a chunk of the invalidation you'd hand-declare in RTK Query is
 ## Usage
 
 ```tsx
-import { MCPClient } from "@johnhenry/mcpq";
-import { MCPProvider, useResource, useTool, useTools } from "@johnhenry/mcpq/react";
-import { DevtoolsHub, MCPDevtools } from "@johnhenry/mcpq/devtools";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { MCPProvider, useResource, useTool, useTools } from "@johnhenry/mcp-query/react";
+import { DevtoolsHub, MCPDevtools } from "@johnhenry/mcp-query/devtools";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -266,7 +266,7 @@ optimistic + invalidation + progress + cancel) · capability lists + templates +
 entity tags · structured output + annotation helpers · human-in-the-loop broker (sampling +
 elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
 ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
-log · manual (human-as-model) sampling · OAuth-debug recorder · `mcpq-inspect` CLI +
+log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
 per-request timeouts. Full vitest suite green — run `npm test` for the current count.
 
 ## File map

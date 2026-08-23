@@ -50,7 +50,7 @@ function modeOf(f: InvokeFlags): OutputMode {
 }
 
 /** Resolve to ConnectOptions: a positional ref wins; otherwise fall back to inline flags. */
-export function resolveInvoke(serverRef: string | undefined, f: InvokeFlags, clientName = "mcpq"): ConnectOptions {
+export function resolveInvoke(serverRef: string | undefined, f: InvokeFlags, clientName = "mcp-query"): ConnectOptions {
   if (serverRef) {
     const base = resolveServer(serverRef, { config: f.config });
     const headers = inlineHeaders(f);
@@ -76,7 +76,7 @@ function inlineHeaders(f: InvokeFlags): Record<string, string> {
 }
 
 /** Resolve + connect; caller owns close(). Shared by one-shot verbs, the REPL, and the daemon. */
-export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcpq"): Promise<{ client: Client; close: () => Promise<void> }> {
+export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcp-query"): Promise<{ client: Client; close: () => Promise<void> }> {
   return connectClient(resolveInvoke(serverRef, f, clientName));
 }
 

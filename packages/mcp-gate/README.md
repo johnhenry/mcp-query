@@ -210,7 +210,7 @@ Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(polic
 ## MCP SDK versions
 
 `mcp-gate` depends only on `@modelcontextprotocol/client@2.0.0` and
-`@modelcontextprotocol/server@2.0.0` (the v2-split packages — same lineage `@johnhenry/mcpq`
+`@modelcontextprotocol/server@2.0.0` (the v2-split packages — same lineage `@johnhenry/mcp-query`
 itself peer-depends on). It does **not** depend on the v1 monolith `@modelcontextprotocol/sdk`
 at all. A consumer pinning `@modelcontextprotocol/sdk@^1.x` for its own MCP client code has no
 version conflict with gate — these are separate npm package names, so npm/pnpm install both

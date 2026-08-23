@@ -101,7 +101,7 @@ export interface MCPClientConfig {
    *   (a rate-limit rejection, an open circuit breaker, an upstream failure) is `"error"`.
    * - **Not awaited before the call settles.** `run()` invokes this after the operation
    *   has already resolved/rejected — whatever `onCall` does cannot affect that outcome.
-   *   You may return `void` or a `Promise<void>`; if you return a Promise, mcpq awaits
+   *   You may return `void` or a `Promise<void>`; if you return a Promise, mcp-query awaits
    *   it internally purely to catch a rejection (logged via `console.error`, never
    *   rethrown or left unhandled) — this still cannot delay or affect the call itself.
    *   A synchronous throw is caught the same way.

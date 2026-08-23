@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { MCPClient, argsHash } from "@johnhenry/mcpq";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPClient, argsHash } from "@johnhenry/mcp-query";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { mcpqResourceQueryOptions, mcpqToolListQueryOptions, mcpqToolQueryOptions } from "../src/queryOptions.js";
 
 function newQueryClient(): QueryClient {
@@ -18,7 +18,7 @@ describe("mcpqToolQueryOptions", () => {
     const qc = newQueryClient();
 
     const opts = mcpqToolQueryOptions(client, "s.search", { q: "cats" });
-    expect(opts.queryKey).toEqual(["mcpq", "s", "toolResult", "search", argsHash({ q: "cats" })]);
+    expect(opts.queryKey).toEqual(["mcp-query", "s", "toolResult", "search", argsHash({ q: "cats" })]);
     const result = await qc.fetchQuery(opts);
     expect((result as { content: { text: string }[] }).content[0]!.text).toBe("found:cats");
 
@@ -34,7 +34,7 @@ describe("mcpqResourceQueryOptions", () => {
     const qc = newQueryClient();
 
     const opts = mcpqResourceQueryOptions(client, "mem://a", { server: "s" });
-    expect(opts.queryKey).toEqual(["mcpq", "s", "resource", "mem://a"]);
+    expect(opts.queryKey).toEqual(["mcp-query", "s", "resource", "mem://a"]);
     const result = await qc.fetchQuery(opts);
     expect(result).toBeTruthy();
 
@@ -50,7 +50,7 @@ describe("mcpqToolListQueryOptions", () => {
     const qc = newQueryClient();
 
     const opts = mcpqToolListQueryOptions(client, "s");
-    expect(opts.queryKey).toEqual(["mcpq", "s", "toolList"]);
+    expect(opts.queryKey).toEqual(["mcp-query", "s", "toolList"]);
     const tools = await qc.fetchQuery(opts);
     expect(tools.map((t) => t.name).sort()).toEqual(["a", "b"]);
 

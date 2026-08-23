@@ -1,6 +1,6 @@
 // Audit screen — outcome-colored timeline + NDJSON export.
 
-import { useAuditLog } from "@johnhenry/mcpq/react";
+import { useAuditLog } from "@johnhenry/mcp-query/react";
 import { outcomeClass, outcomeLabel, toNDJSON } from "../audit.js";
 import { clockTime } from "../time.js";
 

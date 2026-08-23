@@ -1,7 +1,7 @@
-// Live sync bridge: mirrors mcpq's OWN cache writes — protocol push
+// Live sync bridge: mirrors mcp-query's OWN cache writes — protocol push
 // (resources/updated, *_list_changed), optimistic patch()/rollback, everything
 // — straight into TanStack Query's cache via `setQueryData`. No extra refetch:
-// for an actively-bridged query, mcpq's cache is the source of truth and
+// for an actively-bridged query, mcp-query's cache is the source of truth and
 // TanStack Query is a reactively-synced mirror. `staleTime` stays a safety
 // margin on top, not the primary freshness mechanism.
 //
@@ -9,14 +9,14 @@
 // `ensureSynced` is called from inside each queryOptions() factory's queryFn,
 // so a query starts syncing the first time it actually runs. Teardown is
 // driven by TanStack's OWN lifecycle: a global `queryClient.getQueryCache()`
-// listener (registered once per QueryClient) releases the mcpq-side
+// listener (registered once per QueryClient) releases the mcp-query-side
 // `cache.subscribe()` ref (and whatever protocol subscription/gc that ref
 // count drives) when TanStack garbage-collects the bridged query — so a
 // bridged query that nobody renders anymore doesn't leak a live MCP resource
-// subscription or an mcpq cache entry that never gc's.
+// subscription or an mcp-query cache entry that never gc's.
 
 import type { QueryClient } from "@tanstack/react-query";
-import type { CacheKey, MCPClient } from "@johnhenry/mcpq";
+import type { CacheKey, MCPClient } from "@johnhenry/mcp-query";
 
 interface SyncState {
   unsubs: Map<string, () => void>;

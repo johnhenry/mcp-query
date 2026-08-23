@@ -15,7 +15,7 @@
   "dependencies": {
     "@mcp-query/app-shared": "*",
     "@johnhenry/mcp-gate": "0.0.1",
-    "@johnhenry/mcpq": "*",
+    "@johnhenry/mcp-query": "*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

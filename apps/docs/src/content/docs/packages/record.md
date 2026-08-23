@@ -54,7 +54,7 @@ npx tsx packages/mcp-record/src/cli.ts inspect everything.tape.json
 `record` always captures the listings (`tools/list`, `resources/list`,
 `resources/templates/list`, `prompts/list`) plus the `initialize` capabilities/identity;
 each `--call` (colon+JSON `name:{"a":1}` **or** function-call `name(a: 1)`) additionally
-records that tool's real result. Under the `mcpq` umbrella, `mcpq record record <name>`
+records that tool's real result. Under the `mcp-query` umbrella, `mcp-query record record <name>`
 resolves registered server names. Replay is stdio regardless of how the recording was
 made — an HTTP-recorded cassette still replays as a local offline mock.
 

@@ -2,7 +2,7 @@
 // completion/complete (MCP's argument-autocompletion capability). Works for both
 // prompt arguments (ref/prompt) and resource-template variables (ref/resource).
 import { useEffect, useRef, useState } from "react";
-import { useMCPClient } from "@johnhenry/mcpq/react";
+import { useMCPClient } from "@johnhenry/mcp-query/react";
 
 export type CompletionRef = { type: "ref/prompt"; name: string } | { type: "ref/resource"; uri: string };
 

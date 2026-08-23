@@ -3,9 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "mcpq — the unified MCP CLI: an umbrella over the mcp-query tool CLIs (codegen/inspect/contract/lint/docs/bench/record/gate) plus a server registry and live MCP client verbs (tools/call/read/prompt/ping).",
+  "description": "mcp-query — the unified MCP CLI: an umbrella over the mcp-query tool CLIs (codegen/inspect/contract/lint/docs/bench/record/gate) plus a server registry and live MCP client verbs (tools/call/read/prompt/ping).",
   "bin": {
-    "mcpq": "./src/cli.ts"
+    "mcp-query": "./src/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -13,7 +13,7 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@johnhenry/mcpq": "*",
+    "@johnhenry/mcp-query": "*",
     "@mcp-query/contract": "*",
     "@mcp-query/lint": "*",
     "@mcp-query/docs": "*",

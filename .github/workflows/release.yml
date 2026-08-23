@@ -1,6 +1,6 @@
 name: Release
 
-# Publish the core package (mcpq) to npm.
+# Publish the core package (mcp-query) to npm.
 #   - Tag-triggered: push a tag like v0.1.0 (must match the package version).
 #   - Or run manually via workflow_dispatch (uses the version already in package.json).
 # Requires the NPM_TOKEN repo secret (an npm automation token with publish rights).
@@ -36,10 +36,10 @@ jobs:
       - run: npm ci
 
       - name: Gate (typecheck + tests + build)
-        # Build mcpq first: other workspaces (e.g. mcp-gate) import its
+        # Build mcp-query first: other workspaces (e.g. mcp-gate) import its
         # subpath exports (./server, ./testing), which resolve to dist/.
         run: |
-          npm run build -w @johnhenry/mcpq
+          npm run build -w @johnhenry/mcp-query
           npm run typecheck
           npm test
 
@@ -70,8 +70,8 @@ jobs:
         # registry yet, which is the signal to publish.
         run: |
           PKG_VERSION=$(node -p "require('./packages/mcp-query/package.json').version")
-          if npm view "@johnhenry/mcpq@$PKG_VERSION" version >/dev/null 2>&1; then
-            echo "::notice title=Already published::@johnhenry/mcpq@$PKG_VERSION is already on npm; nothing to do."
+          if npm view "@johnhenry/mcp-query@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=Already published::@johnhenry/mcp-query@$PKG_VERSION is already on npm; nothing to do."
             exit 0
           fi
           case "$PKG_VERSION" in
@@ -79,6 +79,6 @@ jobs:
             *)   DIST_TAG=latest ;;
           esac
           echo "publishing $PKG_VERSION with dist-tag $DIST_TAG"
-          npm publish --workspace @johnhenry/mcpq --provenance --access public --tag "$DIST_TAG"
+          npm publish --workspace @johnhenry/mcp-query --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -161,7 +161,7 @@ export class ServerConnection {
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
     const resolved = resolveNegotiation(this.cfg, this.deps);
-    const client = new Client(this.deps.clientInfo ?? { name: "mcpq", version: "0.1.0" }, {
+    const client = new Client(this.deps.clientInfo ?? { name: "mcp-query", version: "0.1.0" }, {
       capabilities: clientCapabilities(this.deps.handlers),
       versionNegotiation: resolved.versionNegotiation,
       ...(resolved.supportedProtocolVersions ? { supportedProtocolVersions: resolved.supportedProtocolVersions } : {}),

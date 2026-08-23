@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMCPClient, useServerState } from "@johnhenry/mcpq/react";
+import { useMCPClient, useServerState } from "@johnhenry/mcp-query/react";
 import { PromptGallery } from "./components/PromptGallery.js";
 import { PromptRunner } from "./components/PromptRunner.js";
 import { TemplateExplorer } from "./components/TemplateExplorer.js";

@@ -1,9 +1,9 @@
-# @mcp-query/cli — `mcpq`
+# @mcp-query/cli — `mcp-query`
 
 The unified MCP CLI. One command, three families of verbs:
 
 ```
-mcpq <verb> [args] [--json|--raw]
+mcp-query <verb> [args] [--json|--raw]
 ```
 
 | Family       | Verbs                                                               | What it does |
@@ -12,7 +12,7 @@ mcpq <verb> [args] [--json|--raw]
 | **Registry** | `add` `servers`/`ls` `remove`/`rm` `get` `import` `login` `logout`   | A named catalog of MCP servers. |
 | **Client**   | `tools` `call` `read` `prompt` `ping`                                | Drive a live server. |
 
-`mcpq help` (or `--help`) prints the grouped verb list.
+`mcp-query help` (or `--help`) prints the grouped verb list.
 
 ## The registry
 
@@ -23,21 +23,21 @@ are **not** stored in the registry; they live in the `~/.mcp-query/oauth/` cache
 
 ```bash
 # Register a hosted (http/sse) server, or a local stdio one
-mcpq add linear https://mcp.linear.app/sse --description "Linear MCP"
-mcpq add everything --command npx --args "-y @modelcontextprotocol/server-everything"
-mcpq add github https://api.githubcopilot.com/mcp --header "Authorization: Bearer $TOKEN"
+mcp-query add linear https://mcp.linear.app/sse --description "Linear MCP"
+mcp-query add everything --command npx --args "-y @modelcontextprotocol/server-everything"
+mcp-query add github https://api.githubcopilot.com/mcp --header "Authorization: Bearer $TOKEN"
 
-mcpq servers              # aligned table  (alias: mcpq ls)
-mcpq servers --json
-mcpq get linear --json
-mcpq remove linear        #               (alias: mcpq rm)
+mcp-query servers              # aligned table  (alias: mcp-query ls)
+mcp-query servers --json
+mcp-query get linear --json
+mcp-query remove linear        #               (alias: mcp-query rm)
 
 # Pull servers in from another tool's config
-mcpq import claude        # or cursor | vscode | ./some/path.json
+mcp-query import claude        # or cursor | vscode | ./some/path.json
 
 # Browser OAuth for a hosted server (cached for later verbs)
-mcpq login linear
-mcpq logout linear
+mcp-query login linear
+mcp-query logout linear
 ```
 
 Once registered, **every** verb accepts the server's **name** wherever it accepts a URL — and
@@ -49,25 +49,25 @@ A server reference is a **registered name**, a **URL**, or **inline flags**
 (`--command/--args` · `--url` · `--bearer` · `--header "K: V"`).
 
 ```bash
-mcpq tools linear                 # list tools as `name(arg: type, …)` signatures
-mcpq tools linear --json          # names + descriptions, as JSON
-mcpq tools linear --schema        # full inputSchema for each tool
-mcpq tools linear --resources     # resources instead of tools
-mcpq tools linear --prompts       # prompts instead of tools
+mcp-query tools linear                 # list tools as `name(arg: type, …)` signatures
+mcp-query tools linear --json          # names + descriptions, as JSON
+mcp-query tools linear --schema        # full inputSchema for each tool
+mcp-query tools linear --resources     # resources instead of tools
+mcp-query tools linear --prompts       # prompts instead of tools
 
 # Call a tool — flag style …
-mcpq call linear create_issue --title "Bug" team=ENG
+mcp-query call linear create_issue --title "Bug" team=ENG
 # … or a function-call string (values coerced by the tool's inputSchema)
-mcpq call linear 'create_issue(title: "Bug", team: "ENG")'
-mcpq call linear delete_issue --id ISSUE-1 --yes   # --yes skips destructive confirm
+mcp-query call linear 'create_issue(title: "Bug", team: "ENG")'
+mcp-query call linear delete_issue --id ISSUE-1 --yes   # --yes skips destructive confirm
 
-mcpq read  linear "linear://issues/ISSUE-1"
-mcpq prompt linear standup --team ENG
-mcpq ping  linear
+mcp-query read  linear "linear://issues/ISSUE-1"
+mcp-query prompt linear standup --team ENG
+mcp-query ping  linear
 
 # Inline (no registration needed)
-mcpq tools --command npx --args "-y @modelcontextprotocol/server-everything"
-mcpq tools --url https://host/mcp --bearer "$TOKEN"
+mcp-query tools --command npx --args "-y @modelcontextprotocol/server-everything"
+mcp-query tools --url https://host/mcp --bearer "$TOKEN"
 ```
 
 `--json` emits machine-readable output (and, on failure, a
@@ -81,10 +81,10 @@ don't have their own subcommands (`lint` `docs` `bench` `codegen` `inspect`) acc
 server name as their first argument — it's rewritten to `--server <name>`:
 
 ```bash
-mcpq lint everything           # ≡  mcp-lint --server everything
-mcpq docs linear               # ≡  mcp-docs --server linear
-mcpq bench everything --runs 50
-mcpq contract capture --server everything   # contract/record keep their subcommands
+mcp-query lint everything           # ≡  mcp-lint --server everything
+mcp-query docs linear               # ≡  mcp-docs --server linear
+mcp-query bench everything --runs 50
+mcp-query contract capture --server everything   # contract/record keep their subcommands
 ```
 
 Every flag a tool's own CLI accepts is passed straight through.

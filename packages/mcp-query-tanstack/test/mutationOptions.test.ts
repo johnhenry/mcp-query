@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { MCPClient, resourceTag } from "@johnhenry/mcpq";
-import { MockMCPServer } from "@johnhenry/mcpq/testing";
+import { MCPClient, resourceTag } from "@johnhenry/mcp-query";
+import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { mcpqToolMutationOptions } from "../src/mutationOptions.js";
 
 describe("mcpqToolMutationOptions", () => {
@@ -37,7 +37,7 @@ describe("mcpqToolMutationOptions", () => {
     await opts.mutationFn!({}, { client: qc, meta: undefined });
     await (opts.onSettled as (...args: unknown[]) => unknown)?.();
 
-    expect(invalidated).toEqual([{ queryKey: ["mcpq", "s", "resource", "mem://a"] }]);
+    expect(invalidated).toEqual([{ queryKey: ["mcp-query", "s", "resource", "mem://a"] }]);
     await client.close();
   });
 });

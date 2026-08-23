@@ -19,7 +19,7 @@ export function MCPDevtools({ hub }: { hub: DevtoolsHub }) {
   const events = hub.events();
 
   return (
-    <div className="mcpq-devtools" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 12 }}>
+    <div className="mcp-query-devtools" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 12 }}>
       {/* ── Pane 1: servers ───────────────────────────────────────────── */}
       <section>
         <h3>Servers</h3>
