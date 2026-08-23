@@ -4,10 +4,19 @@ name: Release (mcp-gate)
 #   - Tag-triggered: push a tag like gate-v0.0.1 (must match the package version).
 #   - Or run manually via workflow_dispatch (uses the version already in package.json).
 # Requires the NPM_TOKEN repo secret (shared with the mcpq release workflow).
+#
+# Publishing is idempotent: a version already on the registry is skipped, so
+# re-running a release or dispatching twice is safe.
 on:
   push:
     tags: ["gate-v*"]
   workflow_dispatch:
+
+# Shared with the other release workflows in this repo so two packages never
+# publish concurrently.
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -15,6 +24,8 @@ jobs:
     permissions:
       contents: read
       id-token: write # npm provenance
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,7 +60,28 @@ jobs:
         working-directory: packages/mcp-gate
         run: node -e "import('./dist/index.js').then(m => { if (!m.createGate) throw new Error('missing createGate export'); console.log('ok'); })"
 
+      - name: No NPM_TOKEN — skipping publish
+        if: env.NPM_TOKEN == ''
+        run: |
+          echo "::notice title=Publish skipped::NPM_TOKEN is not configured; nothing was published."
+
       - name: Publish to npm
-        run: npm publish --workspace @johnhenry/mcp-gate --provenance --access public
+        if: env.NPM_TOKEN != ''
+        # Prerelease versions (0.2.1-rc.1, …) go to the "rc" dist-tag so plain
+        # `npm install` never resolves to them; stable versions go to "latest".
+        # Idempotent: `npm view` exits non-zero for a version that isn't on the
+        # registry yet, which is the signal to publish.
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/mcp-gate/package.json').version")
+          if npm view "@johnhenry/mcp-gate@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=Already published::@johnhenry/mcp-gate@$PKG_VERSION is already on npm; nothing to do."
+            exit 0
+          fi
+          case "$PKG_VERSION" in
+            *-*) DIST_TAG=rc ;;
+            *)   DIST_TAG=latest ;;
+          esac
+          echo "publishing $PKG_VERSION with dist-tag $DIST_TAG"
+          npm publish --workspace @johnhenry/mcp-gate --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

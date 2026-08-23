@@ -9,10 +9,19 @@ name: Release (mcpq-tanstack)
 # 0.1.0 would otherwise claim npm's `latest` dist-tag on its very first
 # publish (npm's own quirk) — matching this family's standing practice of not
 # claiming `latest` before a real stable release.
+#
+# Publishing is idempotent: a version already on the registry is skipped, so
+# re-running a release or dispatching twice is safe.
 on:
   push:
     tags: ["mcpq-tanstack-v*"]
   workflow_dispatch:
+
+# Shared with the other release workflows in this repo so two packages never
+# publish concurrently.
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -20,6 +29,8 @@ jobs:
     permissions:
       contents: read
       id-token: write # npm provenance
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,7 +65,21 @@ jobs:
         working-directory: packages/mcpq-tanstack
         run: node -e "import('./dist/index.js').then(m => { if (!m.attachMcpqSync) throw new Error('missing attachMcpqSync export'); console.log('ok'); })"
 
+      - name: No NPM_TOKEN — skipping publish
+        if: env.NPM_TOKEN == ''
+        run: |
+          echo "::notice title=Publish skipped::NPM_TOKEN is not configured; nothing was published."
+
       - name: Publish to npm
-        run: npm publish --workspace @johnhenry/mcpq-tanstack --provenance --access public --tag rc
+        if: env.NPM_TOKEN != ''
+        # Idempotent: `npm view` exits non-zero for a version that isn't on the
+        # registry yet, which is the signal to publish.
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/mcpq-tanstack/package.json').version")
+          if npm view "@johnhenry/mcpq-tanstack@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=Already published::@johnhenry/mcpq-tanstack@$PKG_VERSION is already on npm; nothing to do."
+            exit 0
+          fi
+          npm publish --workspace @johnhenry/mcpq-tanstack --provenance --access public --tag rc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
