@@ -14,30 +14,38 @@
 // capability surface (tools/resources/prompts listings); each --call additionally
 // records that tool's real result. --call accepts colon+JSON ('tool:{"a":1}') or a
 // function-call string ('tool(a: 1)').
+//
+// Recorded cassettes are stamped with a SHA-256 integrity hash over their interactions;
+// `replay`/`inspect` verify it and refuse to load a cassette that's been hand-edited or
+// corrupted since recording. Params/results are captured verbatim (no automatic secret
+// scrubbing) — pass repeated --redact "path" (e.g. --redact params.apiKey --redact
+// "result.content.0.text") to mask specific fields with "[REDACTED]" before they're written.
 
 import { readFile, writeFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "../../mcp-contract/src/index.js";
-import { createCassette, type Cassette } from "./cassette.js";
-import { recordTransport } from "./record.js";
+import { createCassette, loadCassette, sealCassette, type Cassette } from "./cassette.js";
+import { recordTransport, redactPaths } from "./record.js";
 import { replayServer } from "./replay.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette", "redact"] as const;
 
-function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[] } {
+function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[]; redact: string[] } {
   const _: string[] = [];
   const flags: Record<string, string> = {};
   const headers: string[] = [];
   const calls: string[] = [];
+  const redact: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--call") calls.push(argv[++i] ?? "");
     else if (a === "--header") headers.push(argv[++i] ?? "");
+    else if (a === "--redact") redact.push(argv[++i] ?? "");
     else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
     else _.push(a);
   }
-  return { _, flags, headers, calls };
+  return { _, flags, headers, calls, redact };
 }
 
 function required(flags: Record<string, string>, name: string): string {
@@ -46,13 +54,18 @@ function required(flags: Record<string, string>, name: string): string {
   return v;
 }
 
-/** Connect (stdio or Streamable HTTP), capture the surface + any --call results, close. */
-export async function recordSession(opts: ConnectOptions, calls: string[]): Promise<Cassette> {
+/**
+ * Connect (stdio or Streamable HTTP), capture the surface + any --call results, close.
+ * `redactPathList` is an opt-in list of dot-paths (e.g. "params.apiKey") masked in the
+ * cassette before each interaction is recorded — see `redactPaths` in record.ts.
+ */
+export async function recordSession(opts: ConnectOptions, calls: string[], redactPathList: string[] = []): Promise<Cassette> {
   const parsedCalls = calls.map((spec) => parseCallSpec(spec)); // fail fast, before connecting
   const cassette = createCassette();
   const inner = buildTransport(opts);
   const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: {} });
-  await client.connect(recordTransport(inner, cassette)); // initialize captured here
+  const recordOpts = redactPathList.length ? { redact: redactPaths(redactPathList) } : {};
+  await client.connect(recordTransport(inner, cassette, recordOpts)); // initialize captured here
 
   const caps = client.getServerCapabilities() ?? {};
   if (caps.tools) await client.listTools().catch(() => {});
@@ -83,13 +96,13 @@ function summarize(c: Cassette): string {
 }
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
-  const { _, flags, headers, calls } = parseArgs(argv);
+  const { _, flags, headers, calls, redact } = parseArgs(argv);
   rejectUnknownFlags("mcp-record", flags, KNOWN_FLAGS);
   switch (_[0]) {
     case "record": {
       const opts: ConnectOptions = { ...resolveConnect(flags, headers), clientName: "mcp-record" };
       if (opts.url) console.error("⚠  recording a hosted server sends real traffic — mind rate limits & ToS.\n");
-      const cassette = await recordSession(opts, calls);
+      const cassette = sealCassette(await recordSession(opts, calls, redact));
       const json = JSON.stringify(cassette, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");
@@ -100,7 +113,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       break;
     }
     case "replay": {
-      const cassette = JSON.parse(await readFile(required(flags, "cassette"), "utf8")) as Cassette;
+      const cassette = loadCassette(await readFile(required(flags, "cassette"), "utf8"));
       const server = replayServer(cassette);
       await server.connect(new StdioServerTransport());
       console.error(`[mcp-record] replaying ${cassette.interactions.length} interactions on stdio`);
@@ -108,7 +121,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       break;
     }
     case "inspect": {
-      const cassette = JSON.parse(await readFile(_[1] ?? required(flags, "cassette"), "utf8")) as Cassette;
+      const cassette = loadCassette(await readFile(_[1] ?? required(flags, "cassette"), "utf8"));
       console.error(summarize(cassette));
       break;
     }
