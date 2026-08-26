@@ -10,9 +10,20 @@
   ],
   "scripts": {
     "build": "npm run build -w @johnhenry/mcp-query",
+    "build:examples": "npm run build -w @johnhenry/mcp-query -w @johnhenry/mcp-gate -w @johnhenry/mcp-query-tanstack",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage -w @johnhenry/mcp-query",
-    "test:stress": "npm run test:stress -w @johnhenry/mcp-query"
+    "test:stress": "npm run test:stress -w @johnhenry/mcp-query",
+    "example:01": "tsx examples/01-client-and-mock-server.ts",
+    "example:02": "tsx examples/02-gate-the-client.ts",
+    "example:03": "tsx examples/03-record-and-replay.ts",
+    "example:04": "tsx examples/04-contract-drift.ts",
+    "example:05": "tsx examples/05-gated-replay-pipeline.ts",
+    "example:06": "tsx examples/06-tanstack-headless.ts",
+    "examples": "npm run build:examples && npm run example:01 && npm run example:02 && npm run example:03 && npm run example:04 && npm run example:05 && npm run example:06"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
   }
 }

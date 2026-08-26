@@ -35,6 +35,11 @@ jobs:
         working-directory: packages/mcp-query
         run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
 
+      - name: Root examples smoke (cross-package flows)
+        # `npm run examples` builds mcp-query + mcp-gate + mcp-query-tanstack itself,
+        # then runs all six root examples end to end (in-process mocks, offline).
+        run: npm run examples
+
       - name: Apps typecheck + build
         run: |
           for app in inspector console ops-cockpit approvals notebook composer prompt-studio switchboard; do
