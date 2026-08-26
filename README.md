@@ -99,6 +99,24 @@ framework-agnostic core.
   a *cassette* freezes the **real results** for offline replay. Use both — contract in CI,
   cassettes in tests.
 
+## Cross-package examples
+
+The [`examples/`](./examples) directory at the repo root demonstrates those seams end to end —
+each one numbered, runnable, and offline (in-process mock server, no subprocess, no keys):
+
+```bash
+npm run examples     # builds mcp-query + mcp-gate + mcp-query-tanstack, runs all six
+npm run example:01   # client + in-process mock server (the pair everything else wraps)
+npm run example:02   # gate the client: policy denial, DLP redaction, audit
+npm run example:03   # record a session to a cassette, replay it offline
+npm run example:04   # contract drift: capture, "redeploy", classify breaking vs compatible
+npm run example:05   # the pipeline: cassette as upstream, gate in front, governed offline replay
+npm run example:06   # the TanStack bridge driven headless in Node
+```
+
+Per-package deep dives live in [`packages/mcp-query/examples`](./packages/mcp-query/examples)
+(8 numbered examples) plus smaller sets in mcp-gate, mcp-record, and mcp-contract.
+
 ## The `mcp-query` CLI
 
 One entry point over the whole toolkit, a server registry, and a terminal MCP client:
