@@ -1,5 +1,7 @@
 # mcp-query ecosystem
 
+Full documentation: [opensource.johnhenry.me/agent-query](https://opensource.johnhenry.me/agent-query/)
+
 A data-layer ecosystem for the **Model Context Protocol** — a reactive client and the
 governance, testing, and fixture tooling built around it. Same shape as the GraphQL world
 (Apollo Client + a gateway + schema checks + mocking), but for MCP.
