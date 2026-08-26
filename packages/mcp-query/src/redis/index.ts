@@ -36,7 +36,16 @@ export function createRedisCacheStore(redis: RedisLike, subscriber?: RedisLike, 
   return {
     async get(key) {
       const raw = await redis.get(k(key));
-      return raw ? (JSON.parse(raw) as StoredEntry) : undefined;
+      if (!raw) return undefined;
+      try {
+        return JSON.parse(raw) as StoredEntry;
+      } catch (e) {
+        // A corrupted/foreign L2 entry is a cache miss, not a protocol error — the caller
+        // (MCPClient.l2ReadThrough) falls back to fetching fresh from origin on `undefined`.
+        // Letting this throw would fail the whole read instead.
+        console.error(`[mcp-query] redis L2: corrupted cache entry at "${k(key)}", treating as a miss:`, e instanceof Error ? e.message : e);
+        return undefined;
+      }
     },
     async set(key, entry) {
       const v = JSON.stringify(entry);
@@ -53,7 +62,17 @@ export function createRedisCacheStore(redis: RedisLike, subscriber?: RedisLike, 
       const sub = subscriber ?? redis;
       void sub.subscribe(channel);
       const listener = (ch: string, message: string) => {
-        if (ch === channel) cb(JSON.parse(message) as string[]);
+        if (ch !== channel) return;
+        let tags: string[];
+        try {
+          tags = JSON.parse(message) as string[];
+        } catch (e) {
+          // A malformed message on the invalidation channel must not crash this listener
+          // (it runs synchronously inside ioredis's event emitter) — log and drop it.
+          console.error(`[mcp-query] redis L2: malformed invalidation message on "${channel}", ignoring:`, e instanceof Error ? e.message : e);
+          return;
+        }
+        cb(tags);
       };
       sub.on("message", listener);
       return () => { /* ioredis: caller manages the subscriber lifecycle */ };

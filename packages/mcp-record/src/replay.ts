@@ -1,7 +1,10 @@
 // Replay — serve a recorded cassette as a real (offline, deterministic) MCP server.
 // Each request is matched to its recorded interaction by method + canonical params and
 // the *actual recorded result* is returned. Repeated identical calls replay in recorded
-// order (stateful episodes), the last one sticking.
+// order (stateful episodes), the last one sticking. A request with no exact match throws —
+// replay never guesses by falling back to some other params/tool recorded under the same
+// JSON-RPC method (see SEC-audit finding: silent method-only fallback returned stale/wrong
+// data for any params mismatch, including entirely unrelated tools sharing "tools/call").
 
 import { Server, InMemoryTransport, type ServerCapabilities } from "@modelcontextprotocol/server";
 import type { Transport } from "@modelcontextprotocol/client";
@@ -17,21 +20,29 @@ export function replayServer(cassette: Cassette): Server {
 
   // Index interactions into per-key queues so identical calls replay in order.
   const queues = new Map<string, unknown[]>();
-  const firstByMethod = new Map<string, unknown>();
+  const countByMethod = new Map<string, number>();
   for (const it of cassette.interactions) {
     const key = interactionKey(it.method, it.params);
     const q = queues.get(key) ?? [];
     q.push(it.result);
     queues.set(key, q);
-    if (!firstByMethod.has(it.method)) firstByMethod.set(it.method, it.result);
+    countByMethod.set(it.method, (countByMethod.get(it.method) ?? 0) + 1);
   }
 
+  // Deliberately NO method-only fallback here: returning "some other recording of this
+  // method" (e.g. a different tool's `tools/call`, or the same tool with different params)
+  // is silent data corruption, not a convenience. If callers genuinely want loose matching
+  // for something like an unrecorded pagination cursor, that must be its own explicit,
+  // opt-in feature — not the default.
   const lookup = (method: string, params: unknown): unknown => {
     const q = queues.get(interactionKey(method, params));
     if (q && q.length) return q.length > 1 ? q.shift() : q[0];
-    // Fall back to any recording of this method (e.g. a list whose cursor we didn't record).
-    if (firstByMethod.has(method)) return firstByMethod.get(method);
-    throw new Error(`mcp-record: no recorded ${method} for the given params`);
+    const n = countByMethod.get(method) ?? 0;
+    throw new Error(
+      n > 0
+        ? `mcp-record: no recorded interaction matches this request — recorded ${n} interaction${n === 1 ? "" : "s"} for method "${method}", none match these params`
+        : `mcp-record: no recorded interaction for method "${method}"`,
+    );
   };
   const handle = (method: string) => (req: { params?: unknown }) => lookup(method, req.params) as never;
 
