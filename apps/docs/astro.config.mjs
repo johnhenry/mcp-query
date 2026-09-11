@@ -44,7 +44,7 @@ const apiEntryPoints = [
 
 // 'packages' entryPointStrategy invokes TypeDoc's PackageJsonReader, which
 // bundles each package's README *and* LICENSE as "media" files regardless
-// of `readme: 'none'` (verified on the ai.matey migration — see
+// of `readme: 'none'` (verified on the aimatey migration — see
 // erisera-code/circuit family memory). None of that media has Starlight
 // frontmatter, so Astro's content schema rejects it outright. Fix: after
 // Starlight's own config:setup hook finishes generating, sweep the output
