@@ -91,10 +91,10 @@ runtime. Add either:
 The server list persists to `localStorage`. The client multiplexes all of them, so a
 single draft can interleave tool results from different servers.
 
-## The model picker (ai.matey)
+## The model picker (aimatey)
 
 Composer is provider-agnostic. It speaks **one** frontend shape (OpenAI Chat Completions)
-and swaps the *backend* adapter per provider via the `ai.matey` packages — a
+and swaps the *backend* adapter per provider via the `aimatey` packages — a
 `Bridge(frontend, backend)` translates your uniform request into whatever the chosen
 provider expects, then translates the reply back to OpenAI shape.
 

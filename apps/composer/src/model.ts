@@ -1,14 +1,14 @@
 // The model side of Composer. Composer is provider-agnostic: it speaks ONE frontend
 // shape (OpenAI Chat Completions) and swaps the *backend* adapter per provider via
-// ai.matey. A Bridge(frontend, backend) translates the uniform OpenAI-shaped request
+// aimatey. A Bridge(frontend, backend) translates the uniform OpenAI-shaped request
 // into whatever the chosen provider expects, then translates the response back.
 //
 // All provider config (apiKey / baseURL / model) lives in localStorage only — there is
 // no server. Browser calls to hosted providers may hit CORS; Ollama-local (proxied via
 // Vite's /ollama → :11434) is the zero-config default that works on this box.
 
-import { Bridge } from "ai.matey.core";
-import { OpenAIFrontendAdapter } from "ai.matey.frontend";
+import { Bridge } from "@johnhenry/aimatey-core";
+import { OpenAIFrontendAdapter } from "@johnhenry/aimatey-frontend";
 import {
   OpenAIBackendAdapter,
   AnthropicBackendAdapter,
@@ -17,8 +17,8 @@ import {
   GeminiBackendAdapter,
   MistralBackendAdapter,
   OpenRouterBackendAdapter,
-} from "ai.matey.backend";
-import type { BackendAdapter, BackendAdapterConfig } from "ai.matey.types";
+} from "@johnhenry/aimatey-backend";
+import type { BackendAdapter, ApiKeyBackendAdapterConfig } from "@johnhenry/aimatey-types";
 
 // ── chat message shape (OpenAI-flavoured, what the UI thread holds) ──────────
 
@@ -35,8 +35,8 @@ export type ConfigField = "apiKey" | "baseURL";
 export interface ProviderDef {
   id: string;
   label: string;
-  /** ai.matey backend adapter class. All backends take a BackendAdapterConfig. */
-  BackendAdapter: new (config: BackendAdapterConfig) => BackendAdapter;
+  /** aimatey backend adapter class. All backends take an ApiKeyBackendAdapterConfig. */
+  BackendAdapter: new (config: ApiKeyBackendAdapterConfig) => BackendAdapter;
   /** Which fields the picker should expose for this provider. */
   configFields: ConfigField[];
   /** Suggested models shown in the picker (the user may type any model id). */
@@ -180,12 +180,12 @@ export function activeConfig(cfg: ProviderConfig): {
 
 // ── bridge construction ────────────────────────────────────────────────────────
 
-/** Build an ai.matey Bridge for the active provider config. */
+/** Build an aimatey Bridge for the active provider config. */
 export function buildBridge(cfg: ProviderConfig): { bridge: Bridge; model: string } {
   const { provider, apiKey, baseURL, model } = activeConfig(cfg);
   // apiKey is required by BackendAdapterConfig; Ollama ignores it, so "" is fine.
   // browserMode lets hosted providers (e.g. Anthropic) be called directly from a tab.
-  const backendCfg: BackendAdapterConfig = {
+  const backendCfg: ApiKeyBackendAdapterConfig = {
     apiKey,
     ...(baseURL ? { baseURL } : {}),
     browserMode: true,
