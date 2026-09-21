@@ -12,6 +12,10 @@ Monorepo-level changelog — package-level detail lives with each package.
 - Root README: a "Cross-package examples" section indexing the new examples and the per-package sets.
 - This changelog.
 
+## 2026-07-28 — MCP 2026-07-28 adopted
+
+- Adopted the finalized MCP 2026-07-28 revision (v2 SDK, dual-era support, the `versions` negotiation sugar) via [PR #17](https://github.com/johnhenry/mcp-query/pull/17), merged the same day the spec finalized. `main` and the npm `latest` tag speak the new revision going forward; the pre-merge `rc` dist-tag preview is superseded.
+
 ## 2026-08-23 — the agent-query family rename
 
 - **npm handles renamed to match the GitHub repo names** (`mcpq`/`a2aq`/`acpq` → `*-query`): this repo's published packages became `@johnhenry/mcp-query` and `@johnhenry/mcp-query-tanstack` (formerly `@johnhenry/mcpq`, `@johnhenry/mcpq-tanstack`); versioning restarted at `0.0.0`. `@johnhenry/mcp-gate` kept its name and its own version line (`0.2.x`). The rename went deeper than the package names: CLI binaries, cache namespaces, and storage keys changed with it — code written against the old packages needs updating, not just its `package.json`.

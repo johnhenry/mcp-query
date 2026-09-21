@@ -3,8 +3,13 @@
 Full documentation: [opensource.johnhenry.me/agent-query](https://opensource.johnhenry.me/agent-query/)
 
 A data-layer ecosystem for the **Model Context Protocol** — a reactive client and the
-governance, testing, and fixture tooling built around it. Same shape as the GraphQL world
-(Apollo Client + a gateway + schema checks + mocking), but for MCP.
+governance, testing, and fixture tooling built around it: the TanStack-Query-of-MCP move,
+plus the gateway, schema-drift, and mocking tooling a production data layer needs.
+
+The `mcp-query` client's reactive core is the MCP adapter of
+[`@johnhenry/agent-query-core`](https://github.com/johnhenry/agent-query-core), the shared
+engine behind siblings [`@johnhenry/a2a-query`](https://github.com/johnhenry/a2a-query) (A2A)
+and [`@johnhenry/acp-query`](https://github.com/johnhenry/acp-query) (ACP).
 
 This repo is an npm-workspaces monorepo. The packages share one core (`mcp-query`) and
 compose along a clean seam (an interceptor chain + a transport tap), so each does one job
@@ -24,6 +29,17 @@ and they stack:
  └─────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
               └──────── share capture / connect (the surface) ───────┘
 ```
+
+## Table of Contents
+
+- [Packages](#packages)
+- [Apps](#apps)
+- [How they relate](#how-they-relate)
+- [Cross-package examples](#cross-package-examples)
+- [The `mcp-query` CLI](#the-mcp-query-cli)
+- [Develop](#develop)
+- [Status](#status)
+- [License](#license)
 
 ## Packages
 
@@ -166,15 +182,6 @@ npm run dev -w @mcp-query/inspector
 In this monorepo the satellite packages consume `mcp-query` directly from its TypeScript
 **source** (`packages/mcp-query/src`) for a zero-build dev loop; only `mcp-query` itself
 emits a `dist/` for publishing.
-
-## MCP 2026-07-28
-
-Adoption of the finalized MCP 2026-07-28 revision (v2 SDK, dual-era support, the
-`versions` negotiation sugar) is in progress on
-[PR #17](https://github.com/johnhenry/mcp-query/pull/17) — held until the spec
-finalizes on the 28th, merging shortly after. A preview is already on npm under
-the `rc` dist-tag: `npm install @johnhenry/mcp-query@rc`. The `main` branch (and the
-`latest` npm tag) still speak MCP 2025-11-25 (v1) only until that PR merges.
 
 ## Status
 
