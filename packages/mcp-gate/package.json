@@ -36,7 +36,7 @@
     "example:01": "tsx examples/01-library-mode.ts"
   },
   "dependencies": {
-    "@johnhenry/mcp-query": "^0.0.0",
+    "@johnhenry/mcp-query": "^0.1.0",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0"
   },
