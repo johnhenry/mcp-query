@@ -1,4 +1,6 @@
-# Cross-package examples
+# mcp-query examples
+
+## Cross-package examples
 
 Runnable compositions of the monorepo's packages — each one drives two or
 more of them through the same `MCPClient` surface, against an in-process
@@ -9,7 +11,7 @@ npm run build:examples   # once
 npm run example:01       # …through example:06
 ```
 
-| Example | Shows |
+| Example | Demonstrates |
 | --- | --- |
 | [01-client-and-mock-server.ts](./01-client-and-mock-server.ts) | The pair every other example builds on: a `MockMCPServer` queried by an `MCPClient`. |
 | [02-gate-the-client.ts](./02-gate-the-client.ts) | mcp-gate in library mode fronting the same mock — deny globs, DLP redaction, audit — and `gate.client` *is* an `MCPClient`, so 01's code runs unchanged, governed. |

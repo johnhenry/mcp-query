@@ -1,5 +1,9 @@
 # mcp-query ecosystem
 
+[![npm version](https://img.shields.io/npm/v/%40johnhenry%2Fmcp-query.svg)](https://www.npmjs.com/package/@johnhenry/mcp-query)
+[![CI](https://github.com/johnhenry/mcp-query/actions/workflows/ci.yml/badge.svg)](https://github.com/johnhenry/mcp-query/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/%40johnhenry%2Fmcp-query.svg)](LICENSE)
+
 Full documentation: [opensource.johnhenry.me/agent-query](https://opensource.johnhenry.me/agent-query/)
 
 A data-layer ecosystem for the **Model Context Protocol** — a reactive client and the
@@ -30,8 +34,9 @@ and they stack:
               └──────── share capture / connect (the surface) ───────┘
 ```
 
-## Table of Contents
+## Contents
 
+- [Which package do I want?](#which-package-do-i-want)
 - [Packages](#packages)
 - [Apps](#apps)
 - [How they relate](#how-they-relate)
@@ -39,7 +44,24 @@ and they stack:
 - [The `mcp-query` CLI](#the-mcp-query-cli)
 - [Develop](#develop)
 - [Status](#status)
+- [Adding a new package](#adding-a-new-package)
+- [Security model](#security-model)
+- [Family](#family)
 - [License](#license)
+
+## Which package do I want?
+
+| I want to... | Start with |
+|---|---|
+| Consume MCP servers from an app or backend with a real data layer (cache, hooks, codegen) | [`mcp-query`](./packages/mcp-query) — everything else in this repo builds on it |
+| Drive multiple registered MCP servers from one CLI command | [`cli`](./packages/cli) — the unified `mcp-query` binary, plus a server registry |
+| Front MCP servers behind a governed runtime choke point (auth, DLP redaction, rate-limit, audit) | [`mcp-gate`](./packages/mcp-gate) |
+| Catch breaking MCP server drift in CI before it ships | [`mcp-contract`](./packages/mcp-contract) |
+| Enforce a quality bar on an MCP server you're authoring | [`mcp-lint`](./packages/mcp-lint) |
+| Generate always-current reference docs for an MCP server | [`mcp-docs`](./packages/mcp-docs) |
+| Track an MCP server's performance or gate CI on a latency budget | [`mcp-bench`](./packages/mcp-bench) |
+| Get a server's real recorded output in tests/demos, fast, offline, and frozen | [`mcp-record`](./packages/mcp-record) |
+| Feed mcp-query's cache into a TanStack Query app | [`mcp-query-tanstack`](./packages/mcp-query-tanstack) |
 
 ## Packages
 
@@ -189,6 +211,143 @@ emits a `dist/` for publishing.
 contract / lint / docs / bench / record packages and the inspector are MVPs
 (`private`) tracking it. See each package's README for specifics, and the note
 above for what's landing next.
+
+## Adding a new package
+
+The best real worked example in this repo's own history is **"one capture, four
+uses"** (see [How they relate](#how-they-relate) above): `mcp-contract` captures
+a server's capability surface via its exported `captureContract` function, and
+both `mcp-lint` and `mcp-docs` import that exact function to grade the surface
+and to document it, rather than each re-implementing their own capture step.
+That is the shape every new package in this repo should aim for — reuse an
+existing seam (the interceptor chain, `captureContract`, `instrumentTransport`)
+instead of inventing a parallel one.
+
+**Smallest: a new interceptor, CLI verb, or export on an existing package.**
+`mcp-gate`'s own interceptor chain (`packages/mcp-gate/src/index.ts`) is just a
+`RequestInterceptor[]` array; adding a new cross-cutting concern (say, a new
+redaction strategy) is one more entry in that array reusing the exact same
+`Operation`/`next` shape every other interceptor already uses. No new package,
+no new `package.json`, no new workspace member — the whole cost is the
+interceptor itself. The test that decides whether this is enough or whether you
+need a genuinely new package: **does this need its own npm identity** (a
+separately versioned, separately installable artifact under `@johnhenry/*`), or
+its own CLI binary distinct from the umbrella `mcp-query` CLI? If no, extend an
+existing package.
+
+**A genuinely new package.** Adding one under `packages/` (or `apps/`) means all
+of the following, not just `npm init`:
+
+1. **`package.json` + `tsconfig.json`** matching an existing package's shape —
+   copy `packages/mcp-lint`'s or `packages/mcp-record`'s as a starting point
+   (both are private/internal, the more common case; `packages/mcp-gate`'s if
+   the new package will actually publish under the `@johnhenry` scope).
+2. **No `workspaces` edit needed.** Root `package.json`'s `workspaces` field is
+   the globs `packages/*` and `apps/*`, not a per-package list — a new directory
+   under either is picked up automatically by `npm install`.
+3. **`README.md`** with the badge row, `## Family` section, and provenance note
+   per the family standard (only meaningful once the package is actually
+   published — an unpublished internal package's README can skip the npm/CI
+   badges and just link back to the root README).
+4. **`CHANGELOG.md` entry** — either the package's own, or a bullet under the
+   root `CHANGELOG.md`'s next `## Unreleased` section, grouped under a bold
+   `**@johnhenry/<name>**` line per the monorepo convention.
+5. **`"engines": { "node": ">=22.0.0" }`** — only if the package will actually
+   be published under the `@johnhenry` scope. Phase 0 of this repo's own
+   ecosystem-cohesion pass added `engines.node` only to the three packages that
+   are genuinely published (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`) plus
+   root, deliberately leaving the private internal-tooling packages (`cli`,
+   `mcp-bench`, `mcp-contract`, `mcp-docs`, `mcp-lint`, `mcp-record`) without
+   it — don't add it to a package that isn't shipping to npm.
+6. **Root `examples`/`build:examples` scripts** — if the new package
+   participates in the root [cross-package examples](#cross-package-examples),
+   add its build to `build:examples` (which today builds `mcp-query`,
+   `mcp-gate`, and `mcp-query-tanstack` — everything the root examples import
+   from `dist`) and, if it ships its own numbered example, a new
+   `example:NN`/table row.
+
+See [`AGENTS.md`](AGENTS.md)'s [`## New-package definition of
+done`](AGENTS.md#new-package-definition-of-done) for the same checklist phrased
+for an agent mid-task; that section links back here rather than duplicating it.
+
+## Security model
+
+`@johnhenry/mcp-gate` is this repo's real trust boundary — a config-driven
+security/policy proxy that fronts many upstream MCP servers as one governed
+endpoint. It is not a sandbox for arbitrary code and does not isolate the
+upstream servers' own processes from each other or from the host; what it does
+guarantee is scoped to the requests that pass through its interceptor chain.
+
+**What mcp-gate guarantees:**
+
+- **Declarative allow/deny policy is enforced on every call, not just at
+  discovery time.** `compilePolicy()` compiles `GatePolicyRules.allow`/`deny`
+  globs into an `authorize()` interceptor wired first in the interceptor chain
+  (after tenant-partition resolution); a denied id never reaches an upstream.
+  `deny` takes precedence over `allow` when both match the same id, and
+  `denyDestructive` denies any tool flagged `destructiveHint` — there is no
+  bypass flag that skips policy once one is configured
+  (`packages/mcp-gate/src/config.ts`).
+- **Name-denied tools/resources/prompts are hidden from discovery, not just
+  blocked on call.** `policyListFilter()` derives a list-time filter from the
+  same declarative policy and wires it as `createGateway`'s `filter` option —
+  but only for declarative (`GatePolicyRules`) policies; a function policy
+  makes `policyListFilter()` return `undefined`, so it is enforced call-time
+  only and discovery stays unfiltered (`packages/mcp-gate/src/config.ts`).
+- **DLP redaction rewrites matching substrings in every result before it
+  reaches the caller.** `redact()`'s `redactDeep` walks tool content, resource
+  text, and structured output recursively and replaces every regex match; it
+  is wired as the last interceptor in the chain, so it runs after the upstream
+  call has already resolved (`packages/mcp-gate/src/redact.ts`).
+- **Rate-limiting and circuit-breaking are keyed per `(server, tenant)`, not
+  globally.** `tenantKey(op)` is `` `${op.peer}::${op.context?.partition ?? ""}` ``;
+  with no `partitionFrom` configured every key collapses to `` `${server}::` ``,
+  so an unconfigured gate behaves like mcp-query's own un-tenant-aware default
+  rather than silently under-protecting one tenant because of another
+  (`packages/mcp-gate/src/index.ts`).
+- **A malformed config fails before anything connects.** `createGate()` calls
+  `validateGateConfig(config)` first — a typo'd key (e.g. `replace` vs
+  `replacement`) throws instead of being silently ignored
+  (`packages/mcp-gate/src/config.ts`, `validate.ts`).
+
+**What is still yours:**
+
+- **The audit sink is an observability hook, not a veto.** `GateConfig.audit`
+  fires after the operation has already settled and is never awaited —
+  `@johnhenry/mcp-query`'s `MCPClient.run()` invokes it fire-and-forget, by
+  documented design (see `GateConfig.audit`'s own TSDoc; investigated and
+  closed as intentional in mcp-query #22). A slow, failing, or unreachable
+  audit sink cannot block or reject a call — use `policy`, not `audit`, for
+  enforcement.
+- **`gate.close()` is not guaranteed to reap every spawned stdio
+  `ChildProcess`.** Its promise can resolve while `ChildProcess` handles from
+  earlier `addUpstream`/`removeUpstream` cycles are still alive (mcp-query
+  #23, open). Don't assume the process tree is clean just because `close()`
+  resolved — verify with `process._getActiveHandles()` in anything
+  process-lifecycle-sensitive.
+- **CLI OAuth tokens are cached in plain JSON, not hardened at rest.**
+  `~/.mcp-query/oauth/<host>.json` stores client registration and
+  access/refresh tokens as unencrypted JSON via a plain `writeFileSync`, with
+  no restricted file mode set (`packages/mcp-contract/src/oauth.ts`). Anyone
+  who can read that path as the same OS user can read the tokens — treat the
+  cache like any other unencrypted credential file on disk; neither mcp-gate
+  nor mcp-query protect it.
+- **A per-upstream `getToken()` resolves one credential for the whole
+  connection, not per call or per tenant.** A single upstream URL's bearer
+  token can't vary by tenant on its own; for a token that must differ per
+  tenant on the same upstream, provision one connection per
+  `(upstream, partition)` via `Gate.addUpstream`, each with its own
+  `getToken` (documented on `HttpUpstreamSpec.getToken`,
+  `packages/mcp-gate/src/config.ts`).
+
+## Family
+
+| Protocol | Library | Status |
+|---|---|---|
+| MCP | `@johnhenry/mcp-query` (this package) | published — the MCP adapter of agent-query-core |
+| A2A | [`@johnhenry/a2a-query`](https://github.com/johnhenry/a2a-query) | published — sibling protocol adapter |
+| ACP | [`@johnhenry/acp-query`](https://github.com/johnhenry/acp-query) | published — sibling protocol adapter |
+| shared engine | [`@johnhenry/agent-query-core`](https://github.com/johnhenry/agent-query-core) | published — the reactive core mcp-query, a2a-query, and acp-query all build on |
 
 ## License
 
