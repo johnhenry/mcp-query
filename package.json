@@ -4,6 +4,9 @@
   "description": "Monorepo for the mcp-query MCP data-layer ecosystem: the reactive client plus the gate (runtime governance), contract (CI drift detection), and record (offline fixtures) packages.",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
