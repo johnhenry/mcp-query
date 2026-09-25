@@ -7,3 +7,4 @@ dist/
 # (regen with: npm run codegen -w @mcp-query/prompt-studio)
 !apps/prompt-studio/src/mcp.gen.ts
 coverage/
+.turbo/
