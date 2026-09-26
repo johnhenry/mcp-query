@@ -5,13 +5,15 @@
 import { MCPClient, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
 import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
-import { compilePolicy, policyListFilter, resolveUpstream, type GateConfig, type GateUpstream } from "./config.js";
+import { compilePolicy, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
+import { resolveUpstream } from "./upstream.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
 
 export type { GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
-export { compilePolicy, policyListFilter, resolveUpstream } from "./config.js";
+export { compilePolicy, policyListFilter } from "./config.js";
+export { resolveUpstream } from "./upstream.js";
 export { validateGateConfig } from "./validate.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 

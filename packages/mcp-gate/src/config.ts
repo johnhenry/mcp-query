@@ -3,9 +3,17 @@
 // either a full ConnectionConfig (transport factory, for full control) or the `.mcp.json`
 // shape ({ command } / { url }), for which the gate builds the transport itself so config
 // files need no SDK imports.
+//
+// This module is intentionally free of runtime imports (#37): GateConfig/GatePolicy and the
+// declarative-policy compiler below (compilePolicy/policyListFilter) are pure logic with no
+// Node-only (or any) dependency, so they load and run fine in a browser bundle — e.g. a
+// policy-preview dashboard that never touches an actual upstream connection. Building a real
+// transport for a declarative upstream (which does need Node — see `resolveUpstream` in
+// ./upstream.ts) lives in its own module for exactly that reason: so a browser bundle that
+// imports only the pure stuff here is never forced to resolve `@modelcontextprotocol/client/stdio`
+// (which pulls in `cross-spawn` and `node:stream`) — see package.json's `browser` export
+// condition, which points `.` at an entry that never reaches ./upstream.ts at all.
 
-import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
 import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
@@ -55,26 +63,6 @@ export interface HttpUpstreamSpec {
  * plus reconnect tuning) or a declarative spec the gate builds the transport for.
  */
 export type GateUpstream = ConnectionConfig | StdioUpstreamSpec | HttpUpstreamSpec;
-
-/** Normalize an upstream to a ConnectionConfig, building the transport factory for declarative specs. */
-export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
-  if ("transport" in upstream) return upstream;
-  if ("command" in upstream) {
-    const { command, args = [], env } = upstream;
-    return {
-      transport: () =>
-        new StdioClientTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
-    };
-  }
-  const { url, headers, getToken } = upstream;
-  return {
-    transport: () =>
-      new StreamableHTTPClientTransport(new URL(url), {
-        ...(headers ? { requestInit: { headers } } : {}),
-        ...(getToken ? { authProvider: { token: async () => getToken() } } : {}),
-      }),
-  };
-}
 
 export interface GateConfig {
   /** Upstream MCP servers to front (name → transport factory or declarative `{command}`/`{url}` spec). */

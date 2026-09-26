@@ -207,6 +207,18 @@ Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(polic
 `CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `GateUpstream` / `StdioUpstreamSpec` /
 `HttpUpstreamSpec` / `RedactRule` types.
 
+### Browser usage
+
+`createGate`/`resolveUpstream` actually spawn/connect an upstream MCP server process, so they
+only make sense in Node — but `compilePolicy`, `redact`, `policyListFilter`, and
+`validateGateConfig` are pure logic with no such dependency, and are genuinely useful client-side
+(e.g. a policy/redaction-rule preview in a config-authoring dashboard). A bundler that sets the
+`browser` condition (Vite, webpack, esbuild `--platform=browser` all do this by default for a
+client build) resolves `import ... from "@johnhenry/mcp-gate"` to a subset entry exposing exactly
+those four functions plus the pure types — with zero Node-only imports anywhere in its graph, so
+it builds and runs in a browser bundle. `createGate`/`resolveUpstream` aren't part of that subset;
+use them from a Node-run process as usual.
+
 ## MCP SDK versions
 
 `mcp-gate` depends only on `@modelcontextprotocol/client@2.0.0` and
