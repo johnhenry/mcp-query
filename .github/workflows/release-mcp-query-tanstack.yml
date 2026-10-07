@@ -1,36 +1,28 @@
 name: Release (mcp-query-tanstack)
 
-# Publish @johnhenry/mcp-query-tanstack to npm.
-#   - Tag-triggered: push a tag like mcp-query-tanstack-v0.1.0 (must match the package version).
-#   - Or run manually via workflow_dispatch (uses the version already in package.json).
-# Requires the NPM_TOKEN repo secret (shared with the mcp-query release workflow).
+# Publish @johnhenry/mcp-query-tanstack from main (fleet publish model: main is the release branch, see
+# johnhenry/workflows' README). Runs on every push to main; a version already on npm is
+# a clean no-op. Landing the version bump (via the Changesets "Version Packages" PR
+# opened by release.yml) is the release; the tag and GitHub Release are by-products.
+# This file is the npm trusted-publisher entry point for @johnhenry/mcp-query-tanstack -- do not rename it.
 #
-# First publish uses --tag rc explicitly: a plain (non "-rc.N") version like
-# 0.1.0 would otherwise claim npm's `latest` dist-tag on its very first
-# publish (npm's own quirk) — matching this family's standing practice of not
-# claiming `latest` before a real stable release.
-#
-# Publishing is idempotent: a version already on the registry is skipped, so
-# re-running a release or dispatching twice is safe.
+# Dist-tag: this package's `publishConfig.tag` ("rc") keeps it off `latest` until a real
+# stable release (npm otherwise gives a first-ever publish the `latest` tag).
 on:
   push:
-    tags: ["mcp-query-tanstack-v*"]
-  workflow_dispatch:
+    branches: [main]
+  workflow_dispatch: {}
 
-# Shared with the other release workflows in this repo so two packages never
-# publish concurrently.
 concurrency:
-  group: npm-publish
+  group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write # npm provenance
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      contents: write # by-product: the <name>@<version> tag + GitHub Release
+      id-token: write # npm provenance / trusted publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,8 +33,7 @@ jobs:
       - run: npm ci
 
       - name: Build mcp-query
-        # mcp-query-tanstack imports @johnhenry/mcp-query's subpath exports (./testing
-        # in tests), which resolve to dist/ — must exist first.
+        # @johnhenry/mcp-query-tanstack imports @johnhenry/mcp-query's subpath exports, which resolve to dist/.
         run: npm run build -w @johnhenry/mcp-query
 
       - name: Gate (typecheck + tests + build)
@@ -51,35 +42,24 @@ jobs:
           npm test -w @johnhenry/mcp-query-tanstack
           npm run build -w @johnhenry/mcp-query-tanstack
 
-      - name: Verify tag matches package version
-        if: github.ref_type == 'tag'
-        run: |
-          PKG_VERSION=$(node -p "require('./packages/mcp-query-tanstack/package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#mcp-query-tanstack-v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "tag mcp-query-tanstack-v$TAG_VERSION does not match package version $PKG_VERSION" >&2
-            exit 1
-          fi
-
       - name: Publish smoke (import the built entrypoint)
         working-directory: packages/mcp-query-tanstack
         run: node -e "import('./dist/index.js').then(m => { if (!m.attachMcpqSync) throw new Error('missing attachMcpqSync export'); console.log('ok'); })"
 
-      - name: No NPM_TOKEN — skipping publish
-        if: env.NPM_TOKEN == ''
-        run: |
-          echo "::notice title=Publish skipped::NPM_TOKEN is not configured; nothing was published."
-
-      - name: Publish to npm
-        if: env.NPM_TOKEN != ''
-        # Idempotent: `npm view` exits non-zero for a version that isn't on the
-        # registry yet, which is the signal to publish.
-        run: |
-          PKG_VERSION=$(node -p "require('./packages/mcp-query-tanstack/package.json').version")
-          if npm view "@johnhenry/mcp-query-tanstack@$PKG_VERSION" version >/dev/null 2>&1; then
-            echo "::notice title=Already published::@johnhenry/mcp-query-tanstack@$PKG_VERSION is already on npm; nothing to do."
-            exit 0
-          fi
-          npm publish --workspace @johnhenry/mcp-query-tanstack --provenance --access public --tag rc
+      - name: Publish to npm if the version is new
+        id: release
+        # scripts/release.mjs: `npm view` guard, dist-tag (publishConfig.tag, else rc for
+        # prereleases, else latest), --provenance, and a local <name>@<version> git tag.
+        run: node scripts/release.mjs @johnhenry/mcp-query-tanstack
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push tag and create GitHub Release (by-product)
+        if: steps.release.outputs.published == 'true'
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          git push origin "refs/tags/$TAG"
+          PRE=""; case "${{ steps.release.outputs.version }}" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --generate-notes $PRE --title "$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

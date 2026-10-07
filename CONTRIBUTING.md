@@ -1,23 +1,47 @@
 # Contributing
 
-## Release tags
+## Releasing
 
-Each published package has its own version line and its own tag prefix. Push the tag
-after the version bump has merged to `main`; the tag triggers that package's release
-workflow, which verifies the tag matches `package.json` and publishes to npm.
+Releases use [Changesets](https://github.com/changesets/changesets) and the family
+publish model: **main is the release branch** (see
+[johnhenry/workflows](https://github.com/johnhenry/workflows#the-publish-model-main-is-the-release-branch)).
+Each published package (`@johnhenry/mcp-query`, `@johnhenry/mcp-gate`,
+`@johnhenry/mcp-query-tanstack`) keeps its own independent version line.
 
-| Package | Tag | Workflow |
-|---------|-----|----------|
-| `@johnhenry/mcp-query` | `query-v<version>` (e.g. `query-v0.2.1`) | `release.yml` |
-| `@johnhenry/mcp-gate` | `gate-v<version>` (e.g. `gate-v0.4.0`) | `release-gate.yml` |
-| `@johnhenry/mcp-query-tanstack` | `mcp-query-tanstack-v<version>` | `release-mcp-query-tanstack.yml` |
+1. In a PR that changes a published package, run `npm run changeset`, pick the
+   package(s) and bump type, and commit the generated `.changeset/*.md`.
+2. When the PR merges, `release.yml` opens or updates a **"chore: version packages"**
+   PR that applies the bumps and changelogs for all workspaces.
+3. Merging that PR lands the new versions on `main`, and every push to `main` runs the
+   three publish workflows. Each publishes its own package **only if that version is
+   not on npm yet** (`scripts/release.mjs`, behind an `npm view` guard), then creates
+   the tag `<package name>@<version>` (e.g. `@johnhenry/mcp-query@0.3.0`) and a GitHub
+   Release as by-products.
 
-Bare `v<version>` tags are **deprecated** and no longer used for new releases. They are
-ambiguous (a stale pre-rename `v0.2.0` once collided with the real mcp-query 0.2.0), so
-`release.yml` accepts them for one more release only. The legacy `v0.*` tags in the
-history refer to the pre-rename "mcpq" line, except where noted: mcp-query 0.2.0 is
-tagged `query-v0.2.0`.
+| Package | Workflow (trusted-publisher filename: do not rename) |
+|---------|------------------------------------------------------|
+| `@johnhenry/mcp-query` | `release.yml` (also runs the Changesets version PR) |
+| `@johnhenry/mcp-gate` | `release-gate.yml` |
+| `@johnhenry/mcp-query-tanstack` | `release-mcp-query-tanstack.yml` |
 
-Releases are idempotent (a version already on npm is skipped), and
-`workflow_dispatch` on each workflow publishes whatever version is in `package.json`
-on the chosen ref.
+npm trusted publishing trusts one workflow filename per package, which is why there
+are three files instead of one `changeset publish`; `changeset publish` would also pass
+`--tag latest`, overriding `publishConfig.tag`.
+
+Nobody creates tags or Releases by hand to cause a publish, and the old prefixed
+tags (`query-v*`, `gate-v*`, `mcp-query-tanstack-v*`, bare `v*`) no longer trigger
+anything. Existing tags are kept as history; the legacy `v0.*` tags refer to the
+pre-rename "mcpq" line, except mcp-query 0.2.0, which is tagged `query-v0.2.0`.
+
+`workflow_dispatch` on each workflow re-runs the same flow (useful if a publish failed
+partway through). A push to `main` with no pending version bump publishes nothing.
+
+### Dist-tags
+
+`scripts/release.mjs` uses a package's `publishConfig.tag` if set, else `rc` for
+prerelease versions, else `latest`. `@johnhenry/mcp-query-tanstack` declares
+`"tag": "rc"`, so it stays off `latest` until it is a real stable release; remove that
+field then.
+
+To check what a release would do without publishing:
+`npm run release -- @johnhenry/mcp-gate --dry-run`.
