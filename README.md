@@ -358,6 +358,7 @@ guarantee is scoped to the requests that pass through its interceptor chain.
 Releases are driven by [Changesets](https://github.com/changesets/changesets):
 add one with `npm run changeset` in any PR that changes a published package.
 Merging to `main` opens/updates a "chore: version packages" PR; merging *that*
-publishes each package whose version is new to npm (`.github/workflows/publish.yml`)
-and creates its tag and GitHub Release as by-products. Packages version
+publishes each package whose version is new to npm (`release.yml`,
+`release-gate.yml`, `release-mcp-query-tanstack.yml`) and creates its tag and GitHub
+Release as by-products. Packages version
 independently. See [CONTRIBUTING.md](./CONTRIBUTING.md#releasing).

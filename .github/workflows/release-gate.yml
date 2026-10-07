@@ -1,0 +1,62 @@
+name: Release (mcp-gate)
+
+# Publish @johnhenry/mcp-gate from main (fleet publish model: main is the release branch, see
+# johnhenry/workflows' README). Runs on every push to main; a version already on npm is
+# a clean no-op. Landing the version bump (via the Changesets "Version Packages" PR
+# opened by release.yml) is the release; the tag and GitHub Release are by-products.
+# This file is the npm trusted-publisher entry point for @johnhenry/mcp-gate -- do not rename it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # by-product: the <name>@<version> tag + GitHub Release
+      id-token: write # npm provenance / trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+
+      - name: Build mcp-query
+        # @johnhenry/mcp-gate imports @johnhenry/mcp-query's subpath exports, which resolve to dist/.
+        run: npm run build -w @johnhenry/mcp-query
+
+      - name: Gate (typecheck + tests + build)
+        run: |
+          npm run typecheck -w @johnhenry/mcp-gate
+          npm test -w @johnhenry/mcp-gate
+          npm run build -w @johnhenry/mcp-gate
+
+      - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcp-gate
+        run: node -e "import('./dist/index.js').then(m => { if (!m.createGate) throw new Error('missing createGate export'); console.log('ok'); })"
+
+      - name: Publish to npm if the version is new
+        id: release
+        # scripts/release.mjs: `npm view` guard, dist-tag (publishConfig.tag, else rc for
+        # prereleases, else latest), --provenance, and a local <name>@<version> git tag.
+        run: node scripts/release.mjs @johnhenry/mcp-gate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push tag and create GitHub Release (by-product)
+        if: steps.release.outputs.published == 'true'
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          git push origin "refs/tags/$TAG"
+          PRE=""; case "${{ steps.release.outputs.version }}" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --generate-notes $PRE --title "$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

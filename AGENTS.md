@@ -115,12 +115,14 @@ one-line pointer; the checklist itself is not duplicated here.
 
 ## Releases
 
-Releases use Changesets (`.changeset/`, `npm run changeset`) and a single
-`.github/workflows/publish.yml` that runs on push to `main` -- the three published
-packages (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`) still version
-independently, and there is no single root version number (root `CHANGELOG.md`
-deliberately does not invent one for its `## Unreleased` section; don't "fix"
-that -- it would be fictional). Tags and GitHub Releases (`<pkg>@<version>`) are
-by-products created by `changesets/action`, never triggers. `npm run release`
-is `scripts/release.mjs`, which also applies `publishConfig.tag` (the `rc`
-dist-tag on `mcp-query-tanstack`). See `CONTRIBUTING.md`.
+Releases use Changesets (`.changeset/`, `npm run changeset`) with the fleet
+"main is the release branch" model. Three publish workflows -- `release.yml`
+(mcp-query; also runs the changesets/action version PR), `release-gate.yml`,
+`release-mcp-query-tanstack.yml` -- each trigger on push to `main`, publish only
+their own package when its version is new (`scripts/release.mjs`), and create the
+`<pkg>@<version>` tag + GitHub Release as by-products. **Never rename or merge those
+files**: npm trusted publishing trusts one filename per package. `mcp-query-tanstack`
+publishes under the `rc` dist-tag via `publishConfig.tag`. Packages version
+independently; there is no root version number (root `CHANGELOG.md` deliberately does
+not invent one for its `## Unreleased` section; don't "fix" that -- it would be
+fictional). See `CONTRIBUTING.md`.
