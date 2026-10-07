@@ -70,3 +70,28 @@ describe("durable audit (onCall)", () => {
     await client.close();
   });
 });
+
+describe("authorize: approve verdict", () => {
+  it("fails closed when no onApprove is configured", async () => {
+    const mock = server();
+    const client = new MCPClient({ servers: { s: { transport: mock.transport } }, interceptors: [authorize(() => "approve")] });
+    await client.connect();
+    await expect(client.callTool("s.read_thing", {})).rejects.toThrow(/requires approval but no approver/);
+    await client.close();
+  });
+
+  it("runs the call when onApprove resolves, refuses when it throws", async () => {
+    const mock = server();
+    let ok = true;
+    const onApprove = vi.fn(async () => {
+      if (!ok) throw new AuthorizationError("nope");
+    });
+    const client = new MCPClient({ servers: { s: { transport: mock.transport } }, interceptors: [authorize(() => "approve", { onApprove })] });
+    await client.connect();
+    await expect(client.callTool("s.read_thing", {})).resolves.toBeTruthy();
+    ok = false;
+    await expect(client.callTool("s.read_thing", {})).rejects.toBeInstanceOf(AuthorizationError);
+    expect(onApprove).toHaveBeenCalledTimes(2);
+    await client.close();
+  });
+});

@@ -15,17 +15,66 @@
 // condition, which points `.` at an entry that never reaches ./upstream.ts at all.
 
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
-import type { ConnectionConfig, ClientInfo, CallAuditEntry } from "@johnhenry/mcp-query";
+import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, CallContext } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
 
-/** Declarative policy: glob-matched `server.tool` allow/deny lists + a destructive switch. */
+/**
+ * Declarative policy: glob-matched `server.tool` allow/deny/approve lists + a destructive switch.
+ *
+ * Precedence, first match wins: `deny` -> `denyDestructive` -> not in `allow` (when set) -> `approve` -> allow.
+ * So `approve` never widens access: an id outside `allow` is still denied, and a
+ * destructive tool is denied (not approvable) while `denyDestructive` is on. To route
+ * destructive tools to a human instead, leave `denyDestructive` off and either list them in
+ * `approve` or use a function policy that returns "approve" when `req.destructive`.
+ */
 export interface GatePolicyRules {
   /** If set, only these (glob) ids are allowed; everything else is denied. */
   allow?: string[];
   /** These (glob) ids are always denied (takes precedence). */
   deny?: string[];
+  /** These (glob) ids require human approval (see `GateConfig.approval`) before they run. */
+  approve?: string[];
   /** Deny any tool flagged destructiveHint. */
   denyDestructive?: boolean;
+}
+
+/** What an approver (the `approval.handler`, or the UI behind the broker) is shown. */
+export interface ApprovalRequest {
+  /** The broker interaction id (resolve it with `gate.approvals.resolve(id, ...)`). */
+  id: number;
+  kind: AuthzRequest["kind"];
+  server: string;
+  /** Tool name (call/query) or resource URI (read) -- un-namespaced, as the upstream knows it. */
+  target: string;
+  args?: Record<string, unknown>;
+  destructive: boolean;
+  readOnly: boolean;
+  context?: CallContext;
+}
+
+/**
+ * Human-in-the-loop approval for operations whose policy verdict is "approve".
+ * Approval fails closed: no decision before `timeoutMs`, a handler that throws, or a
+ * broker policy that auto-denies all refuse the call (JSON-RPC -32003, audited "denied").
+ */
+export interface ApprovalConfig {
+  /**
+   * Your own broker (shared with sampling/elicitation UI, custom `policy`/`onAudit`). Its
+   * `policy` is consulted per approval: "ask" parks the call in `broker.list()` until
+   * `broker.resolve(id, { action: "approve" | "deny" })`; "allow"/"deny" decide without a
+   * human. Default: a fresh broker that asks for everything, exposed as `gate.approvals`.
+   */
+  broker?: InteractionBroker;
+  /**
+   * Programmatic approver, called once per pending approval (e.g. post to Slack, check a
+   * ticket). Return "allow" to run the call, "deny" to refuse. Omit it to drive approvals
+   * from a UI through `gate.approvals`.
+   */
+  handler?: (req: ApprovalRequest) => Promise<"allow" | "deny"> | "allow" | "deny";
+  /** Max ms to wait for a decision. Default: wait forever. */
+  timeoutMs?: number;
+  /** What happens on timeout. Only "deny" exists -- approval never fails open. */
+  onTimeout?: "deny";
 }
 
 export type GatePolicy = ((req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict>) | GatePolicyRules;
@@ -68,6 +117,14 @@ export interface GateConfig {
   /** Upstream MCP servers to front (name → transport factory or declarative `{command}`/`{url}` spec). */
   upstreams: Record<string, GateUpstream>;
   policy?: GatePolicy;
+  /**
+   * Approval backend for "approve" verdicts. Required when `policy.approve` is set; a
+   * function policy that returns "approve" without this config is denied (fail closed).
+   * The approval step runs right after the policy's allow/deny decision, before rate-limit,
+   * circuit-breaker and redaction -- denied calls never reach a human, and a human wait
+   * neither holds a rate-limit slot nor counts against the breaker.
+   */
+  approval?: ApprovalConfig;
   redact?: RedactRule[];
   rateLimit?: { concurrency?: number };
   circuitBreaker?: { threshold?: number; cooldownMs?: number };
@@ -118,11 +175,13 @@ export function compilePolicy(policy: GatePolicy): (req: AuthzRequest) => AuthzV
   if (typeof policy === "function") return policy;
   const allow = policy.allow?.map(globToRe);
   const deny = policy.deny?.map(globToRe);
+  const approve = policy.approve?.map(globToRe);
   return (req) => {
     const id = `${req.server}.${req.target}`;
     if (deny?.some((re) => re.test(id))) return "deny";
     if (policy.denyDestructive && req.destructive) return "deny";
     if (allow && !allow.some((re) => re.test(id))) return "deny";
+    if (approve?.some((re) => re.test(id))) return "approve";
     return "allow";
   };
 }

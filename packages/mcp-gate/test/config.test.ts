@@ -66,7 +66,7 @@ describe("config validation", () => {
 
   it("rejects unknown keys in policy / rateLimit / circuitBreaker", () => {
     expect(() => validateGateConfig({ upstreams, policy: { denyDestructive: true, blocklist: [] } })).toThrow(
-      /unknown key "blocklist" in policy .*allow, deny, denyDestructive/,
+      /unknown key "blocklist" in policy .*allow, deny, approve, denyDestructive/,
     );
     expect(() => validateGateConfig({ upstreams, rateLimit: { concurency: 4 } })).toThrow(
       /unknown key "concurency" in rateLimit .*concurrency/,
@@ -106,5 +106,28 @@ describe("config validation", () => {
         clientInfo: { name: "g", version: "1" },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("approve rules", () => {
+  const req = (target: string, destructive = false) => ({ kind: "call" as const, server: "up", target, destructive, readOnly: false });
+  it("maps rules to verdicts with precedence deny > denyDestructive > allow-list > approve > allow", async () => {
+    const { compilePolicy } = await import("../src/config.js");
+    const p = compilePolicy({ allow: ["up.*"], approve: ["up.write_*", "up.rm", "other.*"], deny: ["up.rm"] });
+    expect(await p(req("read"))).toBe("allow");
+    expect(await p(req("write_x"))).toBe("approve");
+    expect(await p(req("rm"))).toBe("deny"); // deny beats approve
+    expect(await compilePolicy({ allow: ["x.*"], approve: ["up.*"] })(req("write_x"))).toBe("deny"); // approve never widens allow
+    expect(await compilePolicy({ denyDestructive: true, approve: ["up.*"] })(req("write_x", true))).toBe("deny");
+    expect(await compilePolicy({ approve: ["up.*"] })(req("write_x", true))).toBe("approve");
+  });
+  it("validates approve / approval keys", () => {
+    const upstreams = { a: { url: "http://x.test/mcp" } };
+    expect(() => validateGateConfig({ upstreams, policy: { approve: "x" } })).toThrow(/"approve" in policy must be an array of glob strings/);
+    expect(() => validateGateConfig({ upstreams, policy: { approve: ["a.*"] } })).toThrow(/need an "approval" config/);
+    expect(() => validateGateConfig({ upstreams, policy: { approve: ["a.*"] }, approval: { handler: () => "allow" } })).not.toThrow();
+    expect(() => validateGateConfig({ upstreams, approval: { timeout: 5 } })).toThrow(/unknown key "timeout" in approval/);
+    expect(() => validateGateConfig({ upstreams, approval: { timeoutMs: 0 } })).toThrow(/positive/);
+    expect(() => validateGateConfig({ upstreams, approval: { onTimeout: "allow" } })).toThrow(/"deny"/);
   });
 });

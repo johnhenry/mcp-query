@@ -41,6 +41,9 @@ import {
   type ElicitationRequest,
   type HostHandlers,
   type LoggingLevel,
+  type Prompt,
+  type Resource,
+  type ResourceTemplate,
   type ServerState,
   type Tool,
 } from "./types.js";
@@ -584,17 +587,52 @@ export class MCPClient {
   }
 
   // ── capability lists (useTools / useResourceList / usePrompts) ───────────
-  listTools(server: string) {
-    return [...(this.conns.get(server)?.tools.values() ?? [])];
+  /** The connections a `list*` call covers: one named server (throws if unknown) or all of them. */
+  private listScope(server: string | undefined): Array<[string, ServerConnection]> {
+    if (server === undefined) return [...this.conns.entries()];
+    const conn = this.conns.get(server);
+    if (!conn) {
+      const known = [...this.conns.keys()].join(", ") || "(none)";
+      throw new MCPError("protocol", `unknown server "${server}"; configured: ${known}`, server);
+    }
+    return [[server, conn]];
   }
-  listResources(server: string) {
-    return [...(this.conns.get(server)?.resources.values() ?? [])];
+  private listCaps<T extends object>(server: string | undefined, pick: (c: ServerConnection) => T[]): T[] {
+    const scope = this.listScope(server);
+    if (server !== undefined) return pick(scope[0]![1]);
+    return scope.flatMap(([name, c]) => pick(c).map((x) => ({ ...x, server: name })));
   }
-  listResourceTemplates(server: string) {
-    return this.conns.get(server)?.templates ?? [];
+  /**
+   * Tools of one server (`listTools("fs")`) or, with no argument, the union across every
+   * configured server with each entry tagged `server`. An unknown server name throws an
+   * `MCPError` (it used to return `[]`, indistinguishable from an empty server).
+   */
+  listTools(server: string): Tool[];
+  listTools(server?: undefined): Array<Tool & { server: string }>;
+  listTools(server?: string): Tool[] | Array<Tool & { server: string }>;
+  listTools(server?: string) {
+    return this.listCaps(server, (c) => [...c.tools.values()]);
   }
-  listPrompts(server: string) {
-    return [...(this.conns.get(server)?.prompts.values() ?? [])];
+  /** Like {@link listTools}, for resources. */
+  listResources(server: string): Resource[];
+  listResources(server?: undefined): Array<Resource & { server: string }>;
+  listResources(server?: string): Resource[] | Array<Resource & { server: string }>;
+  listResources(server?: string) {
+    return this.listCaps(server, (c) => [...c.resources.values()]);
+  }
+  /** Like {@link listTools}, for resource templates. */
+  listResourceTemplates(server: string): ResourceTemplate[];
+  listResourceTemplates(server?: undefined): Array<ResourceTemplate & { server: string }>;
+  listResourceTemplates(server?: string): ResourceTemplate[] | Array<ResourceTemplate & { server: string }>;
+  listResourceTemplates(server?: string) {
+    return this.listCaps(server, (c) => [...c.templates]);
+  }
+  /** Like {@link listTools}, for prompts. */
+  listPrompts(server: string): Prompt[];
+  listPrompts(server?: undefined): Array<Prompt & { server: string }>;
+  listPrompts(server?: string): Prompt[] | Array<Prompt & { server: string }>;
+  listPrompts(server?: string) {
+    return this.listCaps(server, (c) => [...c.prompts.values()]);
   }
   capsTagFor = capsTag;
 
