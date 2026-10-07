@@ -17,5 +17,5 @@
 export type { GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
-export { compilePolicy, policyListFilter } from "./config.js";
+export { compilePolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { validateGateConfig } from "./validate.js";

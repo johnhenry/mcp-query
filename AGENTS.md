@@ -122,5 +122,6 @@ own version line — this repo does not use Changesets or a single root
 version number, and root `CHANGELOG.md` deliberately does not invent one for
 its `## Unreleased` section (packages version independently; see each
 package's own CHANGELOG where one exists). `release-gate.yml` gates a release
-on the full test suite. Don't "fix" the lack of a root version — it would be
+on the full test suite. Release tags are per package (`query-v*`, `gate-v*`,
+`mcp-query-tanstack-v*`; bare `v*` is deprecated) -- see `CONTRIBUTING.md`. Don't "fix" the lack of a root version — it would be
 fictional.

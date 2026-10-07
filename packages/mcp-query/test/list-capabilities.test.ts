@@ -47,6 +47,22 @@ describe("list* with an optional server (#41)", () => {
     await c.close();
   });
 
+  it("every method that takes a server name uses the same unknown-server error (MCPError, configured list)", async () => {
+    const c = await make();
+    const calls: Array<() => unknown> = [
+      () => c.listTools("alhpa"),
+      () => c.setLogLevel("alhpa", "info"),
+      () => c.ping("alhpa"),
+    ];
+    for (const call of calls) {
+      let err: unknown;
+      try { await call(); } catch (e) { err = e; }
+      expect(err).toBeInstanceOf(MCPError);
+      expect((err as Error).message).toBe('unknown server "alhpa"; configured: alpha, beta');
+    }
+    await c.close();
+  });
+
   it("an empty client without a server returns []", async () => {
     const c = new MCPClient({ servers: {} });
     expect(c.listTools()).toEqual([]);

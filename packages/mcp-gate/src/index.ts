@@ -5,7 +5,7 @@
 import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
 import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
-import { compilePolicy, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
+import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
 import { resolveUpstream } from "./upstream.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
@@ -13,7 +13,7 @@ import { validateGateConfig, validateGateUpstream } from "./validate.js";
 export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
-export { compilePolicy, policyListFilter } from "./config.js";
+export { compilePolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
 export { validateGateConfig } from "./validate.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
@@ -90,14 +90,16 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     servers: Object.fromEntries(Object.entries(config.upstreams).map(([name, up]) => [name, resolveUpstream(up)])),
     interceptors,
     onCall,
-    clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.3.0", title: "MCP Gate" },
+    clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.4.0", title: "MCP Gate" },
   });
   await client.connect();
 
   const server = createGateway(client, {
     namespace: config.namespace ?? true,
     // Hide name-denied tools/prompts from discovery (call-time policy still enforces all rules).
-    filter: config.policy ? policyListFilter(config.policy) : undefined,
+    filter: config.policy ? policyListFilter(config.policy, config.approval?.discovery) : undefined,
+    // approval.discovery "annotated": flag approve-gated items with _meta.requiresApproval.
+    annotate: config.policy ? policyListAnnotator(config.policy, config.approval?.discovery) : undefined,
   });
 
   const addUpstream = async (name: string, upstream: GateUpstream) => {

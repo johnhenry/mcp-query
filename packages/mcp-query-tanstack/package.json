@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcp-query-tanstack",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TanStack Query bridge for @johnhenry/mcp-query — queryOptions/mutationOptions factories that sync mcp-query's own reactive cache into TanStack Query, including protocol push and optimistic updates, with zero extra refetches.",
   "repository": {
     "type": "git",

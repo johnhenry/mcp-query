@@ -352,3 +352,9 @@ guarantee is scoped to the requests that pass through its interceptor chain.
 ## License
 
 [MIT](LICENSE)
+
+## Releases and tags
+
+Tags are per package: `query-v*` (mcp-query), `gate-v*` (mcp-gate),
+`mcp-query-tanstack-v*` (mcp-query-tanstack). Bare `v*` tags are deprecated. See
+[CONTRIBUTING.md](./CONTRIBUTING.md#release-tags).

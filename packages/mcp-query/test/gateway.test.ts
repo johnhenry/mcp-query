@@ -27,6 +27,25 @@ async function setup() {
 }
 
 describe("createGateway", () => {
+  it("annotate() merges _meta into listed tools (and leaves others untouched)", async () => {
+    const a = new MockMCPServer({
+      tools: [
+        { name: "echo", handler: () => ({ content: [{ type: "text", text: "x" }] }) },
+        { name: "danger", handler: () => ({ content: [{ type: "text", text: "y" }] }) },
+      ],
+    });
+    const upstream = new MCPClient({ servers: { a: { transport: a.transport } } });
+    await upstream.connect();
+    const gateway = createGateway(upstream, { annotate: (_s, kind, name) => (kind === "tool" && name === "danger" ? { requiresApproval: true } : undefined) });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await gateway.connect(serverT);
+    const consumer = new Client({ name: "consumer", version: "1" }, { capabilities: {} });
+    await consumer.connect(clientT);
+    const tools = (await consumer.listTools()).tools;
+    expect(tools.find((t) => t.name === "a.danger")!._meta).toMatchObject({ requiresApproval: true });
+    expect(tools.find((t) => t.name === "a.echo")!._meta?.requiresApproval).toBeUndefined();
+  });
+
   it("aggregates + namespaces tools and routes calls to the right upstream", async () => {
     const { consumer } = await setup();
     const names = (await consumer.listTools()).tools.map((t) => t.name).sort();

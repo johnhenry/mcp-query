@@ -9,8 +9,14 @@ Monorepo-level changelog — package-level detail lives with each package.
 - `@johnhenry/mcp-gate@0.3.0`: first-class human approval. `GatePolicyRules.approve?: string[]` (glob ids that need sign-off), function policies may return `"approve"`, and `createGate({ approval: { broker?, handler?, timeoutMs?, onTimeout? } })` resolves approvals through an `InteractionBroker` (new `gate.approvals`). Fails closed on timeout/handler error/no approval config. New exported types `ApprovalConfig`, `ApprovalRequest`. Requires `@johnhenry/mcp-query@^0.2.0`. [Issue #43](https://github.com/johnhenry/mcp-query/issues/43)
 - `@johnhenry/mcp-query@0.2.0`: `AuthzVerdict` gains `"approve"`; `authorize(policy, { onApprove })` (new `AuthorizeOptions`) -- an `"approve"` verdict without `onApprove` is denied. Docs: approval pattern in `docs/human-in-the-loop.md`. [Issue #43](https://github.com/johnhenry/mcp-query/issues/43)
 
+- `@johnhenry/mcp-gate@0.4.0`: `approval.discovery: "visible" | "annotated" | "hidden"` (default `"visible"`, unchanged behavior). `"annotated"` lists `approve`-gated items with `_meta.requiresApproval: true`; `"hidden"` omits them from `tools/list`/`prompts/list`/`resources/list` while a direct call still goes through approval (hiding is not access control). New export `policyListAnnotator`; `policyListFilter` takes an optional `discovery`.
+- `@johnhenry/mcp-query@0.2.1`: `GatewayOptions.annotate(server, kind, name)` merges extra `_meta` into listed tools/resources/prompts (list-only). mcp-gate 0.4.0 requires it.
+
 ### Changed
 
+- `@johnhenry/mcp-query@0.2.1`: every method taking a server name (`ping`, `setLogLevel`, `complete`, ...) now throws the same `MCPError` as `list*` (`unknown server "x"; configured: a, b`) instead of a bare `Error('Unknown server "x"')`. React capability hooks' `[]` for a not-yet-added server is now documented with its rationale (mcp-query README).
+- Release tags are now per package: `query-v<version>` for mcp-query (new), `gate-v*`, `mcp-query-tanstack-v*`. `release.yml` triggers on `query-v*` and, for one more release, the deprecated bare `v*`. mcp-query 0.2.0 is tagged `query-v0.2.0`. See CONTRIBUTING.md.
+- `@johnhenry/mcp-query-tanstack@0.0.2`: republish carrying the widened `@johnhenry/mcp-query` peer range (`>=0.0.0 <0.3.0`).
 - `@johnhenry/mcp-query@0.2.0`: `MCPClient.listTools/listResources/listResourceTemplates/listPrompts` take an optional server. Omitted, they return the union across all configured servers with each entry tagged `server`; an unknown server name now **throws** an `MCPError` (`unknown server "x"; configured: a, b`) instead of silently returning `[]`. The React capability hooks still return `[]` for a not-yet-added server. [Issue #41](https://github.com/johnhenry/mcp-query/issues/41)
 - `@johnhenry/mcp-query-tanstack`: peer range on `@johnhenry/mcp-query` widened to `>=0.0.0 <0.3.0` (not republished).
 
