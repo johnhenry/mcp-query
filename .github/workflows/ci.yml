@@ -9,6 +9,32 @@ jobs:
   workflow-lint:
     uses: johnhenry/workflows/.github/workflows/workflow-lint.yml@v1
 
+  # mcp-query / mcp-gate accept any @modelcontextprotocol/{client,server} 2.x
+  # (peer / dependency range ^2.0.0, #42). The lockfile pins one version, so this
+  # job swaps in the floor (2.0.0) and the newest 2.x to catch SDK drift.
+  sdk-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ["2.0.0", "^2"]
+    name: sdk-matrix (SDK ${{ matrix.sdk }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Install SDK ${{ matrix.sdk }}
+        # --legacy-peer-deps: stale nested pre-rename copies in the lockfile
+        # (apps/cli depend on old @johnhenry/mcp-gate 0.0.1) still peer-pin 2.0.0.
+        run: npm install --no-save --legacy-peer-deps "@modelcontextprotocol/client@${{ matrix.sdk }}" "@modelcontextprotocol/server@${{ matrix.sdk }}" "@modelcontextprotocol/core@${{ matrix.sdk }}"
+      - run: npm ls @modelcontextprotocol/client @modelcontextprotocol/server @modelcontextprotocol/core --depth=0 --workspaces=false || true
+      - run: npm run build -w @johnhenry/mcp-query
+      - run: npm run typecheck -w @johnhenry/mcp-query -w @johnhenry/mcp-gate
+      - run: npm test -w @johnhenry/mcp-query -w @johnhenry/mcp-gate
+
   build-test:
     runs-on: ubuntu-latest
     steps:

@@ -44,8 +44,8 @@
   },
   "dependencies": {
     "@johnhenry/mcp-query": "^0.2.1",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0"
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -27,7 +27,7 @@ async function gateWith(config: Omit<GateConfig, "audit" | "upstreams">) {
   const consumer = new Client({ name: "c", version: "1" }, { capabilities: {} });
   await consumer.connect(ct);
   const call = (name: string) => consumer.callTool({ name: `up.${name}`, arguments: {} }) as Promise<{ content: { text: string }[] }>;
-  return { gate, call, ran, audit, stop: async () => { await consumer.close(); await gate.close(); } };
+  return { gate, call, consumer, ran, audit, stop: async () => { await consumer.close(); await gate.close(); } };
 }
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -131,18 +131,9 @@ describe("gate approval", () => {
   describe("approval.discovery", () => {
     const names = async (consumer: Awaited<ReturnType<typeof gateWithConsumer>>["consumer"]) =>
       (await consumer.listTools()).tools.map((t) => t.name).sort();
-    async function gateWithConsumer(config: Parameters<typeof gateWith>[0]) {
-      const g = await gateWith(config);
-      // gateWith doesn't expose its consumer; open a second one for listings.
-      const [ct, st] = InMemoryTransport.createLinkedPair();
-      await g.gate.server.connect(st);
-      const consumer = new Client({ name: "c2", version: "1" }, { capabilities: {} });
-      await consumer.connect(ct);
-      // A Server holds one transport: the second connect supersedes gateWith's own consumer,
-      // so route calls through this consumer too.
-      const call = (name: string) => consumer.callTool({ name: `up.${name}`, arguments: {} }) as Promise<{ content: { text: string }[] }>;
-      return { ...g, consumer, call };
-    }
+    // gateWith already connects one consumer; a Server holds one transport (SDK >= 2.1
+    // throws on a second connect() instead of superseding the first), so reuse it.
+    const gateWithConsumer = (config: Parameters<typeof gateWith>[0]) => gateWith(config);
 
     it("defaults to 'visible': approve-listed tools are listed, unmarked", async () => {
       const { consumer, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler: () => "allow" } });
