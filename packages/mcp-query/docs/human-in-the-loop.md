@@ -123,3 +123,34 @@ Deprecation note (SEP-2577): the Sampling and Roots features are deprecated as o
 2026-07-28 (≥12-month window). The broker keeps supporting both — they remain the
 vocabulary of embedded multi-round-trip requests — but new designs should prefer
 integrating LLM provider APIs directly over sampling.
+
+
+## Approving tool calls: `authorize` + the broker
+
+`authorize(policy)` is an automated gate whose verdict is `"allow" | "deny" | "approve"`.
+`"approve"` hands the operation to `authorize`'s `onApprove` hook, which resolves to let it run or
+throws to refuse; with no `onApprove` an `"approve"` verdict is a deny (fail closed). Wiring the
+hook to an `InteractionBroker` gives human approval for tool calls:
+
+```ts
+import { InteractionBroker, MCPClient } from "@johnhenry/mcp-query";
+import { authorize, AuthorizationError } from "@johnhenry/mcp-query/server";
+
+const broker = new InteractionBroker(); // default policy: ask for everything
+
+const guard = authorize((req) => (req.destructive ? "approve" : "allow"), {
+  async onApprove(req) {
+    const { verdict, decision } = await broker.gate(
+      "tool-call", req.server, { tool: req.target, args: req.args, destructive: req.destructive },
+      // gate() REQUIRES these: they are the decisions it returns when the broker policy
+      // auto-allows / auto-denies without asking a human (missing => it throws on auto verdicts).
+      { autoApprove: { action: "approve" }, autoDeny: { action: "deny", reason: "policy" }, timeoutMs: 60_000 },
+    );
+    if (verdict === "auto-deny" || verdict === "denied") throw new AuthorizationError(decision.reason);
+  },
+});
+const client = new MCPClient({ servers, interceptors: [guard] });
+// A human (UI) calls broker.list() / broker.resolve(id, { action: "approve" | "deny" }).
+```
+
+`@johnhenry/mcp-gate` packages exactly this behind `policy.approve` + `approval` config.

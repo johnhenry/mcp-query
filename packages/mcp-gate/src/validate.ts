@@ -83,10 +83,21 @@ export function validateGateUpstream(name: string, up: unknown): void {
 function validatePolicy(policy: unknown): void {
   if (typeof policy === "function") return;
   if (!isRecord(policy)) fail(`"policy" must be a function or a rules object (got ${typeOf(policy)})`);
-  checkKeys(policy, ["allow", "deny", "denyDestructive"], "policy");
+  checkKeys(policy, ["allow", "deny", "approve", "denyDestructive"], "policy");
   checkType(policy, "allow", "an array of glob strings", isStringArray, "policy");
   checkType(policy, "deny", "an array of glob strings", isStringArray, "policy");
+  checkType(policy, "approve", "an array of glob strings", isStringArray, "policy");
   checkType(policy, "denyDestructive", "a boolean", aBoolean, "policy");
+}
+
+function validateApproval(approval: unknown): void {
+  if (!isRecord(approval)) fail(`"approval" must be an object { broker?, handler?, timeoutMs?, onTimeout? } (got ${typeOf(approval)})`);
+  checkKeys(approval, ["broker", "handler", "timeoutMs", "onTimeout"], "approval");
+  checkType(approval, "handler", "a function", aFunction, "approval");
+  checkType(approval, "timeoutMs", "a number", aNumber, "approval");
+  if (typeof approval.timeoutMs === "number" && !(approval.timeoutMs > 0)) fail(`"timeoutMs" in approval must be a positive number`);
+  checkType(approval, "onTimeout", '"deny"', (v) => v === "deny", "approval");
+  checkType(approval, "broker", "an InteractionBroker", (v) => isRecord(v) && typeof (v as { gate?: unknown }).gate === "function", "approval");
 }
 
 function validateRedact(redact: unknown): void {
@@ -108,13 +119,17 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
   for (const [name, up] of Object.entries(config.upstreams)) validateGateUpstream(name, up);
 
   if (config.policy !== undefined) validatePolicy(config.policy);
+  if (config.approval !== undefined) validateApproval(config.approval);
+  if (isRecord(config.policy) && config.policy.approve !== undefined && (config.policy.approve as unknown[]).length > 0 && config.approval === undefined) {
+    fail(`"policy.approve" rules need an "approval" config (a broker and/or handler) to decide them — without one, approvals could never resolve`);
+  }
   if (config.redact !== undefined) validateRedact(config.redact);
 
   if (config.rateLimit !== undefined) {

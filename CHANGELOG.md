@@ -4,6 +4,16 @@ Monorepo-level changelog — package-level detail lives with each package.
 
 ## Unreleased
 
+### Added
+
+- `@johnhenry/mcp-gate@0.3.0`: first-class human approval. `GatePolicyRules.approve?: string[]` (glob ids that need sign-off), function policies may return `"approve"`, and `createGate({ approval: { broker?, handler?, timeoutMs?, onTimeout? } })` resolves approvals through an `InteractionBroker` (new `gate.approvals`). Fails closed on timeout/handler error/no approval config. New exported types `ApprovalConfig`, `ApprovalRequest`. Requires `@johnhenry/mcp-query@^0.2.0`. [Issue #43](https://github.com/johnhenry/mcp-query/issues/43)
+- `@johnhenry/mcp-query@0.2.0`: `AuthzVerdict` gains `"approve"`; `authorize(policy, { onApprove })` (new `AuthorizeOptions`) -- an `"approve"` verdict without `onApprove` is denied. Docs: approval pattern in `docs/human-in-the-loop.md`. [Issue #43](https://github.com/johnhenry/mcp-query/issues/43)
+
+### Changed
+
+- `@johnhenry/mcp-query@0.2.0`: `MCPClient.listTools/listResources/listResourceTemplates/listPrompts` take an optional server. Omitted, they return the union across all configured servers with each entry tagged `server`; an unknown server name now **throws** an `MCPError` (`unknown server "x"; configured: a, b`) instead of silently returning `[]`. The React capability hooks still return `[]` for a not-yet-added server. [Issue #41](https://github.com/johnhenry/mcp-query/issues/41)
+- `@johnhenry/mcp-query-tanstack`: peer range on `@johnhenry/mcp-query` widened to `>=0.0.0 <0.3.0` (not republished).
+
 A real version/date wasn't invented for this section — packages in this
 monorepo version independently and a root-level version number would be
 fictional; see each package's own CHANGELOG (where one exists) for its actual

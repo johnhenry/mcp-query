@@ -149,6 +149,9 @@ await client.queryTool("fs.search", { q: "todo" }, { providesTags: (r) => [/* �
 // capability lists (kept live by list_changed)
 client.listTools("fs"); client.listResources("fs");
 client.listResourceTemplates("fs"); client.listPrompts("fs");
+// no argument = union across every connected server, each entry tagged with its `server`:
+client.listTools();                 // [{ name: "search", server: "fs", … }, …]
+client.listTools("fz");             // throws MCPError: unknown server "fz"; configured: fs, git
 
 // server-provided prompt template
 await client.getPrompt("summarize", { text: "…" }, "fs");

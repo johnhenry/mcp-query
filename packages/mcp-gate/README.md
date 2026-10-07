@@ -103,7 +103,8 @@ export default config;
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `upstreams` | `Record<string, GateUpstream>` | — | `{ command, args?, env? }` (stdio) \| `{ url, headers?, getToken? }` (Streamable HTTP) \| mcp-query `ConnectionConfig`; key = namespace. |
-| `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"` | none (allow all) | Declarative rules or a custom function. |
+| `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"\|"approve"` | none (allow all) | Declarative rules (`allow`/`deny`/`approve`/`denyDestructive`) or a custom function. |
+| `approval` | `{ broker?, handler?, timeoutMs?, onTimeout? }` | none | Decides `"approve"` verdicts — see [Human-in-the-loop approval](#human-in-the-loop-approval). Required with `policy.approve`. |
 | `redact` | `RedactRule[]` | none | `{ pattern: RegExp\|string, replacement?: string }`. |
 | `rateLimit` | `{ concurrency?: number }` | none | Concurrency cap per `(upstream, tenant)` pair — see `partitionFrom`. |
 | `circuitBreaker` | `{ threshold?, cooldownMs? }` | none | Open/half-open breaker per `(upstream, tenant)` pair. |
@@ -119,12 +120,15 @@ with `headers.Authorization`.
 
 ### Policy semantics
 
-Evaluated per call against the id `server.tool`:
+Evaluated per call against the id `server.tool`; the first rule that matches wins:
 
 1. `deny` glob match → **deny** (highest precedence).
 2. `denyDestructive` and the tool is `destructiveHint` → **deny**.
 3. `allow` is set and *no* glob matches → **deny** (allow-list mode).
-4. otherwise → **allow**.
+4. `approve` glob match → **approve** (needs a human/handler decision, see below).
+5. otherwise → **allow**.
+
+A function policy may return `"allow"`, `"deny"` or `"approve"` directly.
 
 Globs use `*` as a wildcard. Name-based denials (`deny`/`allow`) are **also applied to tool
 and prompt *listings***, so the agent never discovers a tool it can't call. `denyDestructive`
@@ -148,6 +152,58 @@ gate inherits mcp-query's reconnection, aggregation, `_meta` propagation, dynami
 `addServer`/`removeServer`, and audit hook for free; `mcp-gate` only adds the DLP
 interceptor, the tenant-aware `rateLimit`/`circuitBreaker` fork (see [Multi-tenancy](#multi-tenancy)),
 the policy compiler, and the CLI.
+
+## Human-in-the-loop approval
+
+A policy verdict is `allow | deny | approve`. `approve` means "allowed, but only if someone
+says so": the call is held until the approval backend decides, then runs (approved) or fails
+with JSON-RPC `-32003` (denied; audited as `"denied"`). Approval **fails closed** — a timeout,
+a throwing handler, or a broker that auto-denies all refuse the call.
+
+```ts
+const gate = await createGate({
+  upstreams: { fs: { command: "mcp-fs" } },
+  policy: {
+    deny: ["fs.shell_*"],
+    approve: ["fs.write_*", "fs.delete_*"], // humans sign off on these
+  },
+  approval: {
+    timeoutMs: 60_000,   // no answer in a minute -> denied
+    onTimeout: "deny",   // the only mode; approval never fails open
+    // Either drive it programmatically ...
+    handler: async (req) => (await askOnSlack(req)) ? "allow" : "deny",
+    // ... or omit `handler` and resolve from a UI: gate.approvals.list() / .resolve(id, { action })
+    // ... or share your own InteractionBroker (its `policy` can auto-allow/auto-deny some requests):
+    // broker: myBroker,
+  },
+});
+
+// UI-driven flow (no handler): the held call shows up in the broker's queue.
+gate.approvals!.subscribe(() => {
+  for (const it of gate.approvals!.list()) gate.approvals!.resolve(it.id, { action: "approve" });
+});
+```
+
+- **Where it runs.** Right after the policy's allow/deny decision and *before* the circuit
+  breaker, rate limiter and redaction. Denied calls never reach a human; a human wait doesn't hold
+  a rate-limit slot or count against the breaker; redaction still applies to whatever the
+  approved call returns.
+- **`approve` never widens access.** An id outside `allow` is denied even if it matches `approve`,
+  and `deny` always wins.
+- **`denyDestructive` interplay.** `denyDestructive: true` is a hard deny - destructive tools are
+  refused outright, not routed to a human. To send destructive tools to approval instead, leave it
+  off and list them in `approve`, or use a function policy: `(req) => req.destructive ? "approve" : "allow"`.
+- **Without `approval`.** `policy.approve` is rejected at config validation; a function policy that
+  returns `"approve"` is denied at call time (there is nobody to ask).
+- **Broker semantics.** The gate calls `broker.gate("tool-call", server, { tool, args, destructive, request }, { autoApprove, autoDeny, timeoutMs })`
+  for you (`autoApprove`/`autoDeny` are required by the broker's `gate()` when its own `policy`
+  returns `"allow"`/`"deny"`, and the gate supplies them). A broker `policy` returning `"ask"`
+  (the default) parks the call in `broker.list()` until `broker.resolve(id, decision)`.
+- `ApprovalRequest` (what `handler` receives): `{ id, kind, server, target, args?, destructive, readOnly, context? }` -
+  `target` is the upstream's own tool name (un-namespaced).
+
+Browser note: approval lives in the Node entry only (`createGate`); the browser entry still exports
+`compilePolicy`, which now returns `"approve"` for `approve` rules.
 
 ## Multi-tenancy
 
@@ -202,9 +258,11 @@ await gate.removeUpstream("newServer"); // disconnect + prune its rateLimit/circ
 await gate.close();
 ```
 
+`gate.approvals` is the `InteractionBroker` holding pending approvals (set when `config.approval` is).
+
 Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(policy)`,
 `resolveUpstream(spec)` (declarative spec → `ConnectionConfig`), `validateGateConfig(config)`,
-`CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `GateUpstream` / `StdioUpstreamSpec` /
+`CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `ApprovalConfig` / `ApprovalRequest` / `GateUpstream` / `StdioUpstreamSpec` /
 `HttpUpstreamSpec` / `RedactRule` types.
 
 ### Browser usage

@@ -2,7 +2,7 @@
 // import from `mcp-query/server`.
 
 export { authorize, denyDestructiveUnless, AuthorizationError } from "./authorize.js";
-export type { AuthzVerdict, AuthzRequest } from "./authorize.js";
+export type { AuthzVerdict, AuthzRequest, AuthorizeOptions } from "./authorize.js";
 export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError } from "./gateway.js";
 export type { GatewayOptions, GatewayHandlerOptions } from "./gateway.js";
 export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";

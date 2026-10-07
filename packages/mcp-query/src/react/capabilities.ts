@@ -26,17 +26,17 @@ function useCapsList<T>(server: string, kind: "tools" | "resources" | "prompts",
 
 export function useTools(opts: { server: string }): { tools: Tool[] } {
   const client = useMCPClient();
-  return { tools: useCapsList(opts.server, "tools", () => client.listTools(opts.server)) };
+  return { tools: useCapsList(opts.server, "tools", () => (client.connection(opts.server) ? client.listTools(opts.server) : [])) };
 }
 
 export function useResourceList(opts: { server: string }): { resources: Resource[] } {
   const client = useMCPClient();
-  return { resources: useCapsList(opts.server, "resources", () => client.listResources(opts.server)) };
+  return { resources: useCapsList(opts.server, "resources", () => (client.connection(opts.server) ? client.listResources(opts.server) : [])) };
 }
 
 export function usePromptList(opts: { server: string }): { prompts: Prompt[] } {
   const client = useMCPClient();
-  return { prompts: useCapsList(opts.server, "prompts", () => client.listPrompts(opts.server)) };
+  return { prompts: useCapsList(opts.server, "prompts", () => (client.connection(opts.server) ? client.listPrompts(opts.server) : [])) };
 }
 
 /** Resource templates (URI Templates) — the "parameterized query" catalog. */
@@ -44,7 +44,7 @@ export function useResourceTemplates(opts: { server: string }): { templates: Res
   const client = useMCPClient();
   const key: CacheKey = { kind: "templateList", server: opts.server };
   useCacheEntry(client.cache, key);
-  return { templates: client.listResourceTemplates(opts.server) };
+  return { templates: client.connection(opts.server) ? client.listResourceTemplates(opts.server) : [] };
 }
 
 /** Fetch + render a server-provided prompt template (no Apollo analog). */

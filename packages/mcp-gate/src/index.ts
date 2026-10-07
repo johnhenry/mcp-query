@@ -1,15 +1,16 @@
 // mcp-gate — a config-driven MCP security/policy proxy. Assembles an mcp-query MCPClient
-// (with an interceptor stack: authorize → circuit-break → rate-limit → redact) behind a
+// (with an interceptor stack: authorize → approve → circuit-break → rate-limit → redact) behind a
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
-import { MCPClient, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
+import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
 import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
+import { createApproval } from "./approval.js";
 import { resolveUpstream } from "./upstream.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
 
-export type { GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
 export { redact } from "./redact.js";
 export { compilePolicy, policyListFilter } from "./config.js";
@@ -36,6 +37,8 @@ export interface Gate {
   removeUpstream(name: string): Promise<void>;
   /** Atomic remove+add — swap an upstream's connection (e.g. rotate a URL/command) without disturbing others. */
   updateUpstream(name: string, upstream: GateUpstream): Promise<void>;
+  /** The InteractionBroker holding pending approvals ("approve" verdicts). Undefined unless `config.approval` is set. List/resolve here from your UI. */
+  approvals?: InteractionBroker;
   close(): Promise<void>;
 }
 
@@ -54,7 +57,11 @@ export async function createGate(config: GateConfig): Promise<Gate> {
 
   // Order is the onion (outermost first): resolve tenant, deny early, protect, then redact the result.
   const interceptors: RequestInterceptor[] = [populatePartition];
-  if (config.policy) interceptors.push(authorize(compilePolicy(config.policy)));
+  // Approval is resolved inside authorize()'s own slot (an "approve" verdict calls onApprove),
+  // i.e. after allow/deny and before circuit-break/rate-limit/redact: a denied call never
+  // reaches a human, and a human wait doesn't hold a rate-limit slot or feed the breaker.
+  const approval = config.approval ? createApproval(config.approval) : undefined;
+  if (config.policy) interceptors.push(authorize(compilePolicy(config.policy), { onApprove: approval?.onApprove }));
   const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
   const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;
@@ -83,7 +90,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     servers: Object.fromEntries(Object.entries(config.upstreams).map(([name, up]) => [name, resolveUpstream(up)])),
     interceptors,
     onCall,
-    clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.1.0", title: "MCP Gate" },
+    clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.3.0", title: "MCP Gate" },
   });
   await client.connect();
 
@@ -117,6 +124,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     addUpstream,
     removeUpstream,
     updateUpstream,
+    approvals: approval?.broker,
     close: async () => {
       await server.close().catch(() => {});
       await client.close();
