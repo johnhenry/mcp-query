@@ -4,6 +4,11 @@ Monorepo-level changelog — package-level detail lives with each package.
 
 ## Unreleased
 
+- **Node 26 is the floor** (`engines.node` `>=26.0.0`, CI and release on 26,
+  `.nvmrc` 26), moved in lockstep across the `*-query` family
+  (agent-query-core, a2a-query, acp-query, mcp-query), the family-wide
+  standard. Node 26's npm can also publish through npm trusted publishing.
+
 ### Added
 
 - `@johnhenry/mcp-gate@0.3.0`: first-class human approval. `GatePolicyRules.approve?: string[]` (glob ids that need sign-off), function policies may return `"approve"`, and `createGate({ approval: { broker?, handler?, timeoutMs?, onTimeout? } })` resolves approvals through an `InteractionBroker` (new `gate.approvals`). Fails closed on timeout/handler error/no approval config. New exported types `ApprovalConfig`, `ApprovalRequest`. Requires `@johnhenry/mcp-query@^0.2.0`. [Issue #43](https://github.com/johnhenry/mcp-query/issues/43)

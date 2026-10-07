@@ -252,7 +252,7 @@ of the following, not just `npm init`:
 4. **`CHANGELOG.md` entry** — either the package's own, or a bullet under the
    root `CHANGELOG.md`'s next `## Unreleased` section, grouped under a bold
    `**@johnhenry/<name>**` line per the monorepo convention.
-5. **`"engines": { "node": ">=22.0.0" }`** — only if the package will actually
+5. **`"engines": { "node": ">=26.0.0" }`** — only if the package will actually
    be published under the `@johnhenry` scope. Phase 0 of this repo's own
    ecosystem-cohesion pass added `engines.node` only to the three packages that
    are genuinely published (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`) plus

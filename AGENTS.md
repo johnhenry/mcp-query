@@ -3,8 +3,8 @@
 npm workspaces monorepo, 9 packages under `packages/` (`cli`, `mcp-bench`,
 `mcp-contract`, `mcp-docs`, `mcp-gate`, `mcp-lint`, `mcp-query`,
 `mcp-query-tanstack`, `mcp-record`) plus reference apps under `apps/`, Node
-`>=22.0.0` (this repo's genuine CI floor — see the `engines` note below;
-some sibling `@johnhenry/*` repos run `>=26`, this one doesn't yet), vitest
+`>=26.0.0` (the family floor; CI and `.nvmrc` agree, and the `*-query` repos
+move together), vitest
 for tests in every package, no cross-repo task orchestrator (plain
 `npm run <script> --workspaces --if-present`, no Turborepo, no `turbo.json`).
 Only `@johnhenry/mcp-query`, `@johnhenry/mcp-gate`, and
