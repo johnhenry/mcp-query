@@ -10,8 +10,10 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# Per-workflow group: a group shared by the three release workflows would let GitHub
+# cancel a queued run (only one pending run per group is kept).
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-gate-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
