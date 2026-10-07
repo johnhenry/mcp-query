@@ -104,7 +104,7 @@ export default config;
 |---|---|---|---|
 | `upstreams` | `Record<string, GateUpstream>` | — | `{ command, args?, env? }` (stdio) \| `{ url, headers?, getToken? }` (Streamable HTTP) \| mcp-query `ConnectionConfig`; key = namespace. |
 | `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"\|"approve"` | none (allow all) | Declarative rules (`allow`/`deny`/`approve`/`denyDestructive`) or a custom function. |
-| `approval` | `{ broker?, handler?, timeoutMs?, onTimeout? }` | none | Decides `"approve"` verdicts — see [Human-in-the-loop approval](#human-in-the-loop-approval). Required with `policy.approve`. |
+| `approval` | `{ broker?, handler?, timeoutMs?, onTimeout?, discovery? }` | none | Decides `"approve"` verdicts — see [Human-in-the-loop approval](#human-in-the-loop-approval). Required with `policy.approve`. |
 | `redact` | `RedactRule[]` | none | `{ pattern: RegExp\|string, replacement?: string }`. |
 | `rateLimit` | `{ concurrency?: number }` | none | Concurrency cap per `(upstream, tenant)` pair — see `partitionFrom`. |
 | `circuitBreaker` | `{ threshold?, cooldownMs? }` | none | Open/half-open breaker per `(upstream, tenant)` pair. |
@@ -193,6 +193,15 @@ gate.approvals!.subscribe(() => {
 - **`denyDestructive` interplay.** `denyDestructive: true` is a hard deny - destructive tools are
   refused outright, not routed to a human. To send destructive tools to approval instead, leave it
   off and list them in `approve`, or use a function policy: `(req) => req.destructive ? "approve" : "allow"`.
+- **Discovery (`approval.discovery`).** By default (`"visible"`) an `approve`-listed tool shows up in
+  `tools/list` like any other and is only held when called. Set `discovery: "annotated"` to keep it
+  listed but flag it with `_meta.requiresApproval: true` (a badge hook for UIs; MCP tool `annotations`
+  is a closed set of behavior hints, so `_meta` is used), or `"hidden"` to drop it from
+  `tools/list` / `prompts/list` / `resources/list`. **Trade-off:** hidden is de-cluttering, not
+  access control - a caller that already knows the name can still call it, and the call still goes
+  through the full approval flow; agents just won't discover it on their own. Use `deny`/`allow` to
+  actually forbid a tool. Only declarative `policy.approve` globs are listed this way; a function
+  policy's `"approve"` verdicts are call-time only. `deny`/`allow` hiding applies in every mode.
 - **Without `approval`.** `policy.approve` is rejected at config validation; a function policy that
   returns `"approve"` is denied at call time (there is nobody to ask).
 - **Broker semantics.** The gate calls `broker.gate("tool-call", server, { tool, args, destructive, request }, { autoApprove, autoDeny, timeoutMs })`

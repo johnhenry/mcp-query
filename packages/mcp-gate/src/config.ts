@@ -75,6 +75,20 @@ export interface ApprovalConfig {
   timeoutMs?: number;
   /** What happens on timeout. Only "deny" exists -- approval never fails open. */
   onTimeout?: "deny";
+  /**
+   * How `policy.approve`-listed tools/prompts/resources appear in discovery
+   * (`tools/list` etc.). Default `"visible"` (the pre-0.4.0 behavior).
+   * - `"visible"`: listed normally; approval is only enforced when the call is made.
+   * - `"annotated"`: listed, with `_meta.requiresApproval: true` so a client can show a badge.
+   *   (`_meta`, not MCP tool `annotations`: that field is a closed set of behavior hints.)
+   * - `"hidden"`: omitted from listings. A caller that already knows the name can still call
+   *   it, and the call goes through the normal approval flow -- hiding is not a security
+   *   boundary (use `policy.deny`/`allow` for that), it only de-clutters discovery, and
+   *   means agents/UIs will not find the tool on their own.
+   * Only declarative `policy.approve` globs can be listed this way; a function policy's
+   * "approve" verdicts are call-time only (names can't be inferred).
+   */
+  discovery?: "visible" | "annotated" | "hidden";
 }
 
 export type GatePolicy = ((req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict>) | GatePolicyRules;
@@ -194,15 +208,32 @@ export function compilePolicy(policy: GatePolicy): (req: AuthzRequest) => AuthzV
  */
 export function policyListFilter(
   policy: GatePolicy,
+  discovery: ApprovalConfig["discovery"] = "visible",
 ): ((server: string, kind: "tool" | "resource" | "prompt", name: string) => boolean) | undefined {
   if (typeof policy === "function") return undefined;
   const allow = policy.allow?.map(globToRe);
   const deny = policy.deny?.map(globToRe);
-  if (!allow && !deny) return undefined;
+  const hideApprove = discovery === "hidden" ? policy.approve?.map(globToRe) : undefined;
+  if (!allow && !deny && !hideApprove?.length) return undefined;
   return (server, _kind, name) => {
     const id = `${server}.${name}`;
     if (deny?.some((re) => re.test(id))) return false;
     if (allow && !allow.some((re) => re.test(id))) return false;
+    if (hideApprove?.some((re) => re.test(id))) return false;
     return true;
   };
+}
+
+/**
+ * For `approval.discovery: "annotated"`: the `_meta` to merge into a listed item that
+ * `policy.approve` gates (`{ requiresApproval: true }`), else undefined. Declarative
+ * policies only.
+ */
+export function policyListAnnotator(
+  policy: GatePolicy,
+  discovery: ApprovalConfig["discovery"] = "visible",
+): ((server: string, kind: "tool" | "resource" | "prompt", name: string) => Record<string, unknown> | undefined) | undefined {
+  if (typeof policy === "function" || discovery !== "annotated" || !policy.approve?.length) return undefined;
+  const approve = policy.approve.map(globToRe);
+  return (server, _kind, name) => (approve.some((re) => re.test(`${server}.${name}`)) ? { requiresApproval: true } : undefined);
 }

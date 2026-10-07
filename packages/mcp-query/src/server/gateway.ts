@@ -21,6 +21,13 @@ export interface GatewayOptions {
   namespace?: boolean;
   /** Exclude servers/items from the gateway. */
   filter?: (server: string, kind: "tool" | "resource" | "prompt", name: string) => boolean;
+  /**
+   * Extra `_meta` merged into a listed tool/resource/prompt (a returned key wins over an
+   * upstream `_meta` key of the same name). Return undefined to leave an item untouched.
+   * `name` is the upstream (un-namespaced) name, or the URI for a resource. Used by
+   * mcp-gate to flag approval-gated tools; list-only — it never changes call behavior.
+   */
+  annotate?: (server: string, kind: "tool" | "resource" | "prompt", name: string) => Record<string, unknown> | undefined;
 }
 
 export interface GatewayHandlerOptions extends GatewayOptions {
@@ -75,6 +82,11 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   const namespace = opts.namespace ?? true;
   const keep = (server: string, kind: "tool" | "resource" | "prompt", name: string) =>
     opts.filter?.(server, kind, name) ?? true;
+  const withMeta = <T extends object>(item: T, server: string, kind: "tool" | "resource" | "prompt", name: string): T => {
+    const extra = opts.annotate?.(server, kind, name);
+    if (!extra) return item;
+    return { ...item, _meta: { ...((item as { _meta?: Record<string, unknown> })._meta ?? {}), ...extra } };
+  };
   const qualify = (server: string, name: string) => (namespace ? `${server}${SEP}${name}` : name);
   const servers = () => client.connections().map((c) => c.name);
 
@@ -109,7 +121,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   server.setRequestHandler("tools/list", () => {
     const ss = servers();
     return {
-      tools: ss.flatMap((s) => client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...t, name: qualify(s, t.name) }))),
+      tools: ss.flatMap((s) => client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...withMeta(t, s, "tool", t.name), name: qualify(s, t.name) }))),
       ...listHint(ss, "tools"),
     };
   });
@@ -127,7 +139,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   server.setRequestHandler("resources/list", () => {
     const ss = servers();
     return {
-      resources: ss.flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri))),
+      resources: ss.flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri)).map((r) => withMeta(r, s, "resource", r.uri))),
       ...listHint(ss, "resources"),
     };
   });
@@ -146,7 +158,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   server.setRequestHandler("prompts/list", () => {
     const ss = servers();
     return {
-      prompts: ss.flatMap((s) => client.listPrompts(s).filter((p) => keep(s, "prompt", p.name)).map((p) => ({ ...p, name: qualify(s, p.name) }))),
+      prompts: ss.flatMap((s) => client.listPrompts(s).filter((p) => keep(s, "prompt", p.name)).map((p) => ({ ...withMeta(p, s, "prompt", p.name), name: qualify(s, p.name) }))),
       ...listHint(ss, "prompts"),
     };
   });

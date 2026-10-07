@@ -590,12 +590,7 @@ export class MCPClient {
   /** The connections a `list*` call covers: one named server (throws if unknown) or all of them. */
   private listScope(server: string | undefined): Array<[string, ServerConnection]> {
     if (server === undefined) return [...this.conns.entries()];
-    const conn = this.conns.get(server);
-    if (!conn) {
-      const known = [...this.conns.keys()].join(", ") || "(none)";
-      throw new MCPError("protocol", `unknown server "${server}"; configured: ${known}`, server);
-    }
-    return [[server, conn]];
+    return [[server, this.req(server)]];
   }
   private listCaps<T extends object>(server: string | undefined, pick: (c: ServerConnection) => T[]): T[] {
     const scope = this.listScope(server);
@@ -1115,7 +1110,11 @@ export class MCPClient {
 
   private req(server: string): ServerConnection {
     const c = this.conns.get(server);
-    if (!c) throw new Error(`Unknown server "${server}"`);
+    if (!c) {
+      // One message shape for every method that takes a server name (list*, ping, complete, ...).
+      const known = [...this.conns.keys()].join(", ") || "(none)";
+      throw new MCPError("protocol", `unknown server "${server}"; configured: ${known}`, server);
+    }
     return c;
   }
 

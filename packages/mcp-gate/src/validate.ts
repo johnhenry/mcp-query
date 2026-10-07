@@ -91,12 +91,13 @@ function validatePolicy(policy: unknown): void {
 }
 
 function validateApproval(approval: unknown): void {
-  if (!isRecord(approval)) fail(`"approval" must be an object { broker?, handler?, timeoutMs?, onTimeout? } (got ${typeOf(approval)})`);
-  checkKeys(approval, ["broker", "handler", "timeoutMs", "onTimeout"], "approval");
+  if (!isRecord(approval)) fail(`"approval" must be an object { broker?, handler?, timeoutMs?, onTimeout?, discovery? } (got ${typeOf(approval)})`);
+  checkKeys(approval, ["broker", "handler", "timeoutMs", "onTimeout", "discovery"], "approval");
   checkType(approval, "handler", "a function", aFunction, "approval");
   checkType(approval, "timeoutMs", "a number", aNumber, "approval");
   if (typeof approval.timeoutMs === "number" && !(approval.timeoutMs > 0)) fail(`"timeoutMs" in approval must be a positive number`);
   checkType(approval, "onTimeout", '"deny"', (v) => v === "deny", "approval");
+  checkType(approval, "discovery", '"visible" | "annotated" | "hidden"', (v) => v === "visible" || v === "annotated" || v === "hidden", "approval");
   checkType(approval, "broker", "an InteractionBroker", (v) => isRecord(v) && typeof (v as { gate?: unknown }).gate === "function", "approval");
 }
 

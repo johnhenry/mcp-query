@@ -247,6 +247,20 @@ function Issues() {
 }
 ```
 
+### Hooks and servers that aren't added yet
+
+`client.listTools("x")` (and `listResources` / `listResourceTemplates` / `listPrompts`) **throw** an
+`MCPError` for a server name that isn't configured: `unknown server "x"; configured: a, b` (every
+method that takes a server name uses this same message). The capability hooks --
+`useTools`, `useResourceList`, `usePromptList`, `useResourceTemplates` -- deliberately do the
+opposite and return an **empty list** for a server that hasn't been added *yet*. Rationale: with
+dynamic topology (`client.addServer()` after mount, lazy/deferred connections) a component often
+renders before its server exists; a thrown error during render would crash the tree (or need an
+error boundary) for what is a normal transient state, and the hook re-renders with real data the
+moment the server is added and its lists load. The trade-off is that a typo'd server name in a hook
+renders an empty list rather than an error -- if you want strictness, call `client.listTools(name)`
+yourself (it throws), or check `client.connection(name)`.
+
 ## What's deliberately *not* here (and why)
 
 - **Normalized caching.** No global object identity in MCP results → impossible to do

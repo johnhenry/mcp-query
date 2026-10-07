@@ -127,4 +127,73 @@ describe("gate approval", () => {
     expect(ran).toEqual([]);
     await stop();
   });
+
+  describe("approval.discovery", () => {
+    const names = async (consumer: Awaited<ReturnType<typeof gateWithConsumer>>["consumer"]) =>
+      (await consumer.listTools()).tools.map((t) => t.name).sort();
+    async function gateWithConsumer(config: Parameters<typeof gateWith>[0]) {
+      const g = await gateWith(config);
+      // gateWith doesn't expose its consumer; open a second one for listings.
+      const [ct, st] = InMemoryTransport.createLinkedPair();
+      await g.gate.server.connect(st);
+      const consumer = new Client({ name: "c2", version: "1" }, { capabilities: {} });
+      await consumer.connect(ct);
+      // A Server holds one transport: the second connect supersedes gateWith's own consumer,
+      // so route calls through this consumer too.
+      const call = (name: string) => consumer.callTool({ name: `up.${name}`, arguments: {} }) as Promise<{ content: { text: string }[] }>;
+      return { ...g, consumer, call };
+    }
+
+    it("defaults to 'visible': approve-listed tools are listed, unmarked", async () => {
+      const { consumer, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler: () => "allow" } });
+      const tools = (await consumer.listTools()).tools;
+      expect(tools.map((t) => t.name).sort()).toEqual(["up.read_x", "up.rm_x", "up.write_x"]);
+      expect(tools.find((t) => t.name === "up.write_x")!._meta?.requiresApproval).toBeUndefined();
+      await stop();
+    });
+
+    it("'visible' (explicit) behaves like the default", async () => {
+      const { consumer, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler: () => "allow", discovery: "visible" } });
+      expect(await names(consumer)).toEqual(["up.read_x", "up.rm_x", "up.write_x"]);
+      await stop();
+    });
+
+    it("'annotated' lists every tool and flags only approve-listed ones with _meta.requiresApproval", async () => {
+      const { consumer, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler: () => "allow", discovery: "annotated" } });
+      const tools = (await consumer.listTools()).tools;
+      expect(tools.map((t) => t.name).sort()).toEqual(["up.read_x", "up.rm_x", "up.write_x"]);
+      expect(tools.find((t) => t.name === "up.write_x")!._meta?.requiresApproval).toBe(true);
+      expect(tools.find((t) => t.name === "up.read_x")!._meta?.requiresApproval).toBeUndefined();
+      await stop();
+    });
+
+    it("'hidden' omits approve-listed tools from tools/list but a direct call still goes through approval", async () => {
+      const handler = vi.fn(() => "allow" as const);
+      const { consumer, call, ran, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler, discovery: "hidden" } });
+      expect(await names(consumer)).toEqual(["up.read_x", "up.rm_x"]);
+      expect((await call("write_x")).content[0]!.text).toBe("wrote");
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(ran).toEqual(["write_x"]);
+      await stop();
+    });
+
+    it("'hidden' + denying handler: the hidden tool is still refused", async () => {
+      const { call, ran, stop } = await gateWithConsumer({ policy: { approve: ["up.write_*"] }, approval: { handler: () => "deny", discovery: "hidden" } });
+      await expect(call("write_x")).rejects.toThrow(/not approved/);
+      expect(ran).toEqual([]);
+      await stop();
+    });
+
+    it("combines with allow/deny: name-denied stay hidden in every mode", async () => {
+      const { consumer, stop } = await gateWithConsumer({ policy: { deny: ["up.rm_*"], approve: ["up.write_*"] }, approval: { handler: () => "allow", discovery: "annotated" } });
+      expect(await names(consumer)).toEqual(["up.read_x", "up.write_x"]);
+      await stop();
+    });
+
+    it("rejects an unknown discovery value at config validation", async () => {
+      await expect(
+        createGate({ upstreams: { up: { transport: new MockMCPServer({ tools: [] }).transport } }, policy: { approve: ["up.*"] }, approval: { handler: () => "allow", discovery: "nope" as never } }),
+      ).rejects.toThrow(/discovery/);
+    });
+  });
 });
