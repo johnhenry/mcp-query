@@ -115,13 +115,12 @@ one-line pointer; the checklist itself is not duplicated here.
 
 ## Releases
 
-Each of the three published packages (`mcp-query`, `mcp-gate`,
-`mcp-query-tanstack`) has its own release workflow
-(`.github/workflows/release.yml`, `release-mcp-query-tanstack.yml`) and its
-own version line — this repo does not use Changesets or a single root
-version number, and root `CHANGELOG.md` deliberately does not invent one for
-its `## Unreleased` section (packages version independently; see each
-package's own CHANGELOG where one exists). `release-gate.yml` gates a release
-on the full test suite. Release tags are per package (`query-v*`, `gate-v*`,
-`mcp-query-tanstack-v*`; bare `v*` is deprecated) -- see `CONTRIBUTING.md`. Don't "fix" the lack of a root version — it would be
-fictional.
+Releases use Changesets (`.changeset/`, `npm run changeset`) and a single
+`.github/workflows/publish.yml` that runs on push to `main` -- the three published
+packages (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`) still version
+independently, and there is no single root version number (root `CHANGELOG.md`
+deliberately does not invent one for its `## Unreleased` section; don't "fix"
+that -- it would be fictional). Tags and GitHub Releases (`<pkg>@<version>`) are
+by-products created by `changesets/action`, never triggers. `npm run release`
+is `scripts/release.mjs`, which also applies `publishConfig.tag` (the `rc`
+dist-tag on `mcp-query-tanstack`). See `CONTRIBUTING.md`.

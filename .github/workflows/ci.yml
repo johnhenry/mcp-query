@@ -6,6 +6,9 @@ on:
   pull_request:
 
 jobs:
+  workflow-lint:
+    uses: johnhenry/workflows/.github/workflows/workflow-lint.yml@v1
+
   build-test:
     runs-on: ubuntu-latest
     steps:
