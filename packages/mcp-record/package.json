@@ -15,8 +15,8 @@
   "dependencies": {
     "@johnhenry/mcp-query": "*",
     "@mcp-query/contract": "*",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0"
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0"
   },
   "devDependencies": {
     "tsx": "^4.22.4",
