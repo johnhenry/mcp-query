@@ -53,6 +53,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Verify published version is on the registry
+        if: steps.release.outputs.published == 'true'
+        uses: johnhenry/workflows/.github/actions/verify-published@v1
+        with:
+          packages: ${{ steps.release.outputs.tag }}
+
       - name: Push tag and create GitHub Release (by-product)
         if: steps.release.outputs.published == 'true'
         run: |
