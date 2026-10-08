@@ -17,6 +17,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import type { CacheKey, MCPClient } from "@johnhenry/mcp-query";
+import { tagToQueryKeyPrefix } from "./keys.js";
 
 interface SyncState {
   unsubs: Map<string, () => void>;
@@ -35,6 +36,17 @@ function stateFor(mcpClient: MCPClient, queryClient: QueryClient): SyncState {
   if (!state) {
     state = { unsubs: new Map() };
     perQueryClient.set(queryClient, state);
+    // Tag-wide fallback: a protocol push (or declared invalidation) reaches TanStack-inactive
+    // queries that have no live per-key subscription, via the cache's post-construction hook.
+    // Queries WITH a live subscription are skipped — the per-key sync already covers them.
+    mcpClient.cache.onExternalInvalidate((event) => {
+      for (const tag of event.tags ?? []) {
+        void queryClient.invalidateQueries({
+          queryKey: tagToQueryKeyPrefix(tag) as unknown[],
+          predicate: (q) => !state!.unsubs.has(keyOf(q.queryKey)),
+        });
+      }
+    });
     queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== "removed") return;
       const k = keyOf(event.query.queryKey);

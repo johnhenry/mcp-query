@@ -17,7 +17,55 @@
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { ConnectionConfig } from "@johnhenry/mcp-query";
+import type { ChildProcess } from "node:child_process";
 import type { GateUpstream } from "./config.js";
+
+/**
+ * A stdio transport whose `close()` does not resolve until the child it spawned has really
+ * exited (#23). The SDK's own `close()` ends stdin, waits up to 2s, sends SIGTERM, waits up
+ * to 2s, then fires SIGKILL and returns without awaiting the exit — so a child that ignores
+ * SIGTERM can outlive the promise. This subclass finishes the job: SIGKILL if still alive,
+ * then await the exit event. It also makes a concurrent second `close()` (which the SDK
+ * returns from immediately) wait for the same exit.
+ */
+export class ReapingStdioTransport extends StdioClientTransport {
+  private child?: ChildProcess;
+  private exited?: Promise<void>;
+
+  override async start(): Promise<void> {
+    const started = super.start();
+    // The SDK assigns its private `_process` synchronously inside start().
+    const child = (this as unknown as { _process?: ChildProcess })._process;
+    if (child) {
+      this.child = child;
+      this.exited = new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
+        child.once("exit", () => resolve());
+        child.once("error", () => child.pid === undefined && resolve()); // never spawned
+      });
+    }
+    return started;
+  }
+
+  override async close(): Promise<void> {
+    await super.close();
+    await this.reap();
+  }
+
+  /** SIGKILL the child if it is still running and wait for it to exit. Idempotent. */
+  async reap(): Promise<void> {
+    const child = this.child;
+    if (!child || !this.exited) return;
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    await this.exited;
+  }
+}
 
 /** Normalize an upstream to a ConnectionConfig, building the transport factory for declarative specs. */
 export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
@@ -26,7 +74,7 @@ export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
     const { command, args = [], env } = upstream;
     return {
       transport: () =>
-        new StdioClientTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
+        new ReapingStdioTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
     };
   }
   const { url, headers, getToken } = upstream;

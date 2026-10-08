@@ -20,7 +20,7 @@ export {
   isToolError,
 } from "./core/annotations.js";
 export { MCPCache, structuralEqual } from "./core/cache.js";
-export type { CacheEntry, CachePatch, CacheWriteOpts } from "./core/cache.js";
+export type { CacheEntry, CachePatch, CacheWriteOpts, ExternalInvalidateEvent } from "./core/cache.js";
 export { MemoryCacheStore } from "./core/cacheStore.js";
 export type { CacheStore, StoredEntry } from "./core/cacheStore.js";
 export { persistCache } from "./core/persist.js";

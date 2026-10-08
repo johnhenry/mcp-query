@@ -141,3 +141,38 @@ describe("garbage collection", () => {
     vi.useRealTimers();
   });
 });
+
+describe("MCPCache.onExternalInvalidate (post-construction listener hook)", () => {
+  it("notifies listeners on tag invalidation even with no matching local entry, and unsubscribes", () => {
+    const c = new MCPCache();
+    const seen: unknown[] = [];
+    const off = c.onExternalInvalidate((e) => seen.push(e));
+    c.onResourceUpdated("fs", "file:///nope");
+    expect(seen).toEqual([{ tags: [resourceTag("fs", "file:///nope")] }]);
+    off();
+    c.onListChanged("fs", "tools");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("supports multiple listeners and still calls a constructor-provided handler", () => {
+    const ctor = vi.fn();
+    const c = new MCPCache({ events: { onExternalInvalidate: ctor } });
+    const a = vi.fn();
+    const b = vi.fn();
+    c.onExternalInvalidate(a);
+    c.onExternalInvalidate(b);
+    c.invalidateTags([serverTag("fs")], false);
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("is reachable on a built MCPClient's cache, which marks a server stale via it", async () => {
+    const { MCPClient } = await import("../src/index.js");
+    const client = new MCPClient({ servers: {} });
+    const fn = vi.fn();
+    client.cache.onExternalInvalidate(fn);
+    client.cache.markStaleByServer("x");
+    expect(fn).toHaveBeenCalledWith({ tags: [serverTag("x")] });
+  });
+});

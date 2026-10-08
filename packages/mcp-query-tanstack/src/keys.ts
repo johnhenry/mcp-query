@@ -22,8 +22,8 @@ export function listQueryKey(server: string, what: "tools" | "resources" | "prom
 
 /**
  * Pure fn: mcp-query Tag -> the queryKey prefix `invalidateQueries` should target.
- * For v1.1 (tag-wide invalidation of TanStack-inactive queries) — not wired to
- * anything yet; see the package README for why v1 doesn't need this at all.
+ * Used by the bridge (via `cache.onExternalInvalidate`) for tag-wide invalidation of
+ * TanStack-inactive queries that have no live per-key subscription.
  */
 export function tagToQueryKeyPrefix(tag: Tag): readonly unknown[] {
   if (tag.startsWith("res:")) {
