@@ -54,6 +54,7 @@ jobs:
         run: node -e "import('./dist/index.js').then(m => { if (!m.MCPClient) throw new Error('missing MCPClient export'); console.log('ok'); })"
 
       - name: Version PR or publish mcp-query
+        id: changesets
         uses: changesets/action@v1
         with:
           publish: npm run release -- @johnhenry/mcp-query
@@ -64,3 +65,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Resolve the published package spec
+        id: spec
+        if: steps.changesets.outputs.published == 'true'
+        run: echo "spec=$(node -p "const p=require('./packages/mcp-query/package.json'); p.name+'@'+p.version")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify published versions are on the registry
+        if: steps.changesets.outputs.published == 'true'
+        uses: johnhenry/workflows/.github/actions/verify-published@v1
+        with:
+          packages: ${{ steps.spec.outputs.spec }}
