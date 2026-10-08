@@ -18,6 +18,14 @@ Each published package (`@johnhenry/mcp-query`, `@johnhenry/mcp-gate`,
    the tag `<package name>@<version>` (e.g. `@johnhenry/mcp-query@0.3.0`) and a GitHub
    Release as by-products.
 
+**One-time repository requirement.** `changesets/action` opens the Version Packages PR
+with `GITHUB_TOKEN`, which needs both `permissions: pull-requests: write` on the job
+(already set in the workflow) and the repo setting *Settings > Actions > General >
+"Allow GitHub Actions to create and approve pull requests"*; without it the run fails at
+`creating pull request`. Check / enable with
+`gh api repos/johnhenry/mcp-query/actions/permissions/workflow` and
+`gh api -X PUT repos/johnhenry/mcp-query/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true`.
+
 | Package | Workflow (trusted-publisher filename: do not rename) |
 |---------|------------------------------------------------------|
 | `@johnhenry/mcp-query` | `release.yml` (also runs the Changesets version PR) |
