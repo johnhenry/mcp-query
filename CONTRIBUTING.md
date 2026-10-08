@@ -31,9 +31,10 @@ with `GITHUB_TOKEN`, which needs both `permissions: pull-requests: write` on the
 | `@johnhenry/mcp-query` | `release.yml` (also runs the Changesets version PR) |
 | `@johnhenry/mcp-gate` | `release-gate.yml` |
 | `@johnhenry/mcp-query-tanstack` | `release-mcp-query-tanstack.yml` |
+| `@johnhenry/mcp-query-ui` | `release-mcp-query-ui.yml` |
 
 npm trusted publishing trusts one workflow filename per package, which is why there
-are three files instead of one `changeset publish`; `changeset publish` would also pass
+are four files instead of one `changeset publish`; `changeset publish` would also pass
 `--tag latest`, overriding `publishConfig.tag`.
 
 Nobody creates tags or Releases by hand to cause a publish, and the old prefixed

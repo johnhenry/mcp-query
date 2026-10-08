@@ -62,6 +62,7 @@ and they stack:
 | Track an MCP server's performance or gate CI on a latency budget | [`mcp-bench`](./packages/mcp-bench) |
 | Get a server's real recorded output in tests/demos, fast, offline, and frozen | [`mcp-record`](./packages/mcp-record) |
 | Feed mcp-query's cache into a TanStack Query app | [`mcp-query-tanstack`](./packages/mcp-query-tanstack) |
+| Render an MCP App (`ui://` resource, SEP-1865) in a sandboxed iframe, with its tool calls under the gate | [`mcp-query-ui`](./packages/mcp-query-ui) |
 
 ## Packages
 
@@ -74,6 +75,7 @@ and they stack:
 | **[@mcp-query/lint](packages/mcp-lint)** | **Quality lint** (ESLint for MCP). Check a single surface against design rules — descriptions, annotations, typed inputs, naming — and gate CI on it. | You're **authoring** an MCP server and want a quality bar enforced in CI. |
 | **[@mcp-query/docs](packages/mcp-docs)** | **Reference docs** (Redoc for MCP). Render Markdown docs from a live server or a contract: tool arg tables, annotation badges, resources, prompts. | You want **always-current reference docs** for an MCP server, generated not hand-written. |
 | **[@mcp-query/bench](packages/mcp-bench)** | **Benchmarking.** Latency (p50/p95/p99) + throughput per tool, with perf budgets that fail CI. Local or hosted servers. | You want to **track an MCP server's performance** or gate on a latency budget. |
+| **[@johnhenry/mcp-query-ui](packages/mcp-query-ui)** | **MCP Apps host** (SEP-1865). Mounts a server's `ui://` app in a sandboxed iframe via the official `@modelcontextprotocol/ext-apps` helpers; the app's tool calls and resource reads go through the `MCPClient`, so `mcp-gate` policy/approval/audit apply. Lifecycle + messages are subscribable state; `useMcpApp()` for React. | Your host app should **render MCP Apps** and you want their traffic **governed**, not a side channel. |
 | **[@mcp-query/record](packages/mcp-record)** | **Record / replay** (VCR for MCP). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
 
 ## Apps
@@ -359,6 +361,6 @@ Releases are driven by [Changesets](https://github.com/changesets/changesets):
 add one with `npm run changeset` in any PR that changes a published package.
 Merging to `main` opens/updates a "chore: version packages" PR; merging *that*
 publishes each package whose version is new to npm (`release.yml`,
-`release-gate.yml`, `release-mcp-query-tanstack.yml`) and creates its tag and GitHub
+`release-gate.yml`, `release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml`) and creates its tag and GitHub
 Release as by-products. Packages version
 independently. See [CONTRIBUTING.md](./CONTRIBUTING.md#releasing).

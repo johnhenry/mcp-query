@@ -15,12 +15,12 @@ import { TASKS_EXT } from "./tasksExt.js";
 import type { ElicitationRequest, HostHandlers } from "./types.js";
 
 /** Returns the client-capabilities object to advertise, given which handlers exist. */
-export function clientCapabilities(h: HostHandlers): ClientCapabilities {
+export function clientCapabilities(h: HostHandlers, extensions?: Record<string, object>): ClientCapabilities {
   const caps: Record<string, unknown> = {
     // Declared unconditionally: mcp-query can drive the tasks extension
     // (SEP-2663) whenever the server offers it; the declaration is how the
     // server learns task-shaped tools/call answers are acceptable.
-    extensions: { [TASKS_EXT]: {} },
+    extensions: { ...extensions, [TASKS_EXT]: {} },
   };
   if (h.sampling) caps.sampling = {};
   // Servers gate each elicitation mode on its own sub-capability — declare

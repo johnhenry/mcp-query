@@ -66,6 +66,13 @@ export interface MCPClientConfig {
   /** Identity advertised to every server. Defaults to mcp-query's own. */
   clientInfo?: ClientInfo;
   /**
+   * Extra MCP extensions to advertise in `capabilities.extensions`, keyed by extension id
+   * (e.g. `{ "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } }`
+   * for an MCP Apps host). mcp-query's own tasks extension is always advertised and wins on
+   * a key collision. Opt-in: nothing extra is advertised by default.
+   */
+  extensions?: Record<string, object>;
+  /**
    * Client-wide protocol-revision preference list, overridable per connection.
    * Absent → v1 only (the classic 2025-era handshake, no probe — the default).
    * `["2026-07-28", "2025-11-25"]` opts into the modern revision with lossless
@@ -229,6 +236,7 @@ export class MCPClient {
   private stateVersion = 0;
   private retryCount = 0;
   private clientInfo?: ClientInfo;
+  private extensions?: Record<string, object>;
   private versions?: readonly string[];
   private versionNegotiation?: VersionNegotiationOptions;
   private inputRequired?: InputRequiredOptions;
@@ -252,6 +260,7 @@ export class MCPClient {
     this.cacheStore = cfg.cacheStore;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
+    this.extensions = cfg.extensions;
     this.versions = cfg.versions;
     this.versionNegotiation = cfg.versionNegotiation;
     this.inputRequired = cfg.inputRequired;
@@ -302,6 +311,7 @@ export class MCPClient {
       cache: this.cache,
       handlers,
       clientInfo: this.clientInfo,
+      extensions: this.extensions,
       defaultVersionNegotiation: this.versionNegotiation,
       defaultVersions: this.versions,
       defaultInputRequired: this.inputRequired,

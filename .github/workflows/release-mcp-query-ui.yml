@@ -1,0 +1,78 @@
+name: Release (mcp-query-ui)
+
+# Publish @johnhenry/mcp-query-ui from main (fleet publish model: main is the release branch, see
+# johnhenry/workflows' README). Runs on every push to main; a version already on npm is
+# a clean no-op. Landing the version bump (via the Changesets "Version Packages" PR
+# opened by release.yml) is the release; the tag and GitHub Release are by-products.
+# This file is the npm trusted-publisher entry point for @johnhenry/mcp-query-ui -- do not rename it.
+#
+# FIRST PUBLISH: npm trusted publishing cannot create a package, so the very first run of this
+# workflow fails with E404 until the maintainer publishes 0.1.0 once by hand and then runs
+# `npm trust github` for it (see packages/mcp-query-ui/README.md#releasing). Later runs are normal.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Per-workflow group: a group shared by the three release workflows would let GitHub
+# cancel a queued run (only one pending run per group is kept).
+concurrency:
+  group: publish-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # by-product: the <name>@<version> tag + GitHub Release
+      id-token: write # npm provenance / trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+
+      - name: Build mcp-query and mcp-gate
+        # @johnhenry/mcp-query-ui's tests import @johnhenry/mcp-query (incl. ./testing) and the real
+        # @johnhenry/mcp-gate; both resolve to dist/.
+        run: |
+          npm run build -w @johnhenry/mcp-query
+          npm run build -w @johnhenry/mcp-gate
+
+      - name: Gate (typecheck + tests + build)
+        run: |
+          npm run typecheck -w @johnhenry/mcp-query-ui
+          npm test -w @johnhenry/mcp-query-ui
+          npm run build -w @johnhenry/mcp-query-ui
+
+      - name: Publish smoke (import the built entrypoint)
+        working-directory: packages/mcp-query-ui
+        run: node -e "import('./dist/index.js').then(m => { if (!m.createAppHost) throw new Error('missing createAppHost export'); console.log('ok'); })"
+
+      - name: Publish to npm if the version is new
+        id: release
+        # scripts/release.mjs: `npm view` guard, dist-tag (publishConfig.tag, else rc for
+        # prereleases, else latest), --provenance, and a local <name>@<version> git tag.
+        run: node scripts/release.mjs @johnhenry/mcp-query-ui
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published version is on the registry
+        if: steps.release.outputs.published == 'true'
+        uses: johnhenry/workflows/.github/actions/verify-published@v1
+        with:
+          packages: ${{ steps.release.outputs.tag }}
+
+      - name: Push tag and create GitHub Release (by-product)
+        if: steps.release.outputs.published == 'true'
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          git push origin "refs/tags/$TAG"
+          PRE=""; case "${{ steps.release.outputs.version }}" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --generate-notes $PRE --title "$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

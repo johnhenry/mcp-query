@@ -62,6 +62,8 @@ export interface MockTool {
   description?: string;
   inputSchema?: Record<string, unknown>;
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
+  /** Advertised as the tool's `_meta` in tools/list (e.g. MCP Apps' `ui.resourceUri`). */
+  _meta?: Record<string, unknown>;
   handler?: (
     args: Record<string, unknown>,
     ctx: MockToolContext,
@@ -80,6 +82,8 @@ export interface MockResource {
   uri: string;
   name?: string;
   mimeType?: string;
+  /** Advertised as `_meta` on the list entry and on the read contents (e.g. MCP Apps' `ui.csp`). */
+  _meta?: Record<string, unknown>;
   read?: () => { text?: string; blob?: string };
 }
 export interface MockPrompt {
@@ -162,6 +166,7 @@ export class MockMCPServer {
   private replaySeq = 0;
   private taskSeq = 0;
   private lastEnvelopeClientInfo?: Implementation;
+  private lastEnvelopeClientCaps?: Record<string, unknown>;
   private closed = false;
 
   constructor(spec: MockSpec, opts: MockMCPServerOptions = {}) {
@@ -273,6 +278,16 @@ export class MockMCPServer {
     return last ?? this.lastEnvelopeClientInfo;
   }
 
+  /** The capabilities the connected client advertised (initialize on legacy; request envelope on modern). */
+  clientCapabilities(): { extensions?: Record<string, unknown>; [k: string]: unknown } | undefined {
+    let last: Record<string, unknown> | undefined;
+    for (const { server } of this.legacySessions.values()) {
+      const v = server.getClientCapabilities();
+      if (v) last = v as Record<string, unknown>;
+    }
+    return last ?? this.lastEnvelopeClientCaps;
+  }
+
   // ── server construction (fresh per modern request / per legacy session) ────
   private capabilities(): ServerCapabilities {
     if (this.spec.capabilities) return this.spec.capabilities;
@@ -300,6 +315,8 @@ export class MockMCPServer {
   private captureClient(ctx: ServerContext): void {
     const info = (ctx.mcpReq.envelope as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientInfo"] as Implementation | undefined;
     if (info) this.lastEnvelopeClientInfo = info;
+    const caps = (ctx.mcpReq.envelope as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientCapabilities"] as Record<string, unknown> | undefined;
+    if (caps) this.lastEnvelopeClientCaps = caps;
   }
 
   private buildServer(_era: ProtocolEra): Server {
@@ -337,6 +354,7 @@ export class MockMCPServer {
           description: t.description,
           inputSchema: (t.inputSchema ?? { type: "object" }) as { type: "object" },
           ...(t.annotations ? { annotations: t.annotations } : {}),
+          ...(t._meta ? { _meta: t._meta } : {}),
         })),
         ...(nextCursor ? { nextCursor } : {}),
       };
@@ -566,7 +584,7 @@ export class MockMCPServer {
     server.setRequestHandler("resources/list", (req) => {
       const { slice, nextCursor } = this.page(s().resources ?? [], req.params?.cursor);
       return {
-        resources: slice.map((r) => ({ uri: r.uri, name: r.name ?? r.uri, mimeType: r.mimeType })),
+        resources: slice.map((r) => ({ uri: r.uri, name: r.name ?? r.uri, mimeType: r.mimeType, ...(r._meta ? { _meta: r._meta } : {}) })),
         ...(nextCursor ? { nextCursor } : {}),
       };
     });
@@ -580,8 +598,8 @@ export class MockMCPServer {
       return {
         contents: [
           contents.blob != null
-            ? { uri: r.uri, mimeType: r.mimeType ?? "application/octet-stream", blob: contents.blob }
-            : { uri: r.uri, mimeType: r.mimeType ?? "text/plain", text: contents.text ?? "" },
+            ? { uri: r.uri, mimeType: r.mimeType ?? "application/octet-stream", blob: contents.blob, ...(r._meta ? { _meta: r._meta } : {}) }
+            : { uri: r.uri, mimeType: r.mimeType ?? "text/plain", text: contents.text ?? "", ...(r._meta ? { _meta: r._meta } : {}) },
         ],
       };
     });
