@@ -1,5 +1,13 @@
 # @johnhenry/mcp-gate
 
+## 0.4.2
+
+### Patch Changes
+
+- 25b09fd: `gate.close()` (and `removeUpstream`/`updateUpstream`) now resolve only after every spawned stdio child has actually exited. Declarative `{ command }` upstreams use a transport that, after the SDK's stdin-close / SIGTERM escalation, SIGKILLs a child that is still alive and awaits its exit, so a child that ignores SIGTERM can no longer outlive `close()` (#23).
+- Updated dependencies [25b09fd]
+  - @johnhenry/mcp-query@0.3.0
+
 ## 0.4.1
 
 ### Patch Changes
