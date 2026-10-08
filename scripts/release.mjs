@@ -4,8 +4,8 @@
 //   node scripts/release.mjs <package-name> [--dry-run]
 //   npm run release -- @johnhenry/mcp-query
 //
-// Used by all three publish workflows (release.yml, release-gate.yml,
-// release-mcp-query-tanstack.yml). npm trusted publishing trusts one workflow
+// Used by all four publish workflows (release.yml, release-gate.yml,
+// release-mcp-query-tanstack.yml, release-mcp-query-ui.yml). npm trusted publishing trusts one workflow
 // filename per package, so each package is published from its own workflow file
 // rather than through a single `changeset publish`. (`changeset publish` would also
 // pass an explicit `--tag latest`, which overrides `publishConfig.tag`.)

@@ -98,6 +98,8 @@ export interface ConnectionDeps {
   handlers: HostHandlers;
   /** Identity advertised to servers. Defaults to mcp-query's own. */
   clientInfo?: ClientInfo;
+  /** Extra `capabilities.extensions` entries to advertise (see `MCPClientConfig.extensions`). */
+  extensions?: Record<string, object>;
   /** Client-wide negotiation default (per-connection config wins). */
   defaultVersionNegotiation?: VersionNegotiationOptions;
   /** Client-wide `versions` default (per-connection config wins). */
@@ -162,7 +164,7 @@ export class ServerConnection {
   private makeClient(): Client {
     const resolved = resolveNegotiation(this.cfg, this.deps);
     const client = new Client(this.deps.clientInfo ?? { name: "mcp-query", version: "0.1.0" }, {
-      capabilities: clientCapabilities(this.deps.handlers),
+      capabilities: clientCapabilities(this.deps.handlers, this.deps.extensions),
       versionNegotiation: resolved.versionNegotiation,
       ...(resolved.supportedProtocolVersions ? { supportedProtocolVersions: resolved.supportedProtocolVersions } : {}),
       inputRequired: this.cfg.inputRequired ?? this.deps.defaultInputRequired,

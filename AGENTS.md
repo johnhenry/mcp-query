@@ -116,9 +116,9 @@ one-line pointer; the checklist itself is not duplicated here.
 ## Releases
 
 Releases use Changesets (`.changeset/`, `npm run changeset`) with the fleet
-"main is the release branch" model. Three publish workflows -- `release.yml`
+"main is the release branch" model. Four publish workflows -- `release.yml`
 (mcp-query; also runs the changesets/action version PR), `release-gate.yml`,
-`release-mcp-query-tanstack.yml` -- each trigger on push to `main`, publish only
+`release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml` -- each trigger on push to `main`, publish only
 their own package when its version is new (`scripts/release.mjs`), and create the
 `<pkg>@<version>` tag + GitHub Release as by-products. **Never rename or merge those
 files**: npm trusted publishing trusts one filename per package. `mcp-query-tanstack`
