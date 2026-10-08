@@ -34,4 +34,4 @@ Every `queryOptions()` factory lazily registers a listener on mcp-query's own ca
 
 ## Scope
 
-v1 only — tag-wide `invalidateQueries` fallback for TanStack-inactive queries (`tagToQueryKeyPrefix` is exported, ready for it) needs a way to attach a listener to an already-constructed `MCPClient`'s cache, which doesn't exist on `MCPClientConfig` yet. Tracked as a follow-up issue once that lands.
+Tag-wide invalidation: protocol pushes and declared invalidations also call `queryClient.invalidateQueries` (via `tagToQueryKeyPrefix`) for bridged queries that have no live per-key subscription, using `client.cache.onExternalInvalidate` (requires `@johnhenry/mcp-query` >= 0.3.0).

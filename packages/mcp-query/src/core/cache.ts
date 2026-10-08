@@ -15,7 +15,7 @@
 // live listener-set size instead of hardcoding 0. CacheEntry also gains isOptimistic
 // (unused by any consumer here today — harmless).
 
-import { QueryCache, structuralEqual, type CacheEntry as CoreCacheEntry, type CacheEvents as CoreCacheEvents, type CacheWriteOpts as CoreCacheWriteOpts, type CachePatch as CoreCachePatch } from "@johnhenry/agent-query-core";
+import { QueryCache, structuralEqual, type CacheEntry as CoreCacheEntry, type CacheEvents as CoreCacheEvents, type ExternalInvalidateEvent as CoreExternalInvalidateEvent, type CacheWriteOpts as CoreCacheWriteOpts, type CachePatch as CoreCachePatch } from "@johnhenry/agent-query-core";
 import { serializeKey, type CacheKey } from "./keys.js";
 
 export type CacheEntry<T = unknown> = CoreCacheEntry<T, CacheKey>;
@@ -24,9 +24,38 @@ export type CachePatch = CoreCachePatch<CacheKey>;
 export type CacheEvents = CoreCacheEvents<CacheKey>;
 export { structuralEqual };
 
+export type ExternalInvalidateEvent = CoreExternalInvalidateEvent<CacheKey>;
+
 export class MCPCache extends QueryCache<CacheKey> {
+  private readonly externalListeners: Set<(event: ExternalInvalidateEvent) => void>;
+
   constructor(opts: { now?: () => number; events?: CacheEvents } = {}) {
-    super({ serializeKey, now: opts.now, events: opts.events });
+    // core's `events` is constructor-only and single-handler; fan `onExternalInvalidate`
+    // out to a listener set so bridges can attach to an already-built cache (#24).
+    const listeners = new Set<(event: ExternalInvalidateEvent) => void>();
+    super({
+      serializeKey,
+      now: opts.now,
+      events: {
+        ...opts.events,
+        onExternalInvalidate: (event) => {
+          opts.events?.onExternalInvalidate?.(event);
+          for (const l of [...listeners]) l(event);
+        },
+      },
+    });
+    this.externalListeners = listeners;
+  }
+
+  /**
+   * Register a listener fired on EVERY tag/key invalidation (protocol-driven or declared),
+   * whether or not this cache holds a matching local entry. Usable after construction —
+   * e.g. a TanStack adapter translating push invalidation into `invalidateQueries`.
+   * Returns an unsubscribe function.
+   */
+  onExternalInvalidate(listener: (event: ExternalInvalidateEvent) => void): () => void {
+    this.externalListeners.add(listener);
+    return () => void this.externalListeners.delete(listener);
   }
 
   /** Protocol-driven: notifications/resources/updated -> invalidate that exact resource. */
