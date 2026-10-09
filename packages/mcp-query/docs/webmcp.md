@@ -42,6 +42,14 @@ proxying to `getTools`/`executeTool`). Plug it into `new MCPClient` and those to
 caching, the broker, and devtools like any other server — unifying both directions on one
 client.
 
+It targets the shapes native WebMCP (Chromium) and `@mcp-b/global` 5.1 actually expose:
+`getTools()` returns descriptors (no `execute`; `inputSchema` an object or, on Chrome 149-153,
+a JSON string) and `executeTool(tool, inputArgumentsJson)` resolves a JSON string or `null`
+(types: `@mcp-b/webmcp-types` `RegisteredTool` / `ChromeModelContextExtensions`). The older
+`executeTool(name, args)` shape is still used when the host's tools carry `execute`, and
+`navigator.modelContextTesting.executeTool(name, json)` is the fallback when `executeTool`
+is absent. The default context is `document.modelContext`, then `navigator.modelContext`.
+
 ```ts
 import { webMcpToolServer } from "@johnhenry/mcp-query/webmcp";
 
