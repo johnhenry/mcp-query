@@ -26,18 +26,78 @@ export interface WebMCPToolDef {
   execute: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
+/**
+ * A tool as returned by `getTools()`. Native WebMCP / `@mcp-b/global` 5.1 return descriptors
+ * (`RegisteredTool` in `@mcp-b/webmcp-types`): no `execute`, and `inputSchema` is a JSON
+ * Schema object *or* (Chrome 149-153) a serialized JSON string. Older/hand-rolled hosts
+ * return the registered definitions, which carry `execute`.
+ */
+export interface WebMCPToolInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: Record<string, unknown> | string;
+  execute?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  [extra: string]: unknown;
+}
+
 export interface ModelContext {
   /** Register a tool; unregistered by aborting the passed signal (per the WebMCP draft). */
   registerTool(def: WebMCPToolDef, opts?: { signal?: AbortSignal }): unknown;
-  /** Discovery/invocation are TODO in the spec; optional here. */
-  getTools?(): WebMCPToolDef[] | Promise<WebMCPToolDef[]>;
-  executeTool?(name: string, args: Record<string, unknown>): unknown | Promise<unknown>;
+  /** Discovery (`getTools`) is in the spec; tolerated as absent here. */
+  getTools?(): WebMCPToolInfo[] | Promise<WebMCPToolInfo[]>;
+  /**
+   * Native/Chromium + `@mcp-b/global` 5.1: `executeTool(tool: RegisteredTool, inputArguments: string)`
+   * resolving a JSON string (or `null`). Legacy shape still accepted: `executeTool(name, args)`.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  executeTool?(tool: any, input: any, options?: { signal?: AbortSignal }): unknown | Promise<unknown>;
+}
+
+/** Deprecated `navigator.modelContextTesting` shim: `executeTool(name, inputArgsJson)` → JSON string | null. */
+interface ModelContextTesting {
+  executeTool(toolName: string, inputArgsJson: string): unknown | Promise<unknown>;
 }
 
 function defaultModelContext(): ModelContext {
-  const mc = (globalThis as { document?: { modelContext?: ModelContext } }).document?.modelContext;
+  const g = globalThis as {
+    document?: { modelContext?: ModelContext };
+    navigator?: { modelContext?: ModelContext };
+  };
+  const mc = g.document?.modelContext ?? g.navigator?.modelContext;
   if (!mc) throw new Error("No document.modelContext found — pass `modelContext` explicitly.");
   return mc;
+}
+
+function modelContextTesting(): ModelContextTesting | undefined {
+  return (globalThis as { navigator?: { modelContextTesting?: ModelContextTesting } }).navigator?.modelContextTesting;
+}
+
+/** `inputSchema` may be an object or (older Chrome) a JSON string. */
+function normalizeSchema(schema: unknown): { type: "object" } {
+  let v = schema;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      v = undefined;
+    }
+  }
+  return (v && typeof v === "object" ? v : { type: "object" }) as { type: "object" };
+}
+
+/** Native executeTool resolves a JSON string (or null); legacy hosts return the value directly. */
+function toCallToolResult(out: unknown, parseJsonString: boolean): CallToolResult {
+  let v = out;
+  if (parseJsonString && typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      /* not JSON: keep the raw string */
+    }
+  }
+  if (v && typeof v === "object" && "content" in v) return v as CallToolResult;
+  return { content: [{ type: "text", text: typeof v === "string" ? v : JSON.stringify(v ?? null) }] };
 }
 
 // ───────────────────────────── B: mcp-query → WebMCP ─────────────────────────────
@@ -80,10 +140,10 @@ export function bridgeToWebMCP(client: MCPClient, server: string, opts: BridgeOp
       if (registered.has(name)) continue;
       const ctrl = new AbortController();
       registered.set(name, ctrl);
-      mc.registerTool(
+      const reg = mc.registerTool(
         {
           name,
-          description: tool.description,
+          description: tool.description ?? "",
           inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
           execute: async (args) => {
             if (opts.confirm && !(await opts.confirm({ server, tool, args }))) {
@@ -95,6 +155,8 @@ export function bridgeToWebMCP(client: MCPClient, server: string, opts: BridgeOp
         },
         { signal: ctrl.signal },
       );
+      // Native registerTool returns Promise<void> and rejects (e.g. duplicate name); don't leak it.
+      if (reg && typeof (reg as Promise<unknown>).catch === "function") (reg as Promise<unknown>).catch(() => {});
     }
   };
 
@@ -131,16 +193,35 @@ export function webMcpToolServer(modelContext?: ModelContext): ConnectionConfig 
           tools: tools.map((t) => ({
             name: t.name,
             description: t.description,
-            inputSchema: (t.inputSchema ?? { type: "object" }) as { type: "object" },
+            inputSchema: normalizeSchema(t.inputSchema),
           })),
         };
       });
 
       server.setRequestHandler("tools/call", async (req): Promise<CallToolResult> => {
-        if (!mc.executeTool) throw new Error("this WebMCP host does not support executeTool");
-        const out = await mc.executeTool(req.params.name, (req.params.arguments as Record<string, unknown>) ?? {});
-        if (out && typeof out === "object" && "content" in out) return out as CallToolResult;
-        return { content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out ?? null) }] };
+        const name = req.params.name;
+        const args = (req.params.arguments as Record<string, unknown>) ?? {};
+        const tool = ((await mc.getTools?.()) ?? []).find((t) => t.name === name);
+
+        // Legacy shape: the host's tools carry `execute`, and `executeTool(name, args)` (if any) takes a name.
+        if (tool && typeof tool.execute === "function") {
+          const out = mc.executeTool ? await mc.executeTool(name, args) : await tool.execute(args);
+          return toCallToolResult(out, false);
+        }
+        // Native / @mcp-b/global 5.1: executeTool(RegisteredTool, JSON string) → JSON string | null.
+        if (tool && mc.executeTool) {
+          return toCallToolResult(await mc.executeTool(tool, JSON.stringify(args)), true);
+        }
+        // Deprecated testing shim: executeTool(name, JSON string).
+        const testing = modelContextTesting();
+        if (testing?.executeTool) {
+          return toCallToolResult(await testing.executeTool(name, JSON.stringify(args)), true);
+        }
+        if (!tool && mc.executeTool) {
+          // Unknown to getTools (host without discovery): try the legacy name form.
+          return toCallToolResult(await mc.executeTool(name, args), false);
+        }
+        throw new Error(tool ? "this WebMCP host does not support executeTool" : `unknown WebMCP tool "${name}"`);
       });
 
       void server.connect(serverT);
