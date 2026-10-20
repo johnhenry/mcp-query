@@ -15,7 +15,7 @@
 // module scope, in whichever file actually needs it.)
 
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { resolveHttpUpstream } from "./upstream-http.js";
 import type { ConnectionConfig } from "@johnhenry/mcp-query";
 import type { ChildProcess } from "node:child_process";
 import type { GateUpstream } from "./config.js";
@@ -77,12 +77,5 @@ export function resolveUpstream(upstream: GateUpstream): ConnectionConfig {
         new ReapingStdioTransport({ command, args, ...(env ? { env: { ...getDefaultEnvironment(), ...env } } : {}) }),
     };
   }
-  const { url, headers, getToken } = upstream;
-  return {
-    transport: () =>
-      new StreamableHTTPClientTransport(new URL(url), {
-        ...(headers ? { requestInit: { headers } } : {}),
-        ...(getToken ? { authProvider: { token: async () => getToken() } } : {}),
-      }),
-  };
+  return resolveHttpUpstream(upstream);
 }
