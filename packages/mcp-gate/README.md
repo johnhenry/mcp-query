@@ -211,8 +211,8 @@ gate.approvals!.subscribe(() => {
 - `ApprovalRequest` (what `handler` receives): `{ id, kind, server, target, args?, destructive, readOnly, context? }` -
   `target` is the upstream's own tool name (un-namespaced).
 
-Browser note: approval lives in the Node entry only (`createGate`); the browser entry still exports
-`compilePolicy`, which now returns `"approve"` for `approve` rules.
+Browser note: approval works in `createGateClient` too (see "Browser usage"); only the gateway
+`Server` and stdio upstreams are Node-only.
 
 ## Multi-tenancy
 
@@ -276,15 +276,36 @@ Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(polic
 
 ### Browser usage
 
-`createGate`/`resolveUpstream` actually spawn/connect an upstream MCP server process, so they
-only make sense in Node — but `compilePolicy`, `redact`, `policyListFilter`, and
-`validateGateConfig` are pure logic with no such dependency, and are genuinely useful client-side
-(e.g. a policy/redaction-rule preview in a config-authoring dashboard). A bundler that sets the
-`browser` condition (Vite, webpack, esbuild `--platform=browser` all do this by default for a
-client build) resolves `import ... from "@johnhenry/mcp-gate"` to a subset entry exposing exactly
-those four functions plus the pure types — with zero Node-only imports anywhere in its graph, so
-it builds and runs in a browser bundle. `createGate`/`resolveUpstream` aren't part of that subset;
-use them from a Node-run process as usual.
+`createGate`/`resolveUpstream` spawn processes and serve a gateway `Server`, so they are
+Node-only. A bundler that sets the `browser` condition (Vite, webpack, esbuild
+`--platform=browser` do by default) resolves `@johnhenry/mcp-gate` to a browser-safe entry with
+zero Node-only imports in its graph (a test bundles it for a browser platform and fails on any
+`node:` builtin):
+
+- `createGateClient(config)`: **library mode in the browser.** The full governed interceptor
+  stack (policy, approval, circuit breaker, rate limit, redaction, audit) around an `MCPClient`,
+  with no gateway server. Upstreams are a `ConnectionConfig` (any transport factory, for example
+  a WebSocket bridge) or an `{ url }` Streamable HTTP spec; a stdio `{ command }` spec throws.
+  Returns `{ client, approvals, addUpstream, removeUpstream, updateUpstream, close }`.
+- `compilePolicy`, `policyListFilter`, `policyListAnnotator`, `validateGateConfig`.
+- `redact(rules)` (the interceptor) and `redactValue(rules, value)` (redact any string, array
+  or object directly, for example before saving a recorded session).
+- `resolveHttpUpstream`, `CircuitOpenError`, and the config types.
+
+The pieces are also importable on their own, loading nothing else:
+`@johnhenry/mcp-gate/policy` (policy compiler) and `@johnhenry/mcp-gate/redact` (redactors).
+
+```ts
+import { createGateClient, redactValue } from "@johnhenry/mcp-gate";
+
+const gate = await createGateClient({
+  upstreams: { docs: { url: "https://example.com/mcp" } },
+  policy: { denyDestructive: true, approve: ["docs.publish_*"] },
+  approval: { timeoutMs: 60_000 },       // pending approvals appear in gate.approvals.list()
+  redact: [{ pattern: /sk-[a-z0-9]+/g }],
+});
+await gate.client.callTool("search", { q: "hello" });
+```
 
 ## MCP SDK versions
 

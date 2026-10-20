@@ -2,29 +2,23 @@
 // (with an interceptor stack: authorize → approve → circuit-break → rate-limit → redact) behind a
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
-import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry } from "@johnhenry/mcp-query";
-import { authorize, createGateway, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
-import { redact } from "./redact.js";
-import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
-import { createApproval } from "./approval.js";
+import type { InteractionBroker } from "@johnhenry/mcp-query";
+import { createGateway } from "@johnhenry/mcp-query/server";
+import { policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
+import { buildGateClient } from "./client.js";
 import { resolveUpstream } from "./upstream.js";
-import { validateGateConfig, validateGateUpstream } from "./validate.js";
+import { validateGateUpstream } from "./validate.js";
+import type { MCPClient } from "@johnhenry/mcp-query";
 
 export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule } from "./redact.js";
-export { redact } from "./redact.js";
+export { redact, redactValue } from "./redact.js";
 export { compilePolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
+export { resolveHttpUpstream } from "./upstream-http.js";
+export { createGateClient, type GateClient } from "./client.js";
 export { validateGateConfig } from "./validate.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
-
-/**
- * Per-(server, tenant) keying for rateLimit()/circuitBreaker() — mcp-query's own defaults key
- * by `op.peer` alone (server-only). With no partition ever set (before partitionFrom
- * populates one), every key collapses to `${server}::`, identical across all tenants —
- * so an unconfigured gate behaves exactly like the un-tenant-aware default.
- */
-const tenantKey = (op: Operation) => `${op.peer}::${op.context?.partition ?? ""}`;
 
 export interface Gate {
   /** The gateway re-server (a v2-SDK Server — mcp-query moved to @modelcontextprotocol/server). Connect it to a transport (stdio / Streamable HTTP) to serve it — optional, see "library mode" in the README. */
@@ -44,55 +38,8 @@ export interface Gate {
 
 /** Build (and connect) a gate from config. Connect `gate.server` to a transport to serve. */
 export async function createGate(config: GateConfig): Promise<Gate> {
-  validateGateConfig(config); // fail loudly on typo'd keys / malformed upstreams before anything connects
-
-  const partitionFrom = config.partitionFrom ?? ((meta: Record<string, unknown> | undefined) => meta?.partition as string | undefined);
-  const populatePartition: RequestInterceptor = (op, next) => {
-    if (op.context?.partition === undefined) {
-      const p = partitionFrom(op.context?.meta as Record<string, unknown> | undefined);
-      if (p !== undefined) op.context = { ...op.context, partition: p };
-    }
-    return next(op);
-  };
-
-  // Order is the onion (outermost first): resolve tenant, deny early, protect, then redact the result.
-  const interceptors: RequestInterceptor[] = [populatePartition];
-  // Approval is resolved inside authorize()'s own slot (an "approve" verdict calls onApprove),
-  // i.e. after allow/deny and before circuit-break/rate-limit/redact: a denied call never
-  // reaches a human, and a human wait doesn't hold a rate-limit slot or feed the breaker.
-  const approval = config.approval ? createApproval(config.approval) : undefined;
-  if (config.policy) interceptors.push(authorize(compilePolicy(config.policy), { onApprove: approval?.onApprove }));
-  const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
-  if (cb) interceptors.push(cb.interceptor);
-  const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;
-  if (rl) interceptors.push(rl.interceptor);
-  if (config.redact?.length) interceptors.push(redact(config.redact));
-
-  const rawAudit: (entry: CallAuditEntry) => unknown =
-    config.audit ?? ((e) => console.error(`[gate] ${e.principal ?? "-"} ${e.kind} ${e.server}.${e.target} -> ${e.outcome}`));
-  // mcp-query calls onCall fire-and-forget (not awaited — see the "audit" TSDoc on GateConfig for
-  // the full contract); this wrapper only adds crash-safety, catching a sync throw or an
-  // async rejection so a broken audit sink can't take down the process or produce an
-  // unhandled rejection. It cannot make the operation wait on audit completion.
-  const onCall = (entry: CallAuditEntry) => {
-    try {
-      const r = rawAudit(entry);
-      if (r && typeof (r as PromiseLike<unknown>).then === "function") {
-        Promise.resolve(r).catch((e) => console.error("[gate] audit callback rejected:", e));
-      }
-    } catch (e) {
-      console.error("[gate] audit callback threw:", e);
-    }
-  };
-
-  const client = new MCPClient({
-    // Declarative `{command}`/`{url}` specs get their transport factory built here.
-    servers: Object.fromEntries(Object.entries(config.upstreams).map(([name, up]) => [name, resolveUpstream(up)])),
-    interceptors,
-    onCall,
-    clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.4.0", title: "MCP Gate" },
-  });
-  await client.connect();
+  const parts = await buildGateClient(config, resolveUpstream);
+  const { client } = parts;
 
   const server = createGateway(client, {
     namespace: config.namespace ?? true,
@@ -110,8 +57,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
   };
   const removeUpstream = async (name: string) => {
     await client.removeServer(name); // no-op if `name` doesn't exist
-    rl?.dropServer(name);
-    cb?.dropServer(name);
+    parts.dropServer(name);
     // Unlike addServer, removeServer doesn't fire capability-changed itself — push explicitly.
     await Promise.all([server.sendToolListChanged(), server.sendResourceListChanged(), server.sendPromptListChanged()].map((p) => p.catch(() => {})));
   };
@@ -126,7 +72,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     addUpstream,
     removeUpstream,
     updateUpstream,
-    approvals: approval?.broker,
+    approvals: parts.approvals,
     close: async () => {
       await server.close().catch(() => {});
       await client.close();

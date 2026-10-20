@@ -38,6 +38,15 @@ function redactDeep(value: unknown, rules: Compiled[]): unknown {
   return value;
 }
 
+/**
+ * Redact a value (string, array, plain object, nested) with the same rules the `redact`
+ * interceptor applies to results. Pure and synchronous: e.g. scrub a recorded cassette or a
+ * log payload before it is stored (#65).
+ */
+export function redactValue<T = unknown>(rules: RedactRule[], value: T): T {
+  return redactDeep(value, compile(rules)) as T;
+}
+
 export function redact(rules: RedactRule[]): RequestInterceptor {
   const compiled = compile(rules);
   return async (op, next) => redactDeep(await next(op), compiled);
