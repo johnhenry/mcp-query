@@ -261,6 +261,93 @@ moment the server is added and its lists load. The trade-off is that a typo'd se
 renders an empty list rather than an error -- if you want strictness, call `client.listTools(name)`
 yourself (it throws), or check `client.connection(name)`.
 
+## In the browser
+
+mcp-query runs in a page. Two ways to reach a server, and one way to load the library.
+
+### Streamable HTTP (direct)
+
+`StreamableHTTPClientTransport` (re-exported from `@johnhenry/mcp-query/browser` and `/transports`)
+uses `fetch`, so a browser can talk to any HTTP MCP server that sends CORS headers. The server
+(or its reverse proxy) must:
+
+- answer `OPTIONS` preflights with `204`;
+- allow the request headers the transport sends: `Content-Type`, `Accept`, `Authorization`,
+  `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`;
+- allow methods `GET, POST, DELETE, OPTIONS`;
+- **expose** `Mcp-Session-Id` (and `Mcp-Protocol-Version`) so the page can read them. Without
+  `Access-Control-Expose-Headers` the session id is invisible to script and the connection
+  breaks after `initialize`;
+- send `Access-Control-Allow-Origin` for your origin only (check it against an allowlist; do
+  not reflect arbitrary origins).
+
+`mcpCorsHeaders(origin)`, `MCP_CORS_ALLOW_HEADERS` and `MCP_CORS_EXPOSE_HEADERS` (from
+`@johnhenry/mcp-query/bridge`) give you exactly that set to attach to your responses.
+
+```ts
+import { MCPClient, StreamableHTTPClientTransport } from "@johnhenry/mcp-query/browser";
+const client = new MCPClient({
+  servers: { docs: { transport: () => new StreamableHTTPClientTransport(new URL("https://mcp.example.com/mcp")) } },
+});
+```
+
+### stdio servers through a WebSocket bridge
+
+A page cannot spawn a process. A small local **bridge** accepts a WebSocket and dials the real
+server (stdio, Streamable HTTP or SSE). `WebSocketBridgeTransport` is the browser side;
+`startBridge` (`@johnhenry/mcp-query/bridge/server`, Node, optional peer `ws`) is a reference
+bridge, and the wire protocol below is the contract for any other implementation.
+
+```ts
+// Node, next to the user's machine
+import { startBridge } from "@johnhenry/mcp-query/bridge/server";
+const bridge = await startBridge({ port: 6280, token: "…", allowOrigins: ["https://app.example"],
+  allowTarget: (t) => t.transport === "stdio" && t.command === "my-mcp-server" });
+
+// Browser
+import { MCPClient, WebSocketBridgeTransport } from "@johnhenry/mcp-query/browser";
+const client = new MCPClient({ servers: { local: { transport: () =>
+  new WebSocketBridgeTransport("ws://127.0.0.1:6280", token, { transport: "stdio", command: "my-mcp-server" }) } } });
+```
+
+**Protocol.** Connect to `ws://host:port/?token=<bearer>`; a wrong token or disallowed `Origin`
+closes the socket with code `1008`. All frames are text, one JSON object each:
+
+| Direction | Frame | Meaning |
+| --- | --- | --- |
+| client to bridge | `{"control":{"connect":TargetSpec}}` | Dial the target. First frame, once per socket. |
+| client to bridge | `{"msg":<JSON-RPC>}` | Forward to the target. |
+| client to bridge | `{"control":{"close":true}}` | Close the target. |
+| bridge to client | `{"control":{"connected":true}}` | Target is up. |
+| bridge to client | `{"control":{"failed":true},"error":"…"}` | Dial failed or refused; the socket then closes. |
+| bridge to client | `{"msg":<JSON-RPC>}` | A message from the target. |
+| bridge to client | `{"error":"…"}` | Non-fatal transport error. |
+| bridge to client | `{"control":{"closed":true}}` | Target closed; the socket then closes. |
+
+`TargetSpec` is `{ transport: "stdio"|"http"|"sse", command?, args?, env?, url?, direct? }`.
+Because a `connect` frame makes the bridge spawn a command, the reference server binds to
+`127.0.0.1`, requires the token, accepts only localhost origins unless `allowOrigins` is set,
+and takes an `allowTarget` allowlist. Types: `TargetSpec`, `ClientFrame`, `BridgeFrame`.
+
+### One file, no peer dependencies
+
+`@johnhenry/mcp-query/bundle` is a single self-contained ES module (the client, cache,
+interceptors, HTTP/SSE/in-memory/bridge transports, `authorize`/`rateLimit`/`circuitBreaker`;
+the MCP SDK and `zod` are inlined). Importing it makes no further requests, so a host can pin
+and vendor it, and it avoids nested `node_modules` and hoisting problems on CDNs. It has no
+React and no stdio. `@johnhenry/mcp-query/browser` is the same API un-bundled, for bundlers.
+
+| File | Bytes | gzip | brotli |
+| --- | ---: | ---: | ---: |
+| `dist/bundle/mcp-query.min.js` (`/bundle`) | 358,982 | 96,823 | 82,400 |
+| `dist/bundle/mcp-query.js` (`/bundle.dev`) | 748,609 | 158,714 | 125,316 |
+
+`npm run build` regenerates the bundle and `dist/bundle/sizes.json`.
+
+The bundle carries its own copy of the MCP SDK. Do not mix its `MCPClient` with transports
+or servers constructed from a separately installed `@modelcontextprotocol/client`; take
+transports from the bundle's exports.
+
 ## What's deliberately *not* here (and why)
 
 - **Normalized caching.** No global object identity in MCP results → impossible to do

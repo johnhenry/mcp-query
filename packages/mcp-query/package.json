@@ -65,6 +65,24 @@
     "./otel": {
       "types": "./dist/otel/index.d.ts",
       "default": "./dist/otel/index.js"
+    },
+    "./bridge": {
+      "types": "./dist/bridge/index.d.ts",
+      "default": "./dist/bridge/index.js"
+    },
+    "./bridge/server": {
+      "types": "./dist/bridge/server.d.ts",
+      "default": "./dist/bridge/server.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./bundle": {
+      "default": "./dist/bundle/mcp-query.min.js"
+    },
+    "./bundle.dev": {
+      "default": "./dist/bundle/mcp-query.js"
     }
   },
   "bin": {
@@ -72,7 +90,7 @@
     "mcp-query-inspect": "dist/cli/inspect.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js",
+    "build": "tsc -p tsconfig.build.json && node scripts/bundle.mjs && chmod +x dist/codegen/cli.js dist/cli/inspect.js",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -93,13 +111,17 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@opentelemetry/api": "^1.9.0",
-    "react": "^19.2.7"
+    "react": "^19.2.7",
+    "ws": "^8.18.0"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
     },
     "@opentelemetry/api": {
+      "optional": true
+    },
+    "ws": {
       "optional": true
     }
   },
@@ -115,12 +137,15 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.17",
+    "@types/ws": "^8.5.13",
     "@vitest/coverage-v8": "^4.1.9",
+    "esbuild": "^0.28.1",
     "happy-dom": "^20.10.6",
     "react": "^19.2.7",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "ws": "^8.18.0"
   },
   "publishConfig": {
     "access": "public",
