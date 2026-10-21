@@ -16,10 +16,10 @@
 // validate, client, upstream-http, approval) — the browser test bundles this entry for a
 // browser platform and fails if any `node:` builtin or Node-only package sneaks in.
 
-export type { GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
-export type { RedactRule } from "./redact.js";
+export type { GateConfig, GatePolicy, GatePolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { RedactRule, RedactOptions } from "./redact.js";
 export { redact, redactValue } from "./redact.js";
-export { compilePolicy, policyListAnnotator, policyListFilter } from "./config.js";
+export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { validateGateConfig } from "./validate.js";
 export { createGateClient } from "./client.js";
 export type { GateClient } from "./client.js";

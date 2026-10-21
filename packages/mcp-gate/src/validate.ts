@@ -106,11 +106,19 @@ function validateRedact(redact: unknown): void {
   redact.forEach((rule, i) => {
     const where = `redact rule #${i}`;
     if (!isRecord(rule)) fail(`${where} must be an object { pattern, replacement? } (got ${typeOf(rule)})`);
-    checkKeys(rule, ["pattern", "replacement"], where);
+    checkKeys(rule, ["pattern", "replacement", "flags"], where);
     if (rule.pattern === undefined) fail(`${where} is missing required key "pattern"`);
     if (typeof rule.pattern !== "string" && !(rule.pattern instanceof RegExp))
       fail(`"pattern" in ${where} must be a RegExp or string (got ${typeOf(rule.pattern)})`);
     checkType(rule, "replacement", "a string", aString, where);
+    checkType(rule, "flags", "a string", aString, where);
+    if (typeof rule.flags === "string") {
+      try {
+        new RegExp(typeof rule.pattern === "string" ? rule.pattern : rule.pattern.source, rule.flags);
+      } catch {
+        fail(`"flags" in ${where} is not valid for its pattern (got ${JSON.stringify(rule.flags)})`);
+      }
+    }
   });
 }
 

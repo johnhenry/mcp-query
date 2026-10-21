@@ -134,6 +134,23 @@ Globs use `*` as a wildcard. Name-based denials (`deny`/`allow`) are **also appl
 and prompt *listings***, so the agent never discovers a tool it can't call. `denyDestructive`
 is enforced at **call time only** (the listing filter doesn't carry tool annotations).
 
+#### Policy and redact options (embedders)
+
+`compilePolicy`, `policyListFilter` and `policyListAnnotator` take an optional options object
+(also exported from `@johnhenry/mcp-gate/policy`); every default is the behaviour above.
+
+- `emptyAllow: "deny" | "ignore"` (default `"deny"`): `allow: []` denies everything; `"ignore"`
+  treats an empty list as no allow list.
+- `scope: "qualified" | "tool" | { [server]: scope }` (default `"qualified"`): `"tool"` matches
+  globs against the bare tool name instead of `server.tool`; a map sets it per server.
+- `explainPolicy(policy, options?)` is `compilePolicy` returning `{ decision, rule? }`, where
+  `rule` is `{ list: "deny" | "approve" | "allow" | "denyDestructive", glob? }`: the list (and
+  glob as written) that decided. `rule` is absent when the default applied; an allow-list miss
+  is `{ list: "allow" }` with no glob.
+- Redact rules accept `flags` (`g`, `i`, `m`, `s`, `u`, ...; `g` is always added; a RegExp
+  pattern's own flags are replaced), and `redact(rules, { defaultReplacement })` /
+  `redactValue(rules, value, { defaultReplacement })` change the `"[REDACTED]"` default.
+
 ## How it maps to mcp-query
 
 `createGate(config)` builds the interceptor onion (outermost first) and serves it:
@@ -269,7 +286,7 @@ await gate.close();
 
 `gate.approvals` is the `InteractionBroker` holding pending approvals (set when `config.approval` is).
 
-Also exported: `redact(rules)`, `compilePolicy(policy)`, `policyListFilter(policy)`,
+Also exported: `redact(rules)`, `compilePolicy(policy)`, `explainPolicy(policy)`, `policyListFilter(policy)`,
 `resolveUpstream(spec)` (declarative spec → `ConnectionConfig`), `validateGateConfig(config)`,
 `CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `ApprovalConfig` / `ApprovalRequest` / `GateUpstream` / `StdioUpstreamSpec` /
 `HttpUpstreamSpec` / `RedactRule` types.

@@ -10,10 +10,10 @@ import { resolveUpstream } from "./upstream.js";
 import { validateGateUpstream } from "./validate.js";
 import type { MCPClient } from "@johnhenry/mcp-query";
 
-export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
-export type { RedactRule } from "./redact.js";
+export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { RedactRule, RedactOptions } from "./redact.js";
 export { redact, redactValue } from "./redact.js";
-export { compilePolicy, policyListAnnotator, policyListFilter } from "./config.js";
+export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
