@@ -184,20 +184,89 @@ function globToRe(glob: string): RegExp {
   return new RegExp("^" + glob.split("*").map(escapeRe).join(".*") + "$");
 }
 
-/** Turn a declarative policy (or pass a function through) into an authorize() policy. */
-export function compilePolicy(policy: GatePolicy): (req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict> {
-  if (typeof policy === "function") return policy;
-  const allow = policy.allow?.map(globToRe);
-  const deny = policy.deny?.map(globToRe);
-  const approve = policy.approve?.map(globToRe);
+/** What a glob is matched against: the `server.tool` id (default) or the bare tool name. */
+export type PolicyScope = "qualified" | "tool";
+
+/** Additive options for the declarative policy compilers; the defaults are the original behaviour. */
+export interface PolicyOptions {
+  /**
+   * `allow: []`: `"deny"` (default) denies every tool; `"ignore"` treats an empty list as no
+   * allow list (for UIs where clearing the list shouldn't lock everything out).
+   */
+  emptyAllow?: "deny" | "ignore";
+  /**
+   * What globs match: `"qualified"` (default) the `server.tool` id, or `"tool"` the bare tool
+   * name. A server-name map (`{ fs: "tool" }`) sets it per server; unlisted servers stay `"qualified"`.
+   */
+  scope?: PolicyScope | Record<string, PolicyScope>;
+}
+
+/** Which rule decided a verdict: the policy list, and the glob that matched (absent for `denyDestructive` and an allow-list miss). */
+export interface PolicyRule {
+  list: "deny" | "approve" | "allow" | "denyDestructive";
+  glob?: string;
+}
+
+/** A verdict plus the rule that produced it; `rule` is absent when the default (allow) applied. */
+export interface PolicyDecision {
+  decision: AuthzVerdict;
+  rule?: PolicyRule;
+}
+
+function idFor(options: PolicyOptions | undefined, server: string, name: string): string {
+  const sc = options?.scope;
+  const scope = typeof sc === "object" && sc !== null ? (Object.hasOwn(sc, server) ? sc[server] : undefined) : sc;
+  return scope === "tool" ? name : `${server}.${name}`;
+}
+
+/** Compile an allow list honouring `emptyAllow`; undefined means "no allow list". */
+function compileAllow(policy: GatePolicyRules, options?: PolicyOptions): { glob: string; re: RegExp }[] | undefined {
+  if (!policy.allow) return undefined;
+  if (policy.allow.length === 0 && options?.emptyAllow === "ignore") return undefined;
+  return policy.allow.map((glob) => ({ glob, re: globToRe(glob) }));
+}
+
+const compileList = (globs?: string[]) => globs?.map((glob) => ({ glob, re: globToRe(glob) }));
+
+/**
+ * Like `compilePolicy`, but each result is `{ decision, rule? }`: the verdict plus which
+ * list (and glob) decided it. `rule` is absent when the default applied. A function policy
+ * yields `{ decision }` only.
+ */
+export function explainPolicy(
+  policy: GatePolicy,
+  options?: PolicyOptions,
+): (req: AuthzRequest) => PolicyDecision | Promise<PolicyDecision> {
+  if (typeof policy === "function") {
+    return (req) => {
+      const v = policy(req);
+      return v instanceof Promise ? v.then((decision) => ({ decision })) : { decision: v };
+    };
+  }
+  const allow = compileAllow(policy, options);
+  const deny = compileList(policy.deny);
+  const approve = compileList(policy.approve);
   return (req) => {
-    const id = `${req.server}.${req.target}`;
-    if (deny?.some((re) => re.test(id))) return "deny";
-    if (policy.denyDestructive && req.destructive) return "deny";
-    if (allow && !allow.some((re) => re.test(id))) return "deny";
-    if (approve?.some((re) => re.test(id))) return "approve";
-    return "allow";
+    const id = idFor(options, req.server, req.target);
+    const denied = deny?.find((r) => r.re.test(id));
+    if (denied) return { decision: "deny", rule: { list: "deny", glob: denied.glob } };
+    if (policy.denyDestructive && req.destructive) return { decision: "deny", rule: { list: "denyDestructive" } };
+    let allowed: { glob: string } | undefined;
+    if (allow) {
+      allowed = allow.find((r) => r.re.test(id));
+      if (!allowed) return { decision: "deny", rule: { list: "allow" } };
+    }
+    const ask = approve?.find((r) => r.re.test(id));
+    if (ask) return { decision: "approve", rule: { list: "approve", glob: ask.glob } };
+    return allowed ? { decision: "allow", rule: { list: "allow", glob: allowed.glob } } : { decision: "allow" };
   };
+}
+
+/** Turn a declarative policy (or pass a function through) into an authorize() policy. */
+export function compilePolicy(policy: GatePolicy, options?: PolicyOptions): (req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict> {
+  if (typeof policy === "function") return policy;
+  const explain = explainPolicy(policy, options) as (req: AuthzRequest) => PolicyDecision;
+  return (req) => explain(req).decision;
 }
 
 /**
@@ -209,14 +278,15 @@ export function compilePolicy(policy: GatePolicy): (req: AuthzRequest) => AuthzV
 export function policyListFilter(
   policy: GatePolicy,
   discovery: ApprovalConfig["discovery"] = "visible",
+  options?: PolicyOptions,
 ): ((server: string, kind: "tool" | "resource" | "prompt", name: string) => boolean) | undefined {
   if (typeof policy === "function") return undefined;
-  const allow = policy.allow?.map(globToRe);
+  const allow = compileAllow(policy, options)?.map((r) => r.re);
   const deny = policy.deny?.map(globToRe);
   const hideApprove = discovery === "hidden" ? policy.approve?.map(globToRe) : undefined;
   if (!allow && !deny && !hideApprove?.length) return undefined;
   return (server, _kind, name) => {
-    const id = `${server}.${name}`;
+    const id = idFor(options, server, name);
     if (deny?.some((re) => re.test(id))) return false;
     if (allow && !allow.some((re) => re.test(id))) return false;
     if (hideApprove?.some((re) => re.test(id))) return false;
@@ -232,8 +302,9 @@ export function policyListFilter(
 export function policyListAnnotator(
   policy: GatePolicy,
   discovery: ApprovalConfig["discovery"] = "visible",
+  options?: PolicyOptions,
 ): ((server: string, kind: "tool" | "resource" | "prompt", name: string) => Record<string, unknown> | undefined) | undefined {
   if (typeof policy === "function" || discovery !== "annotated" || !policy.approve?.length) return undefined;
   const approve = policy.approve.map(globToRe);
-  return (server, _kind, name) => (approve.some((re) => re.test(`${server}.${name}`)) ? { requiresApproval: true } : undefined);
+  return (server, _kind, name) => (approve.some((re) => re.test(idFor(options, server, name))) ? { requiresApproval: true } : undefined);
 }
