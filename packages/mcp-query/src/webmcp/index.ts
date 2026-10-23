@@ -21,6 +21,8 @@ import type { Tool } from "../core/types.js";
 // ── minimal structural view of the WebMCP API (the real one is an evolving global) ──
 export interface WebMCPToolDef {
   name: string;
+  title?: string;
+  annotations?: Record<string, unknown>;
   description?: string;
   inputSchema?: Record<string, unknown>;
   execute: (args: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -36,6 +38,7 @@ export interface WebMCPToolInfo {
   name: string;
   title?: string;
   description?: string;
+  annotations?: Record<string, unknown>;
   inputSchema?: Record<string, unknown> | string;
   execute?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   [extra: string]: unknown;
@@ -52,6 +55,9 @@ export interface ModelContext {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   executeTool?(tool: any, input: any, options?: { signal?: AbortSignal }): unknown | Promise<unknown>;
+  /** Optional change signalling: a `toolchange` event fires when the tool set changes. */
+  addEventListener?(type: string, listener: () => void): void;
+  removeEventListener?(type: string, listener: () => void): void;
 }
 
 /** Deprecated `navigator.modelContextTesting` shim: `executeTool(name, inputArgsJson)` → JSON string | null. */
@@ -192,8 +198,10 @@ export function webMcpToolServer(modelContext?: ModelContext): ConnectionConfig 
         return {
           tools: tools.map((t) => ({
             name: t.name,
+            ...(typeof t.title === "string" ? { title: t.title } : {}),
             description: t.description,
             inputSchema: normalizeSchema(t.inputSchema),
+            ...(t.annotations && typeof t.annotations === "object" ? { annotations: t.annotations } : {}),
           })),
         };
       });
@@ -223,6 +231,15 @@ export function webMcpToolServer(modelContext?: ModelContext): ConnectionConfig 
         }
         throw new Error(tool ? "this WebMCP host does not support executeTool" : `unknown WebMCP tool "${name}"`);
       });
+
+      // Announce tool-set changes; the listener lives as long as the transport.
+      if (mc.addEventListener) {
+        const onChange = () => {
+          void server.sendToolListChanged().catch(() => {});
+        };
+        mc.addEventListener("toolchange", onChange);
+        server.onclose = () => mc.removeEventListener?.("toolchange", onChange);
+      }
 
       void server.connect(serverT);
       return clientT;
