@@ -1,5 +1,12 @@
 # @johnhenry/mcp-query-ui
 
+## 2.0.0
+
+### Patch Changes
+
+- Updated dependencies [999aba4]
+  - @johnhenry/mcp-query@0.5.0
+
 ## 1.0.0
 
 ### Patch Changes
