@@ -1,5 +1,11 @@
 # @johnhenry/mcp-query
 
+## 0.4.0
+
+### Minor Changes
+
+- 899de5b: `webMcpToolServer` now passes `annotations` and `title` from `getTools()` descriptors through to `tools/list`, and sends `notifications/tools/list_changed` when the model context fires a `toolchange` event (the listener is removed when the transport closes).
+
 ## 0.3.2
 
 ### Patch Changes
