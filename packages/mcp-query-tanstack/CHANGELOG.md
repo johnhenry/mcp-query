@@ -1,5 +1,12 @@
 # @johnhenry/mcp-query-tanstack
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [899de5b]
+  - @johnhenry/mcp-query@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes

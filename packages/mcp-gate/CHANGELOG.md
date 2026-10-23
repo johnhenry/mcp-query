@@ -1,5 +1,12 @@
 # @johnhenry/mcp-gate
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [899de5b]
+  - @johnhenry/mcp-query@0.4.0
+
 ## 0.6.0
 
 ### Minor Changes
