@@ -178,6 +178,13 @@ export interface QueryToolOpts {
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
+  /**
+   * Cancel THIS caller's wait. The caller's promise rejects with an `AbortError`; the
+   * underlying request (possibly de-duplicated with other callers' / observers') is
+   * cancelled only once every caller waiting on it has aborted (reference-counted).
+   * An already-aborted signal rejects immediately without starting a request.
+   */
+  signal?: AbortSignal;
 }
 
 /** Options for task-augmented tool calls (callToolTask). */
@@ -219,6 +226,12 @@ export interface CallToolOpts<A, R> {
   onProgress?: (p: { progress: number; total?: number }) => void;
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
+}
+
+function abortError(signal: AbortSignal): Error {
+  const e = new DOMException("The operation was aborted", "AbortError");
+  (e as { cause?: unknown }).cause = signal.reason;
+  return e;
 }
 
 export class MCPClient {
@@ -1031,7 +1044,9 @@ export class MCPClient {
     args: A,
     opts: QueryToolOpts = {},
   ): Promise<R> {
+    if (opts.signal?.aborted) throw abortError(opts.signal);
     await this.wake(this.hint(name, opts.server));
+    if (opts.signal?.aborted) throw abortError(opts.signal);
     const { server, def } = this.router.resolveTool(name, opts.server);
     const op: Operation = { kind: "query", peer: server, target: def.name, def, args, context: opts.context, state: {} };
     return this.run(op, (o) => this.execQuery<R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
@@ -1042,7 +1057,7 @@ export class MCPClient {
     const key = { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition } as const;
 
     const existing = this.cache.inflight(key);
-    if (existing) return existing as Promise<R>;
+    if (existing) return this.waitOn(existing as Promise<R>, opts.signal);
 
     this.cache.setFetching(key);
     const abort = new AbortController();
@@ -1065,14 +1080,47 @@ export class MCPClient {
         this.l2WriteThrough(key, result, tags, scope);
         return result;
       } catch (err) {
-        this.cache.setError(key, this.toError(err, server, "protocol"));
+        if (abort.signal.aborted) {
+          // Cancelled (every waiter left): not a server error, so don't poison the entry.
+          // Keep any prior data; an entry with nothing to show is dropped.
+          if (this.cache.getSnapshot(key)?.status === "fetching") this.cache.remove(key);
+        } else {
+          this.cache.setError(key, this.toError(err, server, "protocol"));
+        }
         throw err;
       } finally {
         this.cache.setInflight(key, undefined);
       }
     })();
     this.cache.setInflight(key, p, abort);
-    return p;
+    this.waiters.set(p, { count: 0, abort });
+    return this.waitOn(p, opts.signal);
+  }
+
+  /** Waiter bookkeeping for ref-counted cancellation of shared in-flight queries. */
+  private waiters = new WeakMap<Promise<unknown>, { count: number; abort?: AbortController }>();
+
+  private waitOn<R>(p: Promise<R>, signal?: AbortSignal): Promise<R> {
+    let w = this.waiters.get(p);
+    if (!w) {
+      w = { count: 0 };
+      this.waiters.set(p, w);
+    }
+    w.count++;
+    if (!signal) return p; // a signal-less waiter holds the request open until it settles
+    const state = w;
+    return new Promise<R>((resolve, reject) => {
+      const onAbort = () => {
+        if (--state.count === 0) state.abort?.abort();
+        reject(abortError(signal));
+      };
+      if (signal.aborted) return onAbort();
+      signal.addEventListener("abort", onAbort, { once: true });
+      p.then(
+        (v) => (signal.removeEventListener("abort", onAbort), resolve(v)),
+        (e) => (signal.removeEventListener("abort", onAbort), reject(e)),
+      );
+    });
   }
 
   async getPrompt(name: string, args: Record<string, unknown>, server?: string, opts: { context?: CallContext } = {}) {

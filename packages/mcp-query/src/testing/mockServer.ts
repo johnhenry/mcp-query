@@ -55,6 +55,8 @@ export interface MockToolContext {
   progress: (progress: number, total?: number) => void;
   /** The request's `_meta` (per-call context the client attached), if any. */
   meta?: Record<string, unknown>;
+  /** Aborts when the client cancels this request (notifications/cancelled). */
+  signal?: AbortSignal;
 }
 
 export interface MockTool {
@@ -441,6 +443,7 @@ export class MockMCPServer {
         }
       },
       meta: ctx.mcpReq._meta as Record<string, unknown> | undefined,
+      signal: ctx.mcpReq.signal,
     };
 
     try {

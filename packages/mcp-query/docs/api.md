@@ -145,6 +145,8 @@ await client.callTool("fs.write_file", { path: "x", contents: "y" }, {
 
 // read-only tool as a cached query
 await client.queryTool("fs.search", { q: "todo" }, { providesTags: (r) => [/* … */] });
+// per-caller cancel: rejects with AbortError; the shared request is cancelled only when all waiters abort
+await client.queryTool("fs.search", { q: "todo" }, { signal: ac.signal });
 
 // capability lists (kept live by list_changed)
 client.listTools("fs"); client.listResources("fs");
