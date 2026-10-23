@@ -1,5 +1,11 @@
 # @johnhenry/mcp-query-tanstack
 
+## 0.1.1
+
+### Patch Changes
+
+- b9159ef: Republish so `latest` points at the current release (0.1.0 was published under the `rc` tag because of a `publishConfig.tag` pin, now removed).
+
 ## 0.1.0
 
 ### Minor Changes
