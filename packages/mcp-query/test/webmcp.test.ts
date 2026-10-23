@@ -247,3 +247,53 @@ describe("bridgeToWebMCP against native registerTool (Promise<void>)", () => {
     expect(unhandled).not.toHaveBeenCalled();
   });
 });
+
+describe("webMcpToolServer: descriptor metadata and tool-list changes (hosts that gate on annotations)", () => {
+  it("passes annotations and title from getTools() descriptors through to listTools", async () => {
+    const mc = {
+      registerTool: () => undefined,
+      getTools: () => [
+        { name: "wipe", title: "Wipe", description: "d", inputSchema: { type: "object" }, annotations: { destructiveHint: true }, execute: () => "ok" },
+      ],
+    } as unknown as ModelContext;
+    const client = new MCPClient({ servers: { page: webMcpToolServer(mc) } });
+    await client.connect();
+    const [tool] = client.listTools("page");
+    expect(tool!.annotations).toEqual({ destructiveHint: true });
+    expect(tool!.title).toBe("Wipe");
+    await client.close();
+  });
+
+  it("lists a tool without annotations or title cleanly", async () => {
+    const mc = {
+      registerTool: () => undefined,
+      getTools: () => [{ name: "plain", execute: () => "ok" }],
+    } as unknown as ModelContext;
+    const client = new MCPClient({ servers: { page: webMcpToolServer(mc) } });
+    await client.connect();
+    const [tool] = client.listTools("page");
+    expect(tool!.name).toBe("plain");
+    expect(tool!.annotations).toBeUndefined();
+    expect(tool!.title).toBeUndefined();
+    await client.close();
+  });
+
+  it("sends tools/list_changed when the model context fires a toolchange event", async () => {
+    const tools: { name: string; execute: () => string }[] = [{ name: "a", execute: () => "a" }];
+    const et = new EventTarget();
+    const mc = {
+      registerTool: () => undefined,
+      getTools: () => tools,
+      addEventListener: et.addEventListener.bind(et),
+      removeEventListener: et.removeEventListener.bind(et),
+    } as unknown as ModelContext;
+    const client = new MCPClient({ servers: { page: webMcpToolServer(mc) } });
+    await client.connect();
+    expect(client.listTools("page").map((t) => t.name)).toEqual(["a"]);
+    tools.push({ name: "b", execute: () => "b" });
+    et.dispatchEvent(new Event("toolchange"));
+    await tick(50);
+    expect(client.listTools("page").map((t) => t.name)).toEqual(["a", "b"]);
+    await client.close();
+  });
+});
