@@ -11,7 +11,7 @@
 // pass an explicit `--tag latest`, which overrides `publishConfig.tag`.)
 //
 // - Idempotent: a version already on the registry is skipped (exit 0).
-// - Dist-tag: `publishConfig.tag` if set (mcp-query-tanstack -> "rc"), else "rc" for
+// - Dist-tag: `publishConfig.tag` if set (none set for mcp-query-tanstack now), else "rc" for
 //   prerelease versions, else "latest".
 // - On a real publish: creates the local git tag `<name>@<version>` (the format
 //   changesets uses), prints a `New tag:` line (parsed by changesets/action to push

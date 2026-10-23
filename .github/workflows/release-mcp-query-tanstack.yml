@@ -6,8 +6,7 @@ name: Release (mcp-query-tanstack)
 # opened by release.yml) is the release; the tag and GitHub Release are by-products.
 # This file is the npm trusted-publisher entry point for @johnhenry/mcp-query-tanstack -- do not rename it.
 #
-# Dist-tag: this package's `publishConfig.tag` ("rc") keeps it off `latest` until a real
-# stable release (npm otherwise gives a first-ever publish the `latest` tag).
+# Dist-tag: stable versions publish to `latest`, prereleases (containing `-`) to `rc` (scripts/release.mjs).
 on:
   push:
     branches: [main]
