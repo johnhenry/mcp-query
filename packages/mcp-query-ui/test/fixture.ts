@@ -13,6 +13,7 @@ export const APP_URI = "ui://demo/app";
 export async function makeFixture(
   gateExtra: Omit<GateConfig, "upstreams" | "audit"> = {},
   hostOpts: Partial<AppHostOptions> = {},
+  fixtureOpts: { prompts?: boolean } = {},
 ) {
   const ran: Array<{ tool: string; args: unknown }> = [];
   const textTool = (name: string, meta?: Record<string, unknown>) => ({
@@ -38,6 +39,7 @@ export async function makeFixture(
       { uri: "ui://demo/not-html", mimeType: "text/plain", read: () => ({ text: "x" }) },
       { uri: "file:///data.txt", mimeType: "text/plain", read: () => ({ text: "data" }) },
     ],
+    ...(fixtureOpts.prompts ? { prompts: [{ name: "greet", description: "say hi", get: () => ({ messages: [{ role: "user", content: { type: "text", text: "hi" } }] }) }] } : {}),
   });
   const audit = vi.fn();
   const gate = await createGate({ upstreams: { demo: { transport: mock.transport } }, audit, ...gateExtra });

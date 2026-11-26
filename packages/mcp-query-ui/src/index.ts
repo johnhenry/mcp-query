@@ -7,4 +7,4 @@ export { buildAppCsp, sanitizeCsp, isSafeCspSource, applyHostCspDirectives } fro
 export type { CspDomainKind, HostCspOptions, HostPermissionOptions } from "./csp.js";
 export { resolveSandbox, KNOWN_SANDBOX_TOKENS } from "./sandbox.js";
 export type { SandboxOptions, ResolvedSandbox } from "./sandbox.js";
-export type { AppFrameOptions, AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState, AppStatus } from "./types.js";
+export type { AppCapabilityOptions, AppModelContext, AppFrameOptions, AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState, AppStatus } from "./types.js";

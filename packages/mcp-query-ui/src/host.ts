@@ -23,7 +23,7 @@ import {
   sanitizeCsp,
 } from "./csp.js";
 import { createStore } from "./store.js";
-import type { AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState } from "./types.js";
+import type { AppCall, AppHostOptions, AppMessage, AppModelContext, AppResource, AppSessionState } from "./types.js";
 
 export const MCP_APPS_EXTENSION_ID = "io.modelcontextprotocol/ui";
 
@@ -71,11 +71,22 @@ export interface AppHost {
 }
 
 const DENIED_CODE = -32003; // AuthorizationError (mcp-query/server) -- same sentinel client.run() uses for audit
+const DECLINED_CODE = -32001; // InteractionBroker "declined by host"
+
+const denied = (message: string) => Object.assign(new Error(message), { code: DENIED_CODE });
 
 let nextSession = 1;
 
 export function createAppHost(options: AppHostOptions): AppHost {
   const { client, server } = options;
+  const caps = options.appCapabilities ?? {};
+  const broker = options.interactions ?? client.interactions;
+  if (caps.sampling && !broker) {
+    throw new Error("appCapabilities.sampling needs an InteractionBroker so policy or a human approves each request: pass `interactions` or build the client with `interactions`");
+  }
+  if (caps.updateModelContext && !options.onUpdateModelContext) {
+    throw new Error("appCapabilities.updateModelContext needs an `onUpdateModelContext` handler to receive the context");
+  }
   assertHostCspOptions(options.frame?.csp);
   assertHostPermissionOptions(options.frame?.permissions);
   const maxHistory = options.maxHistory ?? 100;
@@ -115,6 +126,8 @@ export function createAppHost(options: AppHostOptions): AppHost {
         serverResources: {},
         message: { text: {} },
         ...(options.onOpenLink ? { openLinks: {} } : {}),
+        ...(caps.sampling ? { sampling: {} } : {}),
+        ...(caps.updateModelContext ? { updateModelContext: { text: {}, structuredContent: {} } } : {}),
         sandbox: { permissions: resource.permissions, csp: resource.csp },
       },
       { hostContext: { ...options.hostContext, sandbox: { permissions: resource.permissions, csp: resource.csp } } as never },
@@ -132,7 +145,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
         return r;
       } catch (e) {
         settle({
-          outcome: (e as { code?: number })?.code === DENIED_CODE ? "denied" : "error",
+          outcome: [DENIED_CODE, DECLINED_CODE].includes((e as { code?: number })?.code as number) ? "denied" : "error",
           error: e instanceof Error ? e.message : String(e),
         });
         throw e;
@@ -152,6 +165,58 @@ export function createAppHost(options: AppHostOptions): AppHost {
 
     bridge.onreadresource = async (params) =>
       track("resource", params.uri, undefined, () => client.readResource(params.uri, { server, context: ctxFor() })) as never;
+
+    // ── Opt-in capabilities (#59). Handlers are ALWAYS installed so a request for a capability that is
+    // off gets a clear refusal (and a `denied` entry in state.calls) rather than "method not found".
+    const peer = `mcp-app:${uri}`;
+    const capGate = async (method: string, payload: Record<string, unknown>): Promise<void> => {
+      if (!broker) return;
+      const { verdict, decision } = await broker.gate(
+        "confirm",
+        peer,
+        { source: "mcp-app", server, uri, method, ...payload },
+        { autoApprove: { action: "approve" }, autoDeny: { action: "deny", reason: "policy" }, timeoutMs: options.approvalTimeoutMs },
+      );
+      if (verdict === "auto-deny" || verdict === "denied") {
+        throw denied(`${method} denied${decision?.reason ? ` (${decision.reason})` : ""}`);
+      }
+    };
+    const guarded = <P, R>(
+      capability: keyof NonNullable<AppHostOptions["appCapabilities"]>,
+      kind: AppCall["kind"],
+      method: string,
+      run: (params: P) => Promise<R>,
+    ) =>
+      async (params: P): Promise<R> => {
+        const args = (params ?? {}) as Record<string, unknown>;
+        return track(kind, method, Object.keys(args).length ? args : undefined, async () => {
+          if (!caps[capability]) {
+            throw denied(`${method} is not enabled for apps on this host (the host must opt in with appCapabilities.${capability})`);
+          }
+          return run(params);
+        });
+      };
+
+    bridge.onlistresources = guarded("resourcesList", "resources-list", "resources/list", async () => {
+      await capGate("resources/list", {});
+      return { resources: client.listResources(server) } as never;
+    }) as never;
+
+    bridge.onlistprompts = guarded("promptsList", "prompts-list", "prompts/list", async () => {
+      await capGate("prompts/list", {});
+      return { prompts: client.listPrompts(server) } as never;
+    }) as never;
+
+    // Sampling goes through the broker's own handleSampling (policy -> human -> model -> optional response review -> audit).
+    bridge.oncreatesamplingmessage = guarded("sampling", "sampling", "sampling/createMessage", async (params: unknown) => {
+      return (await broker!.handleSampling(peer, params)) as never;
+    }) as never;
+
+    bridge.onupdatemodelcontext = guarded("updateModelContext", "model-context", "ui/update-model-context", async (params: AppModelContext) => {
+      await capGate("ui/update-model-context", { update: params });
+      await options.onUpdateModelContext!(params as AppModelContext, sref);
+      return {};
+    }) as never;
 
     bridge.onmessage = async (params) => {
       const message: AppMessage = { id: ++seq, at: Date.now(), role: params.role, content: params.content as unknown[] };
