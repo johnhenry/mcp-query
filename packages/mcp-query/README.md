@@ -77,6 +77,70 @@ offers it, and falls back losslessly to 2025-11-25 (v1) otherwise; a modern-only
 pins (no fallback). Unconfigured connections — and everything installed from `latest`
 today — keep speaking 2025-11-25 byte-for-byte, no probe.
 
+## Browser
+
+### Single-file browser bundle
+
+`@johnhenry/mcp-query/browser-bundle` is one self-contained ES module for hosts that vendor or
+sandbox their dependencies (no nested `node_modules`, no CDN resolution, no peer-dependency
+surprises). The MCP SDK client, `zod`, and `@johnhenry/agent-query-core` are inlined, so a single
+`import` makes a single request:
+
+```js
+import { MCPClient, StreamableHTTPClientTransport, createGateClient } from "/vendor/mcp-query.browser.js";
+// or, through a bundler / import map: "@johnhenry/mcp-query/browser-bundle"
+
+const client = new MCPClient({
+  servers: { api: { transport: () => new StreamableHTTPClientTransport(new URL("https://example.com/mcp")) } },
+});
+await client.connect();
+```
+
+What is inside:
+
+- everything `@johnhenry/mcp-query` exports from its main entry (`MCPClient`, cache, router, interceptors, ...);
+- the browser-safe transports `StreamableHTTPClientTransport`, `SSEClientTransport`, `InMemoryTransport`
+  (the Node-only `StdioClientTransport` is excluded; reach stdio servers through a bridge, below);
+- the browser-safe parts of [`@johnhenry/mcp-gate`](../mcp-gate), its `browser` export condition:
+  `createGateClient`, `compilePolicy`, `explainPolicy`, `policyListAnnotator`, `policyListFilter`,
+  `validateGateConfig`, `redact`, `redactValue`, `resolveHttpUpstream`, `CircuitOpenError`. The gateway
+  `Server` (`createGate`) and stdio upstreams are not included.
+
+What is not: **the React hooks** (`@johnhenry/mcp-query/react`) are not in this bundle. They need your
+app's single copy of `react`, so they stay a normal module import with `react` external; this
+bundle is the framework-free core. Types for the core and transports ship as
+`dist/browser/mcp-query.browser.d.ts`; the gate's types come from `@johnhenry/mcp-gate`.
+
+The existing export paths (`.`, `./react`, `./transports`, ...) resolve exactly as before.
+The bundle is built by `npm run build` (`scripts/build-browser.mjs`, esbuild, minified ESM,
+`es2022`) and checked by `test/browser-bundle.test.ts`, which serves the single file to
+Chromium, intercepts every request to prove nothing else is fetched, constructs an `MCPClient`
+and connects it, plus a governed gate client, over an in-page transport. (The Chromium step needs
+Playwright, which is not a dependency of this repo; it runs when `require("playwright")` resolves or
+`PLAYWRIGHT_MODULE` points at an install, and is skipped otherwise.)
+
+Sizes (regenerate with `npm run size-table -w @johnhenry/mcp-query -- --write`):
+
+<!-- size-table:start -->
+| File | Raw | gzip | brotli |
+| --- | ---: | ---: | ---: |
+| `mcp-query.browser.js` (minified, one file) | 359.4 KiB | 97.1 KiB | 82.9 KiB |
+
+Where the raw bytes come from:
+
+| Inlined package | Raw (minified) |
+| --- | ---: |
+| `@modelcontextprotocol/client` | 190.9 KiB |
+| `zod` | 84.6 KiB |
+| `@johnhenry/mcp-query (core)` | 38.8 KiB |
+| `@modelcontextprotocol/core` | 16.0 KiB |
+| `@johnhenry/mcp-gate (browser parts)` | 10.4 KiB |
+| `@johnhenry/agent-query-core` | 7.8 KiB |
+| `eventsource` | 5.1 KiB |
+| `eventsource-parser` | 3.7 KiB |
+| `pkce-challenge` | 0.7 KiB |
+<!-- size-table:end -->
+
 ## Develop
 
 ```bash
