@@ -1,6 +1,6 @@
 import type { CallContext, MCPClient } from "@johnhenry/mcp-query";
 import type { McpUiAppCapabilities, McpUiHostContext, McpUiResourceCsp, McpUiResourcePermissions } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { CspDomainKind } from "./csp.js";
+import type { CspDomainKind, HostCspOptions, HostPermissionOptions } from "./csp.js";
 
 export type AppStatus = "loading" | "loaded" | "connecting" | "ready" | "closing" | "closed" | "error";
 
@@ -54,6 +54,16 @@ export interface AppResource {
   /** Dedicated sandbox origin the server asked for, if any (informational). */
   domain?: string;
   prefersBorder?: boolean;
+  /** True when the host customised the CSP (`frame.csp`); `cspHeader` then differs from the spec-derived default. */
+  hostCsp?: boolean;
+}
+
+/** Host-owned policy for the app frame (issue #66). Defaults are the spec's; the host may tighten freely, loosening is an explicit `unsafeLoosen` opt-in. */
+export interface AppFrameOptions {
+  /** Extra / overriding CSP directives and host-added domains. See {@link HostCspOptions}. */
+  csp?: HostCspOptions;
+  /** Narrow (or, with `unsafeLoosen`, extend) the Permission-Policy `allow` list / inner `permissions`. See {@link HostPermissionOptions}. */
+  permissions?: HostPermissionOptions;
 }
 
 export interface AppHostOptions {
@@ -70,6 +80,8 @@ export interface AppHostOptions {
    * defaults to `mcp-app:<uri>` so gate audit/approval can tell app-initiated traffic apart.
    */
   context?: CallContext | ((session: { id: string; uri: string }) => CallContext);
+  /** Host-owned CSP / permission policy for the app frame. Sandbox tokens and the iframe element itself are options of `mountIframe`. */
+  frame?: AppFrameOptions;
   /** Host-level allowlist over the CSP domains an app declared. Return false to drop one. */
   allowDomain?: (domain: string, kind: CspDomainKind) => boolean;
   /** Deliver an app's `ui/message`. Return `{ isError: true }` to refuse. Default: accept (it is also in `state.messages`). */

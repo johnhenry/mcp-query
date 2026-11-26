@@ -135,6 +135,28 @@ const host = createAppHost({ client: gate.client, server: "dash" });
   restrictive default (`default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`, `object-src 'none'`).
   `session.resource.csp` is what the proxy must enforce; `session.resource.cspHeader` is the exact header
   value (`buildAppCsp()` is exported for writing a proxy) -- log it for audit.
+- **Host-configurable frame policy (`frame`, `sandbox`, `iframe`).** Defaults above are unchanged. A host
+  (e.g. one with its own CSP and network rules) can tighten them freely and must opt in, by a clearly named
+  `unsafeLoosen` flag, to anything wider:
+
+  | Option | Tighten (free) | Loosen (needs `unsafeLoosen: true`) |
+  |---|---|---|
+  | `createAppHost({ frame: { csp: { directives } } })` | narrow a directive to a subset of what the app declared (`connect-src 'none'`, drop `'unsafe-inline'`), add restrictive-only directives (`form-action`, `frame-ancestors`, `sandbox`, `report-uri`, ...) | widen a directive, add any directive |
+  | `frame.csp.addDomains` | | add sources the app did not declare (refused without the flag) |
+  | `frame.permissions.allow(name)` | drop declared `camera`/`microphone`/`geolocation`/`clipboardWrite` | `frame.permissions.add` grants undeclared ones |
+  | `mountIframe({ sandbox: { inner } })` | any subset of `allow-scripts` (`[]` = inert) | extra inner tokens (`allow-forms`, ...) |
+  | `mountIframe({ sandbox: { extraOuter } })` | (the proxy keeps the spec's `allow-scripts allow-same-origin`) | extra proxy-frame tokens |
+  | `mountIframe({ iframe })` (element or `(doc) => iframe`) | host owns the element (class, styles, ...) | -- |
+
+  Hard rules that no flag lifts: the app-declared CSP is a ceiling (without `unsafeLoosen`, `open()`
+  throws on a directive that would widen it); the sandbox-proxy URL must still be a different origin
+  from the host page; the inner app frame never gets `allow-same-origin` through `sandbox.inner`; a
+  supplied iframe with `srcdoc` is refused and `sandbox`/`allow`/`referrerpolicy`/`src` are always
+  re-stamped after your element is handed over (legacy `allowfullscreen`/`allowpaymentrequest` removed).
+  When directives are set, `session.resource.cspHeader` is the exact final header and `hostCsp` is true;
+  the sandbox page also receives it as an extra `cspHeader` field of `sandbox-resource-ready`
+  (the spec's schema only carries structured `csp`, so a stock proxy ignores it -- apply it in yours).
+  The older `innerSandbox` string still works unchanged; `sandbox.inner` takes precedence when both are set.
 - **Postmessage validation.** The transport only accepts messages whose `event.source` is the sandbox
   iframe's window.
 - **You own the proxy page.** It must apply the CSP *as an HTTP header or meta tag on the inner document*, forward
@@ -144,7 +166,7 @@ const host = createAppHost({ client: gate.client, server: "dash" });
 ## API
 
 ```ts
-createAppHost({ client, server, hostInfo?, hostContext?, context?, allowDomain?, onMessage?, onOpenLink?, maxHistory?, teardownTimeoutMs? }): AppHost
+createAppHost({ client, server, hostInfo?, hostContext?, context?, frame?, allowDomain?, onMessage?, onOpenLink?, maxHistory?, teardownTimeoutMs? }): AppHost
 host.open({ uri | tool, toolInput?, toolResult? }): Promise<AppSession>   // reads + validates the resource
 host.getSessions() / host.subscribe(cb) / host.closeAll()
 
@@ -154,9 +176,10 @@ session.subscribe(cb)
 session.connect(transport)   // any MCP Transport; mountIframe() does this for a sandbox iframe
 session.whenReady(timeoutMs?) / session.sendToolResult(r) / session.addCleanup(fn) / session.close()
 
-mountIframe(session, { container, sandboxUrl, innerSandbox?, title? })
+mountIframe(session, { container, sandboxUrl, innerSandbox?, title?, sandbox?, iframe? })
 mcpAppsExtensions()          // -> pass as MCPClientConfig.extensions
 buildAppCsp(csp) / sanitizeCsp(csp, allow?) / isSafeCspSource(s)
+applyHostCspDirectives(header, directives, { unsafeLoosen? }) / resolveSandbox(sandboxOptions, legacyInner?) / KNOWN_SANDBOX_TOKENS
 
 // "@johnhenry/mcp-query-ui/react"
 useMcpApp(host, { uri | tool, toolInput?, toolResult?, sandboxUrl?, mount?, enabled? }) -> { containerRef, session, state, error }

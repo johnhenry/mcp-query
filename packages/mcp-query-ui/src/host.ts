@@ -12,7 +12,16 @@ import {
   isToolVisibilityModelOnly,
   type McpUiResourceMeta,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { buildAppCsp, permissionsAllowAttribute, sanitizeCsp } from "./csp.js";
+import {
+  applyHostCspDirectives,
+  applyHostPermissions,
+  assertHostCspOptions,
+  assertHostPermissionOptions,
+  buildAppCsp,
+  mergeHostDomains,
+  permissionsAllowAttribute,
+  sanitizeCsp,
+} from "./csp.js";
 import { createStore } from "./store.js";
 import type { AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState } from "./types.js";
 
@@ -67,6 +76,8 @@ let nextSession = 1;
 
 export function createAppHost(options: AppHostOptions): AppHost {
   const { client, server } = options;
+  assertHostCspOptions(options.frame?.csp);
+  assertHostPermissionOptions(options.frame?.permissions);
   const maxHistory = options.maxHistory ?? 100;
   const sessions = new Set<AppSession>();
   const hostSubs = new Set<() => void>();
@@ -287,15 +298,20 @@ async function loadResource(client: MCPClient, server: string, uri: string, opti
   // The read result's _meta wins; the resources/list entry is the spec's fallback location.
   const listed = client.listResources(server).find((r) => r.uri === uri) as { _meta?: Record<string, unknown> } | undefined;
   const meta = ((item._meta?.ui ?? listed?._meta?.ui) ?? {}) as McpUiResourceMeta;
-  const csp = sanitizeCsp(meta.csp, options.allowDomain);
+  const frame = options.frame;
+  const csp = mergeHostDomains(sanitizeCsp(meta.csp, options.allowDomain), frame?.csp?.unsafeLoosen ? frame.csp.addDomains : undefined);
+  const permissions = applyHostPermissions(meta.permissions, frame?.permissions);
+  const hostDirectives = frame?.csp?.directives && Object.keys(frame.csp.directives).length ? frame.csp.directives : undefined;
+  const cspHeader = hostDirectives ? applyHostCspDirectives(buildAppCsp(csp), hostDirectives, { unsafeLoosen: frame?.csp?.unsafeLoosen }) : buildAppCsp(csp);
   return {
     uri,
     mimeType: item.mimeType,
     html,
     csp,
-    cspHeader: buildAppCsp(csp),
-    permissions: meta.permissions,
-    allow: permissionsAllowAttribute(meta.permissions),
+    cspHeader,
+    permissions,
+    allow: permissionsAllowAttribute(permissions),
+    ...(hostDirectives ? { hostCsp: true } : {}),
     ...(meta.domain ? { domain: meta.domain } : {}),
     ...(meta.prefersBorder != null ? { prefersBorder: meta.prefersBorder } : {}),
   };
