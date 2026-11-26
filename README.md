@@ -98,7 +98,8 @@ the WS proxy, transport, OAuth, schema-form, and React glue).
 > **Moved:** `socialgpt-studio` was removed from this repo. It now lives in the Scrollmark platform monorepo as `socialgpt/studio`, merged with the Atlas content-analysis views.
 
 Browser apps reach stdio servers through `apps/shared`'s WebSocket proxy (the `dev` script runs
-it alongside Vite); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
+it alongside Vite; its [wire protocol is specified here](packages/mcp-query/docs/ws-stdio-bridge.md), and the
+[Browser section](packages/mcp-query/README.md#browser) covers Streamable HTTP + CORS and the single-file bundle); the React apps dogfood `mcp-query`'s React hooks, the Web-Components apps the
 framework-agnostic core.
 
 <table>

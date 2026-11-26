@@ -26,6 +26,19 @@ export interface StartProxyOptions {
   token?: string;
   /** Web app URL, used only for the printed connect hint. Default: WEB_URL env or http://localhost:5173. */
   webUrl?: string;
+  /**
+   * Origins allowed to open a socket (exact strings or RegExps tested against the `Origin`
+   * header). Default: any `http://localhost[:port]` / `http://127.0.0.1[:port]` (unchanged).
+   */
+  allowedOrigins?: Array<string | RegExp>;
+  /** Reject sockets that send no `Origin` header (non-browser clients). Default false (unchanged). */
+  requireOrigin?: boolean;
+  /**
+   * Gate on what a client may ask the proxy to dial (e.g. an allowlist of commands). Return
+   * false to refuse: the client gets a `failed` control frame. Default: every target is allowed
+   * (unchanged), which means a token holder can run any local command.
+   */
+  allowTarget?: (spec: TargetSpec) => boolean;
 }
 
 export interface ProxyHandle {
@@ -61,12 +74,16 @@ export function startProxy(opts: StartProxyOptions = {}): Promise<ProxyHandle> {
   const token = opts.token ?? process.env.PROXY_TOKEN ?? randomUUID();
 
   const wss = new WebSocketServer({ port, host: "127.0.0.1" });
+  const originAllowed = (origin: string) =>
+    opts.allowedOrigins
+      ? opts.allowedOrigins.some((o) => (typeof o === "string" ? o === origin : o.test(origin)))
+      : /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
   wss.on("connection", (ws: WebSocket, req) => {
     const reqUrl = new URL(req.url ?? "/", "http://localhost");
     if (reqUrl.searchParams.get("token") !== token) return ws.close(1008, "bad token");
     const origin = req.headers.origin;
-    if (origin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return ws.close(1008, "bad origin");
+    if (!origin ? opts.requireOrigin : !originAllowed(origin)) return ws.close(1008, "bad origin");
 
     let target: Transport | undefined;
     const sendJson = (o: unknown) => { try { ws.send(JSON.stringify(o)); } catch { /* socket gone */ } };
@@ -77,6 +94,7 @@ export function startProxy(opts: StartProxyOptions = {}): Promise<ProxyHandle> {
 
       if (frame.control?.connect) {
         try {
+          if (opts.allowTarget && !opts.allowTarget(frame.control.connect)) throw new Error("target not allowed");
           target = makeTarget(frame.control.connect);
           target.onmessage = (m) => sendJson({ msg: m });
           target.onclose = () => { sendJson({ control: { closed: true } }); ws.close(); };
