@@ -18,7 +18,20 @@ const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
 
 /** SHA-256 of a UTF-8 string, as lowercase hex. */
 export function sha256Hex(input: string): string {
-  const msg = new TextEncoder().encode(input);
+  return Array.from(sha256Words(new TextEncoder().encode(input)), (x) => x.toString(16).padStart(8, "0")).join("");
+}
+
+/** SHA-256 of base64-encoded bytes, as unpadded base64url (the digest form file inputs carry). */
+export function sha256Base64Url(base64: string): string {
+  const bin = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
+  const msg = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const words = sha256Words(msg);
+  let out = "";
+  for (const x of words) out += String.fromCharCode(x >>> 24, (x >>> 16) & 0xff, (x >>> 8) & 0xff, x & 0xff);
+  return btoa(out).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function sha256Words(msg: Uint8Array): Uint32Array {
   const bitLen = msg.length * 8;
   const padded = new Uint8Array(((msg.length + 9 + 63) >> 6) << 6);
   padded.set(msg);
@@ -51,5 +64,5 @@ export function sha256Hex(input: string): string {
     h[0] = (h[0]! + a) >>> 0; h[1] = (h[1]! + b) >>> 0; h[2] = (h[2]! + c) >>> 0; h[3] = (h[3]! + d) >>> 0;
     h[4] = (h[4]! + e) >>> 0; h[5] = (h[5]! + f) >>> 0; h[6] = (h[6]! + g) >>> 0; h[7] = (h[7]! + hh) >>> 0;
   }
-  return Array.from(h, (x) => x.toString(16).padStart(8, "0")).join("");
+  return h;
 }

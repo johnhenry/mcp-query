@@ -5,7 +5,7 @@
 import type { Transport } from "@modelcontextprotocol/client";
 import type { ServerCapabilities } from "@modelcontextprotocol/server";
 import { instrumentTransport, type TrafficEvent } from "@johnhenry/mcp-query";
-import { tagInteraction, type Cassette, type Interaction } from "./cassette.js";
+import { scrubFileBytes, tagInteraction, type Cassette, type Interaction } from "./cassette.js";
 
 interface RpcMessage {
   method?: string;
@@ -98,7 +98,8 @@ export function recordTransport(inner: Transport, cassette: Cassette, opts: Reco
 
     if (req.method === "server/discover") return; // a failed probe (e.g. a legacy server) is negotiation noise, not traffic
 
-    let entry: Interaction = { method: req.method, params: req.params };
+    // File bytes (the experimental files extension's inline `data`) never reach a cassette: metadata and digest only.
+    let entry: Interaction = { method: req.method, params: scrubFileBytes(req.params) };
     if (m.error) entry.error = { code: m.error.code, message: m.error.message };
     else entry.result = m.result;
     entry = tagInteraction(entry, rounds); // classify from the unredacted wire data, then redact

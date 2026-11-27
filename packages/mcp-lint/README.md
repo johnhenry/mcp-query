@@ -66,6 +66,7 @@ the captured contract alone, so they stay silent on a contract that did not capt
 | `schema-dialect` | warn | `inputSchema` / `outputSchema` are 2020-12 object schemas: `inputSchema` root is `type: object`, no foreign `$schema`, no array-form `items` / `additionalItems` / `dependencies` (SEP-2106). A boolean or array `outputSchema` is fine |
 | `x-mcp-header` | warn | values are valid header tokens (RFC 9110 `1*tchar`), not spelling a reserved `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*` header, case-insensitively unique, on primitive (`string` / `integer` / `boolean`) properties reachable through `properties` keys only (SEP-2243) |
 | `skills-manifest` | warn | skills have `name` / `description` frontmatter matching their directory, a manifest that lists `SKILL.md` with digests, at most 512 files / 16 MiB, and `skill://` URIs (SEP-2640) |
+| `x-mcp-file` | warn | EXPERIMENTAL (the `io.modelcontextprotocol/files` draft, no SEP): an `x-mcp-file` argument declares `accept` (media types) and `maxSize` (bytes) |
 
 `cache-hints` only judges the first page of each list and does not see `resources/read` (a capture
 does not read resources). `tool-title-icons` flags every tool without a `title`, which is optional in the

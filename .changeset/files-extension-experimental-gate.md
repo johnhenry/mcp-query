@@ -1,0 +1,5 @@
+---
+"@johnhenry/mcp-gate": minor
+---
+
+EXPERIMENTAL, may change: policy for the MCP files extension (`io.modelcontextprotocol/files`, a draft with no SEP). Uploads bypass the gate by design (the client sends bytes straight to a URL the server names), so the gate denies them: an `upload_required` round is refused (`-32003`, audited, hosts named, never the URL) unless every upload host matches `experimental.files.allowUploadHosts`; an allowed upload performed by the gate's own client is audited with file name, size, digest and host, never content. Download URLs in results follow `allowDownloadHosts` (non-allowlisted entries are stripped, or the call refused with `downloads: "refuse"`), and `maxFileSize` / `accept` limit `x-mcp-file` arguments. The upload refusal is always on; the rest applies only when `experimental.files` is set, and the gate declares nothing to upstreams unless `upload` / `download` is set. `validateGateConfig` checks the new keys. Exports `filesGuard`, `hostAllowed` and `GateFilesPolicy`.

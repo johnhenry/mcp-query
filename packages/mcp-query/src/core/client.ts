@@ -37,6 +37,32 @@ import {
 import type { DevtoolsSink } from "../devtools/protocol.js";
 import { describeInteraction, isInputRequiredResult, mrtrParams, type AuditInteraction, type ToolInteraction } from "./interaction.js";
 import {
+  auditFilesFor,
+  capStaleByDownloads,
+  downloadsOf,
+  clientFilesSettings,
+  FILES_EXT,
+  FileTargetError,
+  isUploadRequiredResult,
+  resolveFilesOptions,
+  type AuditFiles,
+  type DownloadTarget,
+  type ExperimentalFilesOptions,
+  type UploadRequiredShape,
+  type UploadTarget,
+} from "./filesExt.js";
+import {
+  downloadFile,
+  FilesUsageError,
+  FileTransferError,
+  prepareFileArgs,
+  serverFilesCaps,
+  uploadFile,
+  vetTarget,
+  wireArgs,
+  type PreparedFiles,
+} from "./filesTransfer.js";
+import {
   CallToolOrTaskResultSchema,
   CancelTaskResultSchema,
   GetTaskResultSchema,
@@ -111,6 +137,15 @@ export interface MCPClientConfig {
    * least twelve months, SEP-2596). Log to stderr (stdio) or use OpenTelemetry instead.
    */
   defaultLogLevel?: LoggingLevel;
+  /**
+   * EXPERIMENTAL, MAY CHANGE. Opt-in switches for extensions that are still drafts upstream. Nothing here is
+   * on by default, and leaving it out changes nothing.
+   *
+   * `files`: the file uploads/downloads extension (`io.modelcontextprotocol/files`, no SEP, no SDK support).
+   * `true` = defaults (declares `download`, inline transfer only). See `ExperimentalFilesOptions` and
+   * docs/files-extension.md.
+   */
+  experimental?: { files?: boolean | ExperimentalFilesOptions };
   /** Fallback poll cadence (ms) for task handles when the server sends no pollIntervalMs. Default 150. */
   taskPollMs?: number;
   /** Client-wide default request timeouts, overridden per-call by `requestOptions`. */
@@ -164,6 +199,8 @@ export interface CallAuditEntry {
   error?: string;
   /** Set when this call was one hop of a multi-round-trip (MRTR) exchange: it returned `input_required` ("request") or carried the consumer's answers ("response"). */
   interaction?: AuditInteraction;
+  /** EXPERIMENTAL. Set on a `files/upload` / `files/download` step (`kind: "extension"`): file name, size, digest and host. Never content, never the URL. */
+  files?: AuditFiles;
 }
 
 /** Per-request timeout knobs (mirrors the SDK's RequestOptions), exposed like Inspector. */
@@ -332,6 +369,8 @@ export class MCPClient {
   private schemeMap?: Record<string, string>;
   private syncTaskSeq = 0;
   private skills: SkillsController;
+  /** EXPERIMENTAL: resolved `experimental.files` options; undefined when not opted in. */
+  private files?: ExperimentalFilesOptions;
   private eventsCtl: EventsController;
   /** Interceptor-vetted catalogs (what the sync `list*()` return when interceptors are configured). Key `server\0catalog`. */
   private views = new Map<string, unknown[]>();
@@ -346,7 +385,8 @@ export class MCPClient {
     this.cacheStore = cfg.cacheStore;
     this.retryCount = cfg.retry ?? 0;
     this.clientInfo = cfg.clientInfo;
-    this.extensions = cfg.extensions;
+    this.files = resolveFilesOptions(cfg.experimental?.files);
+    this.extensions = this.files ? { [FILES_EXT]: clientFilesSettings(this.files), ...(cfg.extensions ?? {}) } : cfg.extensions;
     this.versions = cfg.versions;
     this.versionNegotiation = cfg.versionNegotiation;
     this.inputRequired = cfg.inputRequired;
@@ -546,7 +586,7 @@ export class MCPClient {
   private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string, result?: unknown): void {
     if (!this.onCall) return;
     const interaction = describeInteraction(result, op.interaction);
-    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error, ...(interaction ? { interaction } : {}) };
+    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error, ...(interaction ? { interaction } : {}), ...(op.state.files ? { files: op.state.files as AuditFiles } : {}) };
     try {
       const r = this.onCall(entry);
       if (r && typeof (r as PromiseLike<unknown>).then === "function") {
@@ -680,8 +720,11 @@ export class MCPClient {
   ): Promise<R> {
     await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "call", peer: server, target: def.name, def, args, context: opts.context, interaction: opts.interaction, state: {} };
-    return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
+    // EXPERIMENTAL files extension (opt-in): Blob/File params become `FileInput` metadata; inline bytes are
+    // attached at send time so interceptors, audit and devtools see metadata only.
+    const prepared = this.files ? await this.prepareFiles(server, def, args) : undefined;
+    const op: Operation = { kind: "call", peer: server, target: def.name, def, args: (prepared?.args ?? args) as A, context: opts.context, interaction: opts.interaction, state: {} };
+    return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context }, prepared)) as Promise<R>;
   }
 
   private async execCall<A extends Record<string, unknown>, R = unknown>(
@@ -689,6 +732,7 @@ export class MCPClient {
     def: Tool,
     args: A,
     opts: CallToolOpts<A, R>,
+    prepared?: PreparedFiles,
   ): Promise<R> {
     const conn = this.req(server);
     const readOnly = def.annotations?.readOnlyHint === true;
@@ -696,30 +740,43 @@ export class MCPClient {
     const meta = this.withMeta(conn, opts.context);
     const rollback = opts.optimistic ? this.cache.patch(opts.optimistic(args)) : undefined;
     try {
-      const result = (await conn.sdk.callTool(
-        { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
-        {
-          ...(opts.interaction ? { allowInputRequired: true } : {}),
-          signal: opts.signal,
-          onprogress: opts.onProgress,
-          // We already hold the routed Tool — hand it to the SDK so output-schema
-          // validation and SEP-2243 header mirroring never depend on its own cache.
-          toolDefinition: def,
-          ...this.defaultRequestOptions,
-          ...(opts.requestOptions ?? {}),
-        },
-      )) as unknown as R & { isError?: boolean };
+      const sdkCall = (extra: Record<string, unknown> = {}) =>
+        conn.sdk.callTool(
+          { name: def.name, arguments: prepared ? wireArgs(args, prepared) : args, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction), ...extra } as never,
+          {
+            ...(opts.interaction ? { allowInputRequired: true } : {}),
+            signal: opts.signal,
+            onprogress: opts.onProgress,
+            // We already hold the routed Tool — hand it to the SDK so output-schema
+            // validation and SEP-2243 header mirroring never depend on its own cache.
+            toolDefinition: def,
+            ...this.defaultRequestOptions,
+            ...(opts.requestOptions ?? {}),
+          },
+        );
+      let result = (await sdkCall()) as unknown as R & { isError?: boolean };
+      // EXPERIMENTAL files extension: an `upload_required` round is performed (each upload a separate, audited
+      // step through the chain) and the call retried with the unchanged `requestState`.
+      if (this.files && isUploadRequiredResult(result)) {
+        const requestState = await this.runUploadRound(server, result, prepared, opts);
+        result = (await sdkCall({ requestState })) as unknown as R & { isError?: boolean };
+        if (isUploadRequiredResult(result)) {
+          throw new MCPError("protocol", "the server returned a second upload_required in one logical call; refusing to upload again (experimental files extension)", server);
+        }
+      }
 
       // Tool-level error channel: surfaced as data, NOT thrown (mirrors GraphQL errors[]).
       if (result.isError) rollback?.();
 
       // readOnly tool results may be cached by (name,args) like a query. An interim
       // `input_required` result is not a result — never cache it.
-      if (readOnly && !isInputRequiredResult(result)) {
+      // A call that carried files is never cached (its args can hold file data); a result carrying download
+      // URLs is cached no longer than the earliest `expiresAt` (experimental files extension).
+      if (readOnly && !isInputRequiredResult(result) && !prepared) {
         this.cache.write(
           { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition },
           result,
-          { tags: [serverTag(server)], staleTime: cacheTtl(result), scope: cacheScope(result) },
+          { tags: [serverTag(server)], staleTime: capStaleByDownloads(result, cacheTtl(result)), scope: cacheScope(result) },
         );
       }
 
@@ -731,8 +788,116 @@ export class MCPClient {
       return result;
     } catch (err) {
       rollback?.();
-      throw this.toError(err, server, "protocol");
+      throw this.filesError(err, server) ?? this.toError(err, server, "protocol");
     }
+  }
+
+  // ── EXPERIMENTAL files extension (io.modelcontextprotocol/files; opt-in via `experimental.files`) ──
+  /** Turn file params into `FileInput` metadata for one call; undefined when the tool has none in play. */
+  private async prepareFiles(server: string, def: Tool, args: Record<string, unknown>): Promise<PreparedFiles | undefined> {
+    try {
+      const caps = serverFilesCaps(this.req(server).capabilities.extensions?.[FILES_EXT]);
+      return await prepareFileArgs(def.inputSchema, args, caps, this.files!);
+    } catch (err) {
+      if (err instanceof FilesUsageError) throw new MCPError("protocol", err.message, server);
+      throw err;
+    }
+  }
+
+  /**
+   * Map a failure of the files flow to an MCPError. On the 2026-07-28 wire, SDK 2.0.0 rejects an
+   * `upload_required` result before mcp-query sees it (its codec only knows `complete` and `input_required`),
+   * so the out-of-band flow cannot complete there. Say so, instead of a bare "unsupported result type".
+   */
+  private filesError(err: unknown, server: string): MCPError | undefined {
+    if (!this.files) return undefined;
+    if (err instanceof MCPError && (err.data as { files?: unknown } | undefined)?.files) return err;
+    if (err instanceof SdkError && err.code === SdkErrorCode.UnsupportedResultType && (err.data as { resultType?: unknown } | undefined)?.resultType === "upload_required") {
+      return new MCPError(
+        "protocol",
+        "the server asked for an out-of-band upload (resultType upload_required) but the installed @modelcontextprotocol/client cannot decode that result type; the experimental files upload flow is unavailable on this SDK. Send the file inline (within the server's maxInlineBytes) instead.",
+        server,
+        undefined,
+        { files: "upload_required-unsupported-by-sdk" },
+      );
+    }
+    return undefined;
+  }
+
+  /** Perform every upload an `upload_required` result asks for; returns the `requestState` to echo. */
+  private async runUploadRound(server: string, result: UploadRequiredShape, prepared: PreparedFiles | undefined, opts: { signal?: AbortSignal; context?: CallContext }): Promise<string> {
+    const o = this.files!;
+    const fail = (message: string, reason: string, code?: number): never => {
+      throw new MCPError("protocol", message, server, code, { files: reason });
+    };
+    if (typeof result.requestState !== "string" || result.requestState === "") fail("upload_required carried no string requestState; not uploading", "bad-requestState");
+    if (!Array.isArray(result.uploads)) return fail("upload_required carried no uploads array; not uploading", "bad-uploads");
+    const wanted = (prepared?.files ?? []).filter((f) => f.input.size > 0 && f.inlineData === undefined);
+    const targets = result.uploads as UploadTarget[];
+    const ids = targets.map((t) => (t as { fileId?: unknown } | null)?.fileId);
+    if (ids.length !== wanted.length || new Set(ids).size !== ids.length || !wanted.every((f) => ids.includes(f.input.id))) {
+      fail("upload_required did not list exactly the files that were sent without data; not uploading", "mismatched-uploads");
+    }
+    // Vet every target BEFORE any bytes leave: one bad target stops the whole round.
+    const vetted = [];
+    for (const t of targets) {
+      try {
+        vetted.push({ t, checked: await vetTarget(t, "upload", o), file: wanted.find((f) => f.input.id === t.fileId)! });
+      } catch (err) {
+        if (err instanceof FileTargetError) fail(err.message, `target-${err.reason}`);
+        throw err;
+      }
+    }
+    for (const { t, checked, file } of vetted) {
+      const host = checked.url.hostname;
+      const info = auditFilesFor("upload", { fileId: file.input.id, name: file.input.name, mimeType: file.input.mimeType, size: file.input.size, digest: file.input.digest, method: checked.method }, host);
+      const op: Operation = {
+        kind: "extension",
+        peer: server,
+        target: host,
+        method: "files/upload",
+        args: { fileId: file.input.id, name: file.input.name, mimeType: file.input.mimeType, size: file.input.size, digest: info.digest, host, method: checked.method },
+        context: opts.context,
+        state: { files: info },
+      };
+      await this.run(op, async () => {
+        if (checked.expiresAtMs !== undefined && checked.expiresAtMs <= (o.now ?? Date.now)()) {
+          throw new FileTargetError("expired", "file target refused: it expired before the transfer started");
+        }
+        return uploadFile(t, checked, { name: file.input.name, mimeType: file.input.mimeType, size: file.input.size, bytes: file.bytes }, o, opts.signal);
+      }).catch((err) => {
+        if (err instanceof MCPError) throw err;
+        const code = (err as { code?: number } | null)?.code;
+        const kind = err instanceof FileTransferError ? "transport" : "protocol";
+        throw new MCPError(opts.signal?.aborted ? "cancelled" : kind, err instanceof Error ? err.message : String(err), server, code, { files: "upload-failed" });
+      });
+    }
+    return result.requestState as string;
+  }
+
+  /**
+   * EXPERIMENTAL. Fetch one download target from a tool result's `_meta["io.modelcontextprotocol/files"].downloads`,
+   * through the interceptor chain (`kind: "extension"`, method `files/download`). HTTPS GET, no redirects, checks
+   * the declared size and digest, never writes to disk. Needs `experimental.files`.
+   */
+  async fetchDownload(server: string, target: DownloadTarget, opts: { signal?: AbortSignal; context?: CallContext } = {}): Promise<{ bytes: Uint8Array; name?: string; mimeType: string }> {
+    const o = this.files;
+    if (!o) throw new MCPError("protocol", "fetchDownload needs experimental.files to be enabled", server);
+    this.req(server);
+    let checked;
+    try {
+      checked = await vetTarget(target, "download", o);
+    } catch (err) {
+      if (err instanceof FileTargetError) throw new MCPError("protocol", err.message, server, undefined, { files: `target-${err.reason}` });
+      throw err;
+    }
+    const host = checked.url.hostname;
+    const info = auditFilesFor("download", { name: target.name, mimeType: target.mimeType, size: target.size, digest: target.digest }, host);
+    const op: Operation = { kind: "extension", peer: server, target: host, method: "files/download", args: { name: target.name, mimeType: target.mimeType, size: target.size, digest: info.digest, host }, context: opts.context, state: { files: info } };
+    return this.run(op, () => downloadFile(target, checked, o, opts.signal)).catch((err) => {
+      if (err instanceof MCPError) throw err;
+      throw new MCPError(opts.signal?.aborted ? "cancelled" : "transport", err instanceof Error ? err.message : String(err), server, (err as { code?: number } | null)?.code, { files: "download-failed" });
+    }) as Promise<{ bytes: Uint8Array; name?: string; mimeType: string }>;
   }
 
   // ── raw requests through the chain (gateway extension pass-through, #82) ──
@@ -1380,8 +1545,9 @@ export class MCPClient {
         const extra = typeof opts.providesTags === "function" ? opts.providesTags(result) : opts.providesTags ?? [];
         const tags = [serverTag(server), ...extra];
         const scope = cacheScope(result);
-        this.cache.write(key, result, { gcTime: opts.gcTime, staleTime: cacheTtl(result), tags, scope });
-        this.l2WriteThrough(key, result, tags, scope);
+        this.cache.write(key, result, { gcTime: opts.gcTime, staleTime: capStaleByDownloads(result, cacheTtl(result)), tags, scope });
+        // Expiring download URLs stay out of the shared (cross-instance) store.
+        if (downloadsOf(result).length === 0) this.l2WriteThrough(key, result, tags, scope);
         return result;
       } catch (err) {
         if (abort.signal.aborted) {

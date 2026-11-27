@@ -247,3 +247,37 @@ describe("skills-manifest (SEP-2640)", () => {
     expect(find(base, "skills-manifest")).toEqual([]);
   });
 });
+
+describe("x-mcp-file (experimental files extension)", () => {
+  const input = (props: Record<string, unknown>): never => ({ type: "object", properties: props }) as never;
+  it("is a warn-level rule", () => {
+    expect(RULES.find((x) => x.id === "x-mcp-file")).toMatchObject({ defaultSeverity: "warn" });
+  });
+  it("warns when accept or maxSize is missing or malformed, at any depth", () => {
+    const c = withTools(
+      tool({
+        name: "up",
+        inputSchema: input({
+          a: { type: "object", "x-mcp-file": {} },
+          b: { type: "object", "x-mcp-file": { accept: ["application/pdf"] } },
+          c: { type: "object", "x-mcp-file": { maxSize: 100 } },
+          d: { type: "array", items: { type: "object", "x-mcp-file": { accept: [], maxSize: -1 } } },
+          e: { type: "object", "x-mcp-file": true },
+        }),
+      }),
+    );
+    const m = msgs(c, "x-mcp-file");
+    expect(m.filter((x) => x.startsWith("a:"))).toHaveLength(2);
+    expect(m.filter((x) => x.startsWith("b:") && x.includes("maxSize"))).toHaveLength(1);
+    expect(m.filter((x) => x.startsWith("c:") && x.includes("accept"))).toHaveLength(1);
+    expect(m.filter((x) => x.startsWith("d.items"))).toHaveLength(2);
+    expect(m.some((x) => x.startsWith("e:") && x.includes("should be an object"))).toBe(true);
+  });
+  it("is silent for a complete declaration and for tools without file arguments", () => {
+    const c = withTools(
+      tool({ name: "ok", inputSchema: input({ f: { type: "object", "x-mcp-file": { accept: ["image/*", ".png"], maxSize: 1048576 } } }) }),
+      tool({ name: "plain", inputSchema: input({ s: { type: "string" } }) }),
+    );
+    expect(msgs(c, "x-mcp-file")).toEqual([]);
+  });
+});
