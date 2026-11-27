@@ -2,7 +2,7 @@
 // human-in-the-loop, a devtools hub for the message log, and small signals the panels
 // react to (active server, editable roots).
 
-import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "@johnhenry/mcp-query";
+import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep, type ConnectionConfig } from "@johnhenry/mcp-query";
 import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { mcpAppsExtensions } from "@johnhenry/mcp-query-ui";
@@ -39,6 +39,9 @@ export const client = new MCPClient({
   clientInfo: { name: "mcp-inspector", version: "0.0.1", title: "MCP Inspector" },
 });
 
+/** How each connected server was reached, so the Apps tab's governed mode can open a second, gated connection to it. */
+export const serverConfigs = new Map<string, ConnectionConfig>();
+
 export interface SavedServer extends TargetSpec {
   name: string;
 }
@@ -72,10 +75,13 @@ export async function connectServer(s: SavedServer): Promise<void> {
   if (s.direct && (s.transport === "http" || s.transport === "sse")) {
     const make = directTransport(s, instrumentedProvider(s.name));
     sessionStorage.setItem(PENDING, JSON.stringify(s)); // survive the auth redirect
+    serverConfigs.set(s.name, { transport: make });
     await client.addServer(s.name, { transport: make }); // may navigate away to the IdP
     sessionStorage.removeItem(PENDING); // reached only when no redirect was needed
   } else {
-    await client.addServer(s.name, { transport: () => new WebSocketProxyTransport(proxyUrl, proxyToken, s) });
+    const make = () => new WebSocketProxyTransport(proxyUrl, proxyToken, s);
+    serverConfigs.set(s.name, { transport: make });
+    await client.addServer(s.name, { transport: make });
   }
   activeServer.set(s.name);
 }
@@ -93,6 +99,7 @@ export async function resumeIfAuthCallback(): Promise<void> {
     await t.close().catch(() => {});
     sessionStorage.removeItem(PENDING);
     cleanAuthParamsFromUrl();
+    serverConfigs.set(spec.name, { transport: make });
     await client.addServer(spec.name, { transport: make });
     activeServer.set(spec.name);
   } catch (e) {
@@ -117,7 +124,12 @@ function cleanAuthParamsFromUrl(): void {
   history.replaceState({}, "", location.pathname + (keep.toString() ? `?${keep}` : ""));
 }
 
+/** Called with a server's name when it is disconnected (the governed-mode gate for it is closed). */
+export const disconnectHooks = new Set<(name: string) => void>();
+
 export async function disconnectServer(name: string): Promise<void> {
+  serverConfigs.delete(name);
+  for (const h of disconnectHooks) h(name);
   await client.removeServer(name);
   if (activeServer.get() === name) activeServer.set(client.connections()[0]?.name ?? "");
 }

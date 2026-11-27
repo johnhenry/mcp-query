@@ -6,6 +6,7 @@ import { Reactive, esc } from "../lib/reactive.js";
 import { client, hub, activeServer } from "../lib/store.js";
 import { buildSchemaForm } from "../lib/schema-form.js";
 import { hostFor, listAppTools, sandboxProxyUrl, type AppTool } from "../lib/apps.js";
+import { governance, parsePatterns } from "../lib/governed.js";
 
 export class Apps extends Reactive {
   private selected = "";
@@ -16,10 +17,15 @@ export class Apps extends Reactive {
   private built = "";
   private mounted: HTMLIFrameElement | undefined;
   private openError = "";
+  /** Governed mode (off by default): app calls go through mcp-gate and wait for a decision here. */
+  private governed = false;
+  private openedUri = "";
+  private openedServer = "";
 
   connectedCallback(): void {
     this.track(activeServer.subscribe);
     this.track(hub.subscribe);
+    this.track(governance.subscribe);
     super.connectedCallback();
   }
 
@@ -63,9 +69,23 @@ export class Apps extends Reactive {
     detail.innerHTML = `<h3>${esc(tool.name)}</h3>
       <p class="muted">${esc(tool.description ?? "")} <code>${esc(tool.uri)}</code></p>
       <div class="row" id="app-controls"></div>
+      <div class="row" id="app-governance">
+        <label class="inline" title="Open the app through an mcp-gate governed client: calls matching the patterns wait for your approval">
+          <input type="checkbox" id="governed" ${this.governed ? "checked" : ""} /> governed (mcp-gate approvals)
+        </label>
+        <input id="approve-patterns" aria-label="approve patterns" title="server.tool globs that need approval, space or comma separated" value="${esc(governance.patterns.join(" "))}" ${this.governed ? "" : "disabled"} />
+      </div>
       <p class="muted" id="app-error" role="alert"></p>
       <div class="app-frame" id="app-frame" aria-label="MCP App"></div>
+      <div id="app-approvals" aria-live="polite"></div>
       <div id="app-state"></div>`;
+    const gov = detail.querySelector<HTMLInputElement>("#governed")!;
+    const pat = detail.querySelector<HTMLInputElement>("#approve-patterns")!;
+    gov.onchange = () => {
+      this.governed = gov.checked;
+      pat.disabled = !gov.checked;
+    };
+    pat.oninput = () => governance.setPatterns(parsePatterns(pat.value));
     this.form = buildSchemaForm(tool.inputSchema as never);
     const open = document.createElement("button");
     open.textContent = "open app";
@@ -94,7 +114,11 @@ export class Apps extends Reactive {
     this.openError = "";
     this.frame.replaceChildren();
     try {
-      const session = await hostFor(client, server).open({ tool: tool.name, toolInput: this.form?.getValues() ?? {} });
+      // Governed: the same server through mcp-gate's browser client; its approvals show up beside the app.
+      const through = this.governed ? await governance.clientFor(server) : client;
+      const session = await hostFor(through, server).open({ tool: tool.name, toolInput: this.form?.getValues() ?? {} });
+      this.openedServer = this.governed ? server : "";
+      this.openedUri = session.resource.uri;
       this.attach(session);
       const { iframe } = await mountIframe(session, { container: this.frame, sandboxUrl: sandboxProxyUrl(location), title: `MCP App: ${tool.name}` });
       this.mounted = iframe;
@@ -111,12 +135,59 @@ export class Apps extends Reactive {
     this.renderState();
   }
 
+  /** Pending mcp-gate approvals beside the app. Everything shown here is app-supplied: text only, never HTML. */
+  private renderApprovals(): void {
+    const host = this.querySelector<HTMLElement>("#app-approvals");
+    if (!host) return;
+    const pending = governance.pending();
+    host.replaceChildren();
+    if (!this.governed && !pending.length) return;
+    const h = document.createElement("h4");
+    h.textContent = `Gate approvals (${pending.length})`;
+    host.append(h);
+    if (!pending.length) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "no calls waiting for approval";
+      host.append(p);
+      return;
+    }
+    for (const a of pending) {
+      const card = document.createElement("div");
+      card.className = "interaction card approval";
+      card.dataset.approval = a.key;
+      const line = document.createElement("p");
+      const who = document.createElement("b");
+      who.textContent = a.principal ?? a.server;
+      const what = document.createElement("code");
+      what.textContent = `${a.server}.${a.target}`;
+      line.append(who, " wants to run ", what);
+      if (a.destructive) line.append(" ", Object.assign(document.createElement("span"), { className: "hint", textContent: "destructive" }));
+      const args = document.createElement("pre");
+      args.className = "output";
+      args.textContent = JSON.stringify(a.args ?? {}, null, 2);
+      const ok = document.createElement("button");
+      ok.textContent = "Approve";
+      ok.className = "approve";
+      ok.onclick = () => governance.decide(a.key, "approve");
+      const no = document.createElement("button");
+      no.textContent = "Deny";
+      no.className = "deny";
+      no.onclick = () => governance.decide(a.key, "deny");
+      card.append(line, args, ok, no);
+      host.append(card);
+    }
+  }
+
   private renderState(): void {
     const err = this.querySelector<HTMLElement>("#app-error");
     if (err) err.textContent = this.openError ? `Could not open the app: ${this.openError}` : "";
+    this.renderApprovals();
     const el = this.querySelector<HTMLElement>("#app-state");
     if (!el) return;
     const s: AppSessionState | undefined = this.session?.getState();
+    // A closed app can no longer use an answer: refuse whatever it still has waiting.
+    if (s?.status === "closed" && this.openedServer) governance.denyFor(this.openedServer, `mcp-app:${this.openedUri}`);
     if (!s) {
       el.innerHTML = '<p class="muted">No app open.</p>';
       return;
