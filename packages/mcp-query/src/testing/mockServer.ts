@@ -121,6 +121,8 @@ export interface MockSpec {
   skills?: MockSkill[];
   /** `ttlMs` / `cacheScope` stamped on skills/list + skills/get results (default 0 / "private"). */
   skillsCache?: MockSkillsCacheHint;
+  /** Advertise `directoryRead` and serve `resources/directory/read` for the skill directories. */
+  skillsDirectoryRead?: boolean;
 }
 
 export interface MockMCPServerOptions {
@@ -170,6 +172,8 @@ export class MockMCPServer {
   callLog: Array<{ name: string; args: unknown }> = [];
   /** Skills traffic seen by the mock: `skills/list`, `skills/get <uri>`, `read <uri>` (for cache assertions). */
   skillLog: string[] = [];
+  /** The `_meta` (minus protocol envelope keys) seen on skills traffic: `{ method, meta }` per request. */
+  skillMetaLog: Array<{ method: string; meta: Record<string, unknown> | undefined }> = [];
 
   private readonly eraOpt: "legacy" | "modern" | "both";
   private readonly bus = new InMemoryServerEventBus();
@@ -317,7 +321,7 @@ export class MockMCPServer {
     }
     if (this.spec.skills) {
       caps.resources ??= { subscribe: true, listChanged: true };
-      caps.extensions = { ...(caps.extensions ?? {}), [SKILLS_EXT]: {} };
+      caps.extensions = { ...(caps.extensions ?? {}), [SKILLS_EXT]: this.spec.skillsDirectoryRead ? { directoryRead: true } : {} };
     }
     return caps;
   }
@@ -607,18 +611,41 @@ export class MockMCPServer {
 
   private installSkills(server: Server): void {
     const hint = () => ({ ttlMs: this.spec.skillsCache?.ttlMs ?? 0, cacheScope: this.spec.skillsCache?.cacheScope ?? "private" });
+    const seen = (method: string, params: Record<string, unknown>) =>
+      this.skillMetaLog.push({ method, meta: params._meta as Record<string, unknown> | undefined });
     server.setRequestHandler("skills/list", { params: z.looseObject({ cursor: z.string().optional() }) }, async (params) => {
       this.skillLog.push("skills/list");
+      seen("skills/list", params);
       const entries = (await this.builtSkills()).map((b) => b.entry);
       const { slice, nextCursor } = this.page(entries, params.cursor);
       return { skills: slice, ...(nextCursor ? { nextCursor } : {}), ...hint() } as never;
     });
     server.setRequestHandler("skills/get", { params: z.looseObject({ uri: z.string() }) }, async (params) => {
       this.skillLog.push(`skills/get ${params.uri}`);
+      seen("skills/get", params);
       const found = (await this.builtSkills()).find((b) => b.entry.uri === params.uri);
       if (!found) throw new ProtocolError(INVALID_PARAMS, `unknown skill ${params.uri}`, { uri: params.uri });
       return { skill: found.entry, ...hint() } as never;
     });
+    if (this.spec.skillsDirectoryRead) {
+      server.setRequestHandler("resources/directory/read", { params: z.looseObject({ uri: z.string(), cursor: z.string().optional() }) }, async (params) => {
+        this.skillLog.push(`dir ${params.uri}`);
+        seen("resources/directory/read", params);
+        const dir = params.uri.endsWith("/") ? params.uri : params.uri + "/";
+        const children = new Map<string, { uri: string; name: string; mimeType: string; size?: number }>();
+        for (const b of await this.builtSkills()) {
+          for (const [uri, text] of b.files) {
+            if (!uri.startsWith(dir) || uri === dir) continue;
+            const rest = uri.slice(dir.length);
+            const slash = rest.indexOf("/");
+            if (slash < 0) children.set(uri, { uri, name: rest, mimeType: "text/markdown", size: new TextEncoder().encode(text).byteLength });
+            else children.set(dir + rest.slice(0, slash + 1), { uri: dir + rest.slice(0, slash + 1), name: rest.slice(0, slash), mimeType: "inode/directory" });
+          }
+        }
+        if (children.size === 0) throw new ProtocolError(INVALID_PARAMS, `unknown directory ${params.uri}`, { uri: params.uri });
+        return { resources: [...children.values()], ...hint() } as never;
+      });
+    }
   }
 
   // ── resources / prompts ────────────────────────────────────────────────────
@@ -639,6 +666,7 @@ export class MockMCPServer {
         const text = (await this.builtSkills()).find((b) => b.files.has(req.params.uri))?.files.get(req.params.uri);
         if (text !== undefined) {
           this.skillLog.push(`read ${req.params.uri}`);
+          this.skillMetaLog.push({ method: "resources/read", meta: (req.params as { _meta?: Record<string, unknown> })._meta });
           return { contents: [{ uri: req.params.uri, mimeType: "text/markdown", text }] };
         }
       }

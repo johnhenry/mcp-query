@@ -38,12 +38,14 @@ function stateFor(mcpClient: MCPClient, queryClient: QueryClient): SyncState {
     perQueryClient.set(queryClient, state);
     // Tag-wide fallback: a protocol push (or declared invalidation) reaches TanStack-inactive
     // queries that have no live per-key subscription, via the cache's post-construction hook.
-    // Queries WITH a live subscription are skipped — the per-key sync already covers them.
+    // Queries WITH a live subscription are skipped — the per-key sync already covers them (except skills, below).
     mcpClient.cache.onExternalInvalidate((event) => {
       for (const tag of event.tags ?? []) {
         void queryClient.invalidateQueries({
           queryKey: tagToQueryKeyPrefix(tag) as unknown[],
-          predicate: (q) => !state!.unsubs.has(keyOf(q.queryKey)),
+          // Skills catalogs are only marked stale in mcp-query's cache (nothing refetches them there),
+          // so a skills tag must invalidate even queries with a live per-key subscription.
+          predicate: (q) => tag.startsWith("skills:") || !state!.unsubs.has(keyOf(q.queryKey)),
         });
       }
     });
