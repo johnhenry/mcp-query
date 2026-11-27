@@ -60,7 +60,7 @@ Demonstrates how annotations can be used to provide metadata about content.
 
 ```ts
 import { renderMarkdown, schemaType } from "@mcp-query/docs";
-import { captureContract } from "@mcp-query/contract";
+import { captureContract } from "@johnhenry/mcp-contract";
 
 const contract = await captureContract(connectedSdkClient);
 await writeFile("API.md", renderMarkdown(contract, { title: "My Server" }));

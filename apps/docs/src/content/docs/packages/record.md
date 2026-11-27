@@ -72,7 +72,7 @@ Drop the replay server into an MCP host (CI, a demo) exactly where the real one 
 Record by wrapping any transport; replay as a server or a transport factory:
 
 ```ts
-import { createCassette, recordTransport, replayServer, replayTransport } from "@mcp-query/record";
+import { createCassette, recordTransport, replayServer, replayTransport } from "@johnhenry/mcp-record";
 
 // ── record (e.g. once, against a real upstream) ──
 const cassette = createCassette();

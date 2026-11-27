@@ -1,15 +1,18 @@
 # Agent playbook
 
-npm workspaces monorepo, 9 packages under `packages/` (`cli`, `mcp-bench`,
+npm workspaces monorepo, 10 packages under `packages/` (`cli`, `mcp-bench`,
 `mcp-contract`, `mcp-docs`, `mcp-gate`, `mcp-lint`, `mcp-query`,
-`mcp-query-tanstack`, `mcp-record`) plus reference apps under `apps/`, Node
+`mcp-query-tanstack`, `mcp-query-ui`, `mcp-record`) plus reference apps under `apps/`, Node
 `>=26.0.0` (the family floor; CI and `.nvmrc` agree, and the `*-query` repos
 move together), vitest
-for tests in every package, no cross-repo task orchestrator (plain
-`npm run <script> --workspaces --if-present`, no Turborepo, no `turbo.json`).
-Only `@johnhenry/mcp-query`, `@johnhenry/mcp-gate`, and
-`@johnhenry/mcp-query-tanstack` are actually published to npm under the
-`@johnhenry` scope — everything else under `packages/*` is `private` internal
+for tests in every package, Turborepo (`turbo.json`) orders `build`/`typecheck`/`test` by workspace
+dependency, so a package that depends on another workspace package by name
+(`mcp-record` -> `mcp-contract`) gets that dependency built first without any
+extra CI step.
+`@johnhenry/mcp-query`, `@johnhenry/mcp-gate`, `@johnhenry/mcp-query-tanstack`,
+`@johnhenry/mcp-query-ui`, `@johnhenry/mcp-record` and `@johnhenry/mcp-contract`
+are published to npm under the `@johnhenry` scope — everything else under
+`packages/*` (`cli`, `mcp-lint`, `mcp-docs`, `mcp-bench`) is `private` internal
 tooling consumed only inside this repo. The one fact that most changes how
 you work here: `packages/mcp-query`'s `package.json` `exports` map (`.`,
 `./server`, `./testing`, etc.) all resolve to its `dist/`, so **every other
@@ -38,12 +41,13 @@ or tests.
 | [`mcp-query`](packages/mcp-query) | The reactive, cached, embeddable MCP client — the core every other package in this repo builds on. Publishes as `@johnhenry/mcp-query`. |
 | [`cli`](packages/cli) | The unified `mcp-query` CLI: one entry point over every tool below, plus a server registry (`mcp-query add`) and client verbs (`tools`/`call`/`read`). Internal, unpublished (`@mcp-query/cli`). |
 | [`mcp-gate`](packages/mcp-gate) | Config-driven security/policy proxy: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. Publishes as `@johnhenry/mcp-gate`. |
-| [`mcp-contract`](packages/mcp-contract) | Contract testing / drift detection: pins a server's capability surface, fails CI on incompatible drift. Internal, unpublished (`@mcp-query/contract`). |
+| [`mcp-contract`](packages/mcp-contract) | Contract testing / drift detection: pins a server's capability surface, fails CI on incompatible drift. Publishes as `@johnhenry/mcp-contract`. |
 | [`mcp-lint`](packages/mcp-lint) | Quality lint for MCP servers (design rules, annotations, naming). Internal, unpublished (`@mcp-query/lint`). |
 | [`mcp-docs`](packages/mcp-docs) | Generates reference docs from a live server or a contract. Internal, unpublished (`@mcp-query/docs`). |
 | [`mcp-bench`](packages/mcp-bench) | Latency/throughput benchmarking with CI perf budgets. Internal, unpublished (`@mcp-query/bench`). |
-| [`mcp-record`](packages/mcp-record) | Record/replay (VCR for MCP): capture real traffic, replay offline. Internal, unpublished (`@mcp-query/record`). |
+| [`mcp-record`](packages/mcp-record) | Record/replay (VCR for MCP): capture real traffic, replay offline. Publishes as `@johnhenry/mcp-record` (with a browser-safe entry). |
 | [`mcp-query-tanstack`](packages/mcp-query-tanstack) | TanStack Query bridge over `mcp-query`'s cache. Publishes as `@johnhenry/mcp-query-tanstack`. |
+| [`mcp-query-ui`](packages/mcp-query-ui) | MCP Apps (SEP-1865) host over the `MCPClient`. Publishes as `@johnhenry/mcp-query-ui`. |
 
 `apps/*` are reference UIs proving the packages above on real product
 surfaces (see the root README's `## Apps` table); `apps/shared` is their
@@ -85,12 +89,12 @@ This is the only way to catch "works on my checked-out tree" bugs (missing
   way a change looks broken locally but is actually a missing `dist/`.
 - **The published npm package name doesn't always match the package
   directory.** `packages/cli` is `@mcp-query/cli` (unpublished); `packages/
-  mcp-contract` is `@mcp-query/contract`; `packages/mcp-lint` is
+  mcp-contract` is `@johnhenry/mcp-contract`; `packages/mcp-lint` is
   `@mcp-query/lint`; `packages/mcp-docs` is `@mcp-query/docs`; `packages/
-  mcp-bench` is `@mcp-query/bench`; `packages/mcp-record` is
-  `@mcp-query/record`. Only `mcp-query`, `mcp-gate`, and `mcp-query-tanstack`
-  publish under `@johnhenry/*`, and those three do match their directory
-  names. Previously the two renamed packages published as `@johnhenry/mcpq`
+  mcp-bench` is `@mcp-query/bench` (all unpublished). The six published
+  packages (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`, `mcp-query-ui`,
+  `mcp-record`, `mcp-contract`) all sit under `@johnhenry/` and match their
+  directory names. Previously the two renamed packages published as `@johnhenry/mcpq`
   and `@johnhenry/mcpq-tanstack` (CHANGELOG's `2026-08-23` entry).
 - **Examples double as a regression suite.** The root `examples/[0-9]*.ts`
   are run by `npm run examples` and by CI's "Root examples smoke" step,
@@ -116,9 +120,9 @@ one-line pointer; the checklist itself is not duplicated here.
 ## Releases
 
 Releases use Changesets (`.changeset/`, `npm run changeset`) with the fleet
-"main is the release branch" model. Four publish workflows -- `release.yml`
+"main is the release branch" model. Six publish workflows -- `release.yml`
 (mcp-query; also runs the changesets/action version PR), `release-gate.yml`,
-`release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml` -- each trigger on push to `main`, publish only
+`release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml`, `release-mcp-record.yml`, `release-mcp-contract.yml` -- each trigger on push to `main`, publish only
 their own package when its version is new (`scripts/release.mjs`), and create the
 `<pkg>@<version>` tag + GitHub Release as by-products. **Never rename or merge those
 files**: npm trusted publishing trusts one filename per package. `mcp-query-tanstack`

@@ -68,7 +68,7 @@ From a v2 contract (see [mcp-contract](../mcp-contract)) it also renders, each o
 
 ```ts
 import { renderMarkdown, schemaType } from "@mcp-query/docs";
-import { captureContract } from "@mcp-query/contract";
+import { captureContract } from "@johnhenry/mcp-contract";
 
 const contract = await captureContract(connectedSdkClient);
 await writeFile("API.md", renderMarkdown(contract, { title: "My Server" }));

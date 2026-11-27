@@ -42,7 +42,7 @@ Point your agent host at `gated` instead of `client` and every call now passes t
 ## Where to go next
 
 - **Authoring an MCP server?** Start with [`@mcp-query/lint`](/packages/lint/) (quality gate) and [`@mcp-query/docs`](/packages/docs-tool/) (generated reference).
-- **Consuming one in CI?** [`@mcp-query/contract`](/packages/contract/) catches breaking drift before it ships.
-- **Need a fast offline mock?** [`@mcp-query/record`](/packages/record/) captures real traffic and replays it deterministically.
+- **Consuming one in CI?** [`@johnhenry/mcp-contract`](/packages/contract/) catches breaking drift before it ships.
+- **Need a fast offline mock?** [`@johnhenry/mcp-record`](/packages/record/) captures real traffic and replays it deterministically.
 - **Want one command for all of it?** [`@mcp-query/cli`](/packages/cli/) (`mcp-query`) wraps every tool above plus a server registry.
 - **Curious what it looks like end-to-end?** See [Example apps](/apps/) — seven real UIs built on the client, from a chat composer to a full MCP Inspector.

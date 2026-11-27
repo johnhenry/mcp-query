@@ -10,10 +10,12 @@
 // A live server is reached over stdio (--command) or Streamable HTTP (--url, with
 // optional --bearer / repeated --header "K: V"). `verify` exits non-zero on any BREAKING change.
 
+import { realpathSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { MCPClient } from "../../mcp-query/src/index.js";
-import { createGateway } from "../../mcp-query/src/server/index.js";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { createGateway } from "@johnhenry/mcp-query/server";
 import { diffContract, upgradeContract, type Contract } from "./contract.js";
 import { captureFrom } from "./connect.js";
 import { resolveConnect } from "./registry.js";
@@ -42,7 +44,23 @@ async function readContract(path: string): Promise<Contract> {
   return upgradeContract(JSON.parse(await readFile(path, "utf8"))); // reads v1 and v2
 }
 
+const HELP = `mcp-contract: pin, verify, diff and mock an MCP server's capability surface
+
+usage:
+  mcp-contract snapshot (--command CMD [--args "A B"] | --url URL [--bearer T] [--header "K: V"] | --server NAME) [--out mcp.contract.json]
+  mcp-contract verify   <same connection flags> --contract mcp.contract.json [--used "a,b"] [--used-by src/mcp.gen.ts]
+  mcp-contract diff     old.contract.json new.contract.json
+  mcp-contract mock     --contract mcp.contract.json     serve the contracted surface over stdio
+  mcp-contract auth     --url URL                         run the OAuth flow and cache tokens
+  mcp-contract --help
+
+verify exits non-zero on any BREAKING change. Docs: https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-contract`;
+
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(HELP);
+    return;
+  }
   const { _, flags, headers } = parseArgs(argv);
   rejectUnknownFlags("mcp-contract", flags, KNOWN_FLAGS);
   const cmd = _[0];
@@ -124,7 +142,19 @@ async function resolveUsed(flags: Record<string, string>, contract: Contract): P
   return out.length ? out : undefined;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Compare realpaths, not raw import.meta.url/process.argv[1] strings: an npm bin
+// (node_modules/.bin/mcp-contract, what `npx` / a global install runs) is a symlink, so the
+// two would otherwise never match and this file would silently no-op for every real install.
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-contract]", e instanceof Error ? e.message : e);
     process.exit(1);
