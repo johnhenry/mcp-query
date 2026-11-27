@@ -2,7 +2,7 @@
 // human-in-the-loop, a devtools hub for the message log, and small signals the panels
 // react to (active server, editable roots).
 
-import { MCPClient, InteractionBroker, type AuthStep, type ConnectionConfig } from "@johnhenry/mcp-query";
+import { MCPClient, InteractionBroker, type AuthStep } from "@johnhenry/mcp-query";
 import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { mcpAppsExtensions } from "@johnhenry/mcp-query-ui";
@@ -43,9 +43,6 @@ export const client = new MCPClient({
   clientInfo: { name: "mcp-inspector", version: "0.0.1", title: "MCP Inspector" },
 });
 
-/** How each connected server was reached (transport factory), kept for reconnects. */
-export const serverConfigs = new Map<string, ConnectionConfig>();
-
 export interface SavedServer extends TargetSpec {
   name: string;
 }
@@ -85,12 +82,10 @@ export async function connectServer(s: SavedServer): Promise<void> {
     await provider.prepare?.(); // decide CIMD vs DCR (and record why) before the SDK runs
     const make = directTransport(s, provider);
     sessionStorage.setItem(PENDING, JSON.stringify(s)); // survive the auth redirect
-    serverConfigs.set(s.name, { transport: make });
     await client.addServer(s.name, { transport: make }); // may navigate away to the IdP
     sessionStorage.removeItem(PENDING); // reached only when no redirect was needed
   } else {
     const make = () => new WebSocketProxyTransport(proxyUrl, proxyToken, s);
-    serverConfigs.set(s.name, { transport: make });
     await client.addServer(s.name, { transport: make });
   }
   activeServer.set(s.name);
@@ -111,7 +106,6 @@ export async function resumeIfAuthCallback(): Promise<void> {
     await t.close().catch(() => {});
     sessionStorage.removeItem(PENDING);
     cleanAuthParamsFromUrl();
-    serverConfigs.set(spec.name, { transport: make });
     await client.addServer(spec.name, { transport: make });
     activeServer.set(spec.name);
   } catch (e) {
@@ -142,7 +136,6 @@ function cleanAuthParamsFromUrl(): void {
 export const disconnectHooks = new Set<(name: string) => void>();
 
 export async function disconnectServer(name: string): Promise<void> {
-  serverConfigs.delete(name);
   for (const h of disconnectHooks) h(name);
   await client.removeServer(name);
   if (activeServer.get() === name) activeServer.set(client.connections()[0]?.name ?? "");
