@@ -5,6 +5,7 @@
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { ConnectionConfig } from "@johnhenry/mcp-query";
 import type { GateUpstream } from "./config.js";
+import { tokenSourceFor } from "./upstream-auth.js";
 
 /**
  * Normalize an upstream to a ConnectionConfig without any Node-only transport. A full
@@ -19,12 +20,19 @@ export function resolveHttpUpstream(upstream: GateUpstream): ConnectionConfig {
       "stdio upstreams ({ command }) need Node; in a browser pass a ConnectionConfig whose transport is a bridge, or an { url } upstream",
     );
   }
-  const { url, headers, getToken } = upstream;
+  const { url, headers, getToken, auth } = upstream;
+  // `auth`: one token source per resolved upstream, shared by every (re)connection of it, so the
+  // cache survives reconnects. A 401 drops the cached token so the retry fetches a fresh one.
+  const source = auth ? tokenSourceFor(url, auth) : undefined;
   return {
     transport: () =>
       new StreamableHTTPClientTransport(new URL(url), {
         ...(headers ? { requestInit: { headers } } : {}),
-        ...(getToken ? { authProvider: { token: async () => getToken() } } : {}),
+        ...(source
+          ? { authProvider: { token: async () => source.token(), onUnauthorized: async () => source.invalidate() } }
+          : getToken
+            ? { authProvider: { token: async () => getToken() } }
+            : {}),
       }),
   };
 }

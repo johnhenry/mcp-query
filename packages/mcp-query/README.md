@@ -266,6 +266,24 @@ a legacy revision). Task status on the modern era is **poll-only**:
 client does not expose, so handles poll `tasks/get` at the server's `pollIntervalMs`.
 `notifications/tasks` pushes are still consumed on legacy connections.
 
+### Auth debugging and SDK versions
+
+`instrumentAuthProvider(provider)` (the "auth debug" wrapper) records each step of the SDK's OAuth
+handshake with secrets redacted. It now also shows which registration mechanism produced the client
+(`registration: "cimd" | "dcr"`), what discovery offered (`cimdSupported`, `dcrAvailable`,
+`issParameterSupported`, `dpopAlgs`), an `issuerCheck` step when the code-exchange leg starts (the SDK has
+validated `iss` by then), and, for providers implementing `dpop()`, the key **thumbprint only**. Hosts can add
+their own steps with `wrapped.authNote(member, detail)`.
+
+| Feature | Minimum `@modelcontextprotocol/client` |
+| --- | --- |
+| CIMD vs DCR, issuer-keyed credentials, `iss` validation steps | 2.0.0 |
+| DPoP steps (`dpop()`; `withDpop`) | 2.1.0 (the step is simply absent on 2.0.0) |
+
+On the gateway side, `createGateway({ inboundAuth })` maps a host-verified bearer token into call `_meta`
+(`principal`, `authScopes`, `authClientId`); see [mcp-gate](../mcp-gate/README.md#inbound-authentication).
+It needs `@modelcontextprotocol/server` >= 2.0.0 (`requireBearerAuth` / `verifyBearerToken`).
+
 ## Develop
 
 ```bash

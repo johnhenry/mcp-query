@@ -3,7 +3,7 @@
 // gateway Server, so an agent sees ONE governed MCP endpoint fronting many upstreams.
 
 import type { InteractionBroker } from "@johnhenry/mcp-query";
-import { createGateway } from "@johnhenry/mcp-query/server";
+import { createGateway, createGatewayHandler, type GatewayHandlerOptions } from "@johnhenry/mcp-query/server";
 import { forwardsAnything, createAnswerGuard } from "./interaction.js";
 import { policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { buildGateClient } from "./client.js";
@@ -11,13 +11,14 @@ import { resolveUpstream } from "./upstream.js";
 import { validateGateUpstream } from "./validate.js";
 import type { MCPClient } from "@johnhenry/mcp-query";
 
-export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, AnswerPolicy, AnswerPolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, AnswerPolicy, AnswerPolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec, SecretRef, UpstreamAuth, ClientCredentialsAuth, EnterpriseAuth } from "./config.js";
 export type { RedactRule, RedactOptions } from "./redact.js";
 export { redact, redactValue, redactTracked } from "./redact.js";
 export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
+export { tokenSourceFor, cachedTokenSource, type UpstreamTokenSource } from "./upstream-auth.js";
 export { validateGateConfig } from "./validate.js";
 export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
@@ -35,6 +36,13 @@ export interface Gate {
   updateUpstream(name: string, upstream: GateUpstream): Promise<void>;
   /** The InteractionBroker holding pending approvals ("approve" verdicts). Undefined unless `config.approval` is set. List/resolve here from your UI. */
   approvals?: InteractionBroker;
+  /**
+   * A modern (2026-07-28) HTTP handler over this gate: the same policy, redaction and inbound-auth
+   * settings as `server`, served through `handler.fetch(request, { authInfo })`. Front it with the
+   * SDK's `requireBearerAuth` and pass the verified `AuthInfo` along (see the README, "Inbound
+   * authentication"). Close it before the gate.
+   */
+  handler(opts?: Omit<GatewayHandlerOptions, "namespace" | "interactions" | "inboundAuth" | "guardAnswers" | "filter" | "annotate">): ReturnType<typeof createGatewayHandler>;
   close(): Promise<void>;
 }
 
@@ -43,9 +51,10 @@ export async function createGate(config: GateConfig): Promise<Gate> {
   const parts = await buildGateClient(config, resolveUpstream);
   const { client } = parts;
 
-  const server = createGateway(client, {
+  const gatewayOptions = {
     namespace: config.namespace ?? true,
     interactions: config.interactions,
+    inboundAuth: config.inboundAuth,
     // The consumer's answers to forwarded input requests: answerPolicy, then `redact` (#100).
     guardAnswers: forwardsAnything(config.interactions)
       ? createAnswerGuard({
@@ -63,7 +72,8 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     filter: config.policy ? policyListFilter(config.policy, config.approval?.discovery) : undefined,
     // approval.discovery "annotated": flag approve-gated items with _meta.requiresApproval.
     annotate: config.policy ? policyListAnnotator(config.policy, config.approval?.discovery) : undefined,
-  });
+  };
+  const server = createGateway(client, gatewayOptions);
 
   const addUpstream = async (name: string, upstream: GateUpstream) => {
     validateGateUpstream(name, upstream);
@@ -89,6 +99,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     removeUpstream,
     updateUpstream,
     approvals: parts.approvals,
+    handler: (opts) => createGatewayHandler(client, { ...opts, ...gatewayOptions }),
     close: async () => {
       await server.close().catch(() => {});
       await client.close();

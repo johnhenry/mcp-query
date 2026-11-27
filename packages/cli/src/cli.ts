@@ -65,7 +65,7 @@ interface Parsed {
   headers: string[];
 }
 
-const BOOLEAN_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts", "force", "allow-insecure-localhost", "no-live", "strict"]);
+const BOOLEAN_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts", "force", "allow-insecure-localhost", "no-live", "strict", "dpop"]);
 
 function parse(argv: string[]): Parsed {
   const positionals: string[] = [];
@@ -260,11 +260,11 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
     }
     case "login": {
       const [ref] = p.positionals;
-      if (!ref) throw new Error("usage: mcp-query login <name|url> [--scope home|project]");
+      if (!ref) throw new Error("usage: mcp-query login <name|url> [--scope home|project] [--dpop] [--client-metadata-url <url|off>] [--expected-issuer <iss>]");
       const opts = resolveServer(ref, { config: str(p.flags.config) });
       if (!opts.url) throw new Error(`"${ref}" is not an http/sse server (OAuth applies to remote servers only)`);
       console.error(`authenticating ${opts.url} …`);
-      await authenticate(opts.url);
+      await authenticate(opts.url, { dpop: !!p.flags.dpop, expectedIssuer: str(p.flags["expected-issuer"]), clientMetadataUrl: str(p.flags["client-metadata-url"]) });
       console.log(`logged in — tokens cached at ${tokenCachePath(opts.url)}`);
       return;
     }

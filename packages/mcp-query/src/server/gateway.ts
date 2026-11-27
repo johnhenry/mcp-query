@@ -16,6 +16,7 @@ import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
 import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
 import { AuthorizationError } from "./authorize.js";
+import { applyInboundAuth, type InboundAuthOptions } from "./inboundAuth.js";
 
 /**
  * What the gateway does when an upstream `tools/call` or `prompts/get` returns a
@@ -60,6 +61,13 @@ export interface GatewayOptions {
    * Default `"answer"`. Give an object for per-upstream overrides.
    */
   interactions?: GatewayInteractions;
+  /**
+   * Map the host-verified bearer token (`AuthInfo` from the SDK's `requireBearerAuth` /
+   * `verifyBearerToken`, delivered as `handler.fetch(req, { authInfo })`) into each call's
+   * `_meta` (`principal`, `authScopes`, `authClientId`) so policy, `partitionFrom` and audit can
+   * use it. Verifier-owned keys supplied by the caller are always dropped. `true` uses defaults.
+   */
+  inboundAuth?: boolean | InboundAuthOptions;
   /**
    * Called on the answer hop of a forwarded round (`interactions: "forward"`): the consumer's
    * retry carries `inputResponses`, and this hook may rewrite them (redact, decline) or refuse
@@ -125,6 +133,7 @@ export class GatewayUpstreamCapabilityError extends Error {
 
 /** The slice of the SDK's handler context the MRTR pass-through reads. */
 interface MrtrCtx {
+  http?: { authInfo?: import("./inboundAuth.js").InboundAuthInfo };
   mcpReq: {
     envelope?: Record<string, unknown>;
     inputResponses?: unknown;
@@ -191,7 +200,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt", target: string) => {
     const mode = interactionModeFor(opts.interactions, s);
     if (mode === "answer") return undefined;
-    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
+    const callerMeta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
     const consumerCaps = (ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? callerMeta?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
       | { elicitation?: object }
       | undefined;
@@ -269,7 +278,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
     const [s, tool] = split(req.params.name, servers(), namespace);
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
     // the gateway — without this, multi-tenant _meta dies at the gate.
-    const meta = req.params._meta as Record<string, unknown> | undefined;
+    const meta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
     const m = await mrtr(s, req, ctx, "tool", tool);
     if (m) {
       const res = await viaUpstream(s, () =>
@@ -312,7 +321,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   });
   server.setRequestHandler("prompts/get", async (req, ctx) => {
     const [s, name] = split(req.params.name, servers(), namespace);
-    const meta = req.params._meta as Record<string, unknown> | undefined;
+    const meta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
     const m = await mrtr(s, req, ctx, "prompt", name);
     if (m) {
       const res = await viaUpstream(s, () =>
