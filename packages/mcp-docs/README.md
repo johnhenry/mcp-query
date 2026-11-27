@@ -54,6 +54,16 @@ Demonstrates how annotations can be used to provide metadata about content.
 - **Resources / templates** — tables of URI, name, MIME type.
 - **Prompts** — heading per prompt with its description and an argument table.
 
+From a v2 contract (see [mcp-contract](../mcp-contract)) it also renders, each only when captured:
+
+- **Protocol** — era, negotiated version and the versions the server supports.
+- **Capabilities** — a table with a `deprecated` badge (SEP, earliest removal and migration path) on the
+  features SEP-2577 deprecates: `logging`, `sampling`, `roots`.
+- **Extensions** — each extension id with its `revision` and any other settings.
+- **Tool titles** — shown under the tool heading.
+- **Skills** and **Events** — skill URIs with file counts; event types with delivery modes, subscription
+  arguments and payload type.
+
 ## Programmatic API
 
 ```ts

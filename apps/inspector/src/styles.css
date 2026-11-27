@@ -102,6 +102,12 @@
   .field span { font-size: 0.85rem; color: var(--muted); }
   .output { background: var(--surface); border-radius: 10px; box-shadow: var(--inset); padding: 0.7rem; overflow: auto; max-height: 22rem; white-space: pre-wrap; word-break: break-word; }
 
+  .app-frame iframe { width: 100%; height: 220px; border: 0; border-radius: 10px; background: var(--surface); box-shadow: var(--inset); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.8rem; font-size: 0.85rem; margin: 0.3rem 0 0.8rem; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+  .app-calls, .app-messages { list-style: none; padding: 0; margin: 0 0 0.8rem; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+  .app-calls .call-denied, .app-calls .call-error { color: var(--danger); }
+
   .banner { margin-bottom: 1rem; border-left: 4px solid var(--accent); }
 
   .toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }

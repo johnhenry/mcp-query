@@ -1,8 +1,8 @@
-// Task hooks (MCP 2025-11-25 call-now/fetch-later). Two shapes:
+// Task hooks (call-now/fetch-later; tasks extension, SEP-2663). Two shapes:
 //   useTask(taskId, { server })  — observe a known task's live status (cache-backed)
 //   useToolTask(name, opts)      — useMutation-style: [start, { task, isPending, data, … }]
 // Status snapshots come from the same cache entries client.callToolTask maintains, so a
-// task started imperatively (or observed via notifications/tasks/status) renders live.
+// task started imperatively (or observed via notifications/tasks) renders live.
 
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useMCPClient } from "./provider.js";

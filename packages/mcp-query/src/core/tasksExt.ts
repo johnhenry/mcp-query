@@ -7,14 +7,18 @@
 // (`resultType: "task"`) instead of a plain result — there is no per-request
 // opt-in parameter anymore.
 //
-// The v2 SDK (2.0.0-beta.5) ships NO runtime for this extension on either role,
-// and era-gates the tasks RPCs off the 2026-07-28 wire — so mcp-query drives
-// these schemas over `client.request(…, schema)` on LEGACY-era connections only.
-// Tracking: https://github.com/johnhenry/mcp-query/issues/12
+// The v2 SDK ships NO runtime for this extension, so mcp-query drives these
+// schemas over `client.request(…, schema)`. SDK 2.0.0 era-gates tasks/get and
+// tasks/cancel off the 2026-07-28 wire; SDK >= 2.3.0 lets them through (see
+// tasksProbe.ts for the runtime check). Tracking:
+// https://github.com/johnhenry/mcp-query/issues/12
 //
-// Draft-tracking caveat: the extension spec is still under `draft/` in the
-// spec repo; field names below (`ttlMs`, `pollIntervalMs`, `notifications/tasks`)
-// must be re-verified when the 2026-07-28 revision finalizes.
+// Field names verified 2026-11-26 against the ext-tasks v2 schema
+// (modelcontextprotocol/ext-tasks, packages/ext-tasks/schema/v2/schema.ts):
+// `ttlMs`, `pollIntervalMs`, `inputRequests`, `inputResponses`, `notifications/tasks`.
+// Status pushes over the modern era need a `taskIds` filter on
+// `subscriptions/listen` that the SDK client does not expose, so modern-era
+// status is poll-only.
 
 import * as z from "zod";
 

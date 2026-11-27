@@ -9,7 +9,7 @@ import type { AppHost, AppHostOptions, AppSession, AppSessionState, AppStatus, O
 
 describe("public API", () => {
   it("root entry exports exactly the documented names (and never imports React)", () => {
-    expect(Object.keys(root).sort()).toEqual(["MCP_APPS_EXTENSION_ID", "SANDBOX_PROXY_SANDBOX", "buildAppCsp", "createAppHost", "isSafeCspSource", "mcpAppsExtensions", "mountIframe", "sanitizeCsp"]);
+    expect(Object.keys(root).sort()).toEqual(["KNOWN_SANDBOX_TOKENS", "MCP_APPS_EXTENSION_ID", "SANDBOX_PROXY_SANDBOX", "applyHostCspDirectives", "buildAppCsp", "createAppHost", "isSafeCspSource", "mcpAppsExtensions", "mountIframe", "resolveSandbox", "sanitizeCsp"]);
   });
   it("react subpath exports exactly the documented hooks", () => {
     expect(Object.keys(react).sort()).toEqual(["useAppSession", "useAppSessions", "useMcpApp"]);

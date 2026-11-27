@@ -3,6 +3,8 @@ export { createAppHost, mcpAppsExtensions, MCP_APPS_EXTENSION_ID } from "./host.
 export type { AppHost, AppSession, OpenAppOptions } from "./host.js";
 export { mountIframe, SANDBOX_PROXY_SANDBOX } from "./iframe.js";
 export type { MountIframeOptions, MountedIframe } from "./iframe.js";
-export { buildAppCsp, sanitizeCsp, isSafeCspSource } from "./csp.js";
-export type { CspDomainKind } from "./csp.js";
-export type { AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState, AppStatus } from "./types.js";
+export { buildAppCsp, sanitizeCsp, isSafeCspSource, applyHostCspDirectives } from "./csp.js";
+export type { CspDomainKind, HostCspOptions, HostPermissionOptions } from "./csp.js";
+export { resolveSandbox, KNOWN_SANDBOX_TOKENS } from "./sandbox.js";
+export type { SandboxOptions, ResolvedSandbox } from "./sandbox.js";
+export type { AppCapabilityOptions, AppModelContext, AppFrameOptions, AppCall, AppHostOptions, AppMessage, AppResource, AppSessionState, AppStatus } from "./types.js";
