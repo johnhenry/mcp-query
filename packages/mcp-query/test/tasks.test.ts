@@ -3,16 +3,40 @@
 // server-directed task creation, poll-driven handles, results, cancellation,
 // mid-flight input via tasks/update, capability gating, and status pushes.
 //
-// Era note: the v2 SDK has no tasks-extension runtime on the modern era, so
-// mcp-query drives the extension on LEGACY-era connections only — all mocks here
-// pin `era: "legacy"`, and one canary test asserts the modern-era fail-fast
-// (it flips when the SDK ships the runtime).
+// Era note: legacy-era connections always work. On modern (2026-07-28)
+// connections tasks need an SDK that lets tasks/get + tasks/cancel onto the 2026
+// wire (>= 2.3.0); SDK 2.0.0 era-gates them. The modern block below detects the
+// installed SDK's version independently of the code under test (reads its
+// package.json) and asserts the matching behaviour, so it passes on both the
+// lockfile SDK and newer ones, and a behaviour change fails CI instead of hiding.
 
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { MCPClient } from "../src/core/client.js";
 import { MockMCPServer } from "../src/testing/mockServer.js";
 import { InteractionBroker } from "../src/core/interactions.js";
 import type { Task } from "../src/core/types.js";
+import { sdkSupportsModernTasks } from "../src/core/tasksProbe.js";
+
+/** Installed @modelcontextprotocol/client version, read independently of the implementation. */
+function installedSdkVersion(): string {
+  const entry = createRequire(import.meta.url).resolve("@modelcontextprotocol/client");
+  let dir = dirname(entry);
+  for (let i = 0; i < 6; i++, dir = dirname(dir)) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; version: string };
+      if (pkg.name === "@modelcontextprotocol/client") return pkg.version;
+    } catch {
+      /* keep walking up */
+    }
+  }
+  throw new Error("could not locate @modelcontextprotocol/client/package.json");
+}
+const [maj = 0, min = 0] = installedSdkVersion().split(".").map((n) => parseInt(n, 10));
+/** Whether the installed SDK is expected to allow tasks on a 2026-07-28 connection (>= 2.3.0). */
+const SDK_ALLOWS_MODERN_TASKS = maj > 2 || (maj === 2 && min >= 3);
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
@@ -116,17 +140,96 @@ describe("callToolTask", () => {
     await client.close();
     await server.close();
   });
+});
 
-  it("CANARY: fails fast on a modern-era connection until the SDK ships the extension runtime", async () => {
-    // When this starts failing because the call SUCCEEDS, the SDK gained tasks
-    // support — remove assertTasksCallable's era gate (tracking issue #12).
-    const server = taskServer("modern");
-    const client = new MCPClient({ servers: { s: { transport: server.transport } }, versions: ["2026-07-28"] });
+describe("modern era (2026-07-28)", () => {
+  async function modernClient(server: MockMCPServer, extra: Record<string, unknown> = {}) {
+    const client = new MCPClient({
+      servers: { s: { transport: server.transport } },
+      versions: ["2026-07-28"],
+      taskPollMs: 15,
+      ...extra,
+    });
     await client.connect();
     expect(client.connections()[0]!.era).toBe("modern");
-    await expect(client.callToolTask("crunch", { n: 1 })).rejects.toMatchObject({
-      message: expect.stringContaining("2026-07-28"),
-    });
+    return client;
+  }
+
+  it("the capability probe agrees with the installed SDK version", async () => {
+    const server = taskServer("modern");
+    const client = await modernClient(server);
+    expect(await sdkSupportsModernTasks(client.connections()[0]!.sdk as never)).toBe(SDK_ALLOWS_MODERN_TASKS);
+    await client.close();
+    await server.close();
+  });
+
+  it.runIf(!SDK_ALLOWS_MODERN_TASKS)("fails fast with an accurate message when the SDK blocks tasks on the modern wire", async () => {
+    const server = taskServer("modern");
+    const client = await modernClient(server);
+    const err = await client.callToolTask("crunch", { n: 1 }).then(
+      () => undefined,
+      (e: Error) => e,
+    );
+    expect(err?.message).toContain("2.3.0");
+    expect(err?.message).not.toContain("no io.modelcontextprotocol/tasks runtime");
+    await expect(client.getTask("task-1", "s")).rejects.toMatchObject({ message: expect.stringContaining("2.3.0") });
+    await expect(client.cancelTask("task-1", "s")).rejects.toMatchObject({ message: expect.stringContaining("2.3.0") });
+    await client.close();
+    await server.close();
+  });
+
+  it.runIf(SDK_ALLOWS_MODERN_TASKS)("callToolTask, getTask and the result work end to end", async () => {
+    const server = taskServer("modern");
+    const client = await modernClient(server);
+    const handle = await client.callToolTask("crunch", { n: 3 });
+    expect(handle.task()?.status).toBe("working");
+    const fetched = await client.getTask(handle.taskId, "s");
+    expect(fetched.taskId).toBe(handle.taskId);
+    const result = (await handle.result()) as { content: Array<{ text: string }> };
+    expect(result.content[0]?.text).toBe("crunched 3");
+    await client.close();
+    await server.close();
+  });
+
+  it.runIf(SDK_ALLOWS_MODERN_TASKS)("cancelTask reaches a terminal status", async () => {
+    const server = taskServer("modern");
+    const client = await modernClient(server);
+    const handle = await client.callToolTask("crunch", { n: 1 });
+    await client.cancelTask(handle.taskId, "s");
+    await expect
+      .poll(async () => (await client.getTask(handle.taskId, "s")).status, { timeout: 5_000 })
+      .toMatch(/cancelled|completed/);
+    await client.close();
+    await server.close();
+  });
+
+  it.runIf(SDK_ALLOWS_MODERN_TASKS)("routes input_required through the broker and answers via tasks/update", async () => {
+    const server = new MockMCPServer(
+      {
+        tools: [
+          {
+            name: "ask_then_finish",
+            task: true,
+            taskDelayMs: 5,
+            handler: async (_args, ctx) => {
+              const r = await ctx.elicit({ message: "name?", requestedSchema: { type: "object", properties: { name: { type: "string" } } } });
+              return { content: [{ type: "text", text: `hi ${(r.content as { name?: string })?.name ?? "?"}` }] };
+            },
+          },
+        ],
+      },
+      { era: "modern" },
+    );
+    const broker = new InteractionBroker({ policy: () => "ask" });
+    const client = await modernClient(server, { interactions: broker, taskPollMs: 10 });
+    const handle = await client.callToolTask("ask_then_finish", {});
+    const resultP = handle.result();
+    for (let i = 0; i < 200 && broker.list().length === 0; i++) await tick(5);
+    const pending = broker.list()[0];
+    expect(pending?.type).toBe("elicitation");
+    broker.resolve(pending!.id, { action: "approve", content: { name: "Grace" } });
+    const result = (await resultP) as { content: Array<{ text: string }> };
+    expect(result.content[0]?.text).toBe("hi Grace");
     await client.close();
     await server.close();
   });
