@@ -6,6 +6,7 @@
 export { diffSchema, type Variance, type SchemaChange, type JSONSchema } from "./schema.js";
 export {
   captureContract,
+  captureEra,
   cardForContract,
   diffContract,
   upgradeContract,
@@ -34,7 +35,7 @@ export {
   type ContractDiff,
   type DiffOptions,
 } from "./contract.js";
-export { captureFrom, connectClient, buildTransport, connectFromFlags, connectEra, parseEra, versionNegotiationFor, DEFAULT_ERA, ERA_PROBE_TIMEOUT_MS, type ConnectOptions, type Era } from "./connect.js";
+export { captureFrom, connectClient, buildTransport, connectFromFlags, connectEra, parseEra, versionNegotiationFor, DEFAULT_ERA, ERA_PROBE_TIMEOUT_MS, ERA_FLAG_HELP, withEra, type ConnectOptions, type Era } from "./connect.js";
 export {
   resolveConnect,
   resolveServer,

@@ -5,15 +5,17 @@
 //   mcp-docs --command npx --args "-y @modelcontextprotocol/server-everything" --out API.md
 //   mcp-docs --url https://host/mcp --bearer "$TOKEN" --out API.md
 //   mcp-docs --contract mcp.contract.json --title "My Server" > API.md
+//   mcp-docs --url https://host/mcp --era legacy    # initialize handshake only (default: --era auto, server/discover
+//                                                   # first, initialize as the fallback; the doc states which one ran)
 //
 // A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
 // --bearer / repeated --header "K: V").
 
 import { readFile, writeFile } from "node:fs/promises";
-import { captureFrom, resolveConnect, rejectUnknownFlags, upgradeContract, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, rejectUnknownFlags, upgradeContract, withEra, type Contract } from "../../mcp-contract/src/index.js";
 import { renderMarkdown } from "./render.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "title", "out"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "title", "out", "era"] as const;
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
@@ -28,7 +30,8 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
   if (flags.contract) return upgradeContract(JSON.parse(await readFile(flags.contract, "utf8"))); // reads v1 and v2
-  return captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-docs" });
+  // --era beats a registry pin, which beats the default (auto: server/discover first, initialize as the fallback).
+  return captureFrom({ ...withEra(resolveConnect(flags, headers), flags.era), clientName: "mcp-docs" });
 }
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {

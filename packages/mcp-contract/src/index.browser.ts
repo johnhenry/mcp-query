@@ -10,6 +10,7 @@
 export { diffSchema, type Variance, type SchemaChange, type JSONSchema } from "./schema.js";
 export {
   captureContract,
+  captureEra,
   cardForContract,
   diffContract,
   upgradeContract,

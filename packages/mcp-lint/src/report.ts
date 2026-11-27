@@ -3,7 +3,8 @@
 import type { LintResult } from "./lint.js";
 
 export function formatLint(result: LintResult, opts: { color?: boolean } = {}): string {
-  if (!result.findings.length) return "✓ no lint findings";
+  const skipped = (result.skipped ?? []).map((s) => `  ℹ ${s.rule}: ${s.reason}`);
+  if (!result.findings.length) return ["✓ no lint findings", ...skipped].join("\n");
   const c = opts.color ?? false;
   const red = (s: string) => (c ? `\x1b[31m${s}\x1b[0m` : s);
   const yellow = (s: string) => (c ? `\x1b[33m${s}\x1b[0m` : s);
@@ -17,5 +18,5 @@ export function formatLint(result: LintResult, opts: { color?: boolean } = {}): 
     });
 
   const summary = `${result.errors} error${result.errors === 1 ? "" : "s"}, ${result.warnings} warning${result.warnings === 1 ? "" : "s"}`;
-  return [...lines, "", result.errors ? red(`✗ ${summary}`) : yellow(`~ ${summary}`)].join("\n");
+  return [...lines, ...skipped, "", result.errors ? red(`✗ ${summary}`) : yellow(`~ ${summary}`)].join("\n");
 }

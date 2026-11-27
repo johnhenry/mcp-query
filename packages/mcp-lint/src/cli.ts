@@ -5,19 +5,21 @@
 //   mcp-lint --url https://host/mcp --bearer "$TOKEN"
 //   mcp-lint --contract mcp.contract.json [--max-warnings 0] [--off naming-consistency,no-open-input]
 //   mcp-lint --url https://host/mcp --probe     # also run the live-probe rules (needs a live server)
+//   mcp-lint --url https://host/mcp --era legacy # capture with the plain initialize handshake (default: --era auto,
+//                                               # server/discover first, initialize as the fallback)
 //
 // A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
 // --bearer / repeated --header "K: V"). Unknown flags are rejected. Exits non-zero on any
 // error, or warnings over --max-warnings.
 
 import { readFile } from "node:fs/promises";
-import { captureContract, connectClient, resolveConnect, rejectUnknownFlags, upgradeContract, type Contract } from "../../mcp-contract/src/index.js";
+import { captureContract, connectEra, resolveConnect, rejectUnknownFlags, upgradeContract, parseEra, withEra, ERA_FLAG_HELP, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type Finding, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
-import { LIVE_RULES, connectProbeClient, runDisconnectedProbes, runProbes, type ProbeClient } from "./probes.js";
+import { LIVE_RULES, runDisconnectedProbes, runProbes, type ProbeClient } from "./probes.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "max-warnings", "off", "error", "list-rules", "probe"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "max-warnings", "off", "error", "list-rules", "probe", "era"] as const;
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; headers: string[] } {
   const flags: Record<string, string> = {};
@@ -33,11 +35,13 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<{ contract?: Contract; probes?: Finding[] }> {
   if (flags.contract) return { contract: upgradeContract(JSON.parse(await readFile(flags.contract, "utf8"))) }; // reads v1 and v2
-  const connect = "probe" in flags ? connectProbeClient : connectClient;
-  const target = resolveConnect(flags, headers);
+  // --era beats a registry pin, which beats the default (auto). --probe always negotiates with the bounded
+  // `server/discover` probe: its rules (stateless-ready, reserved-error-range) observe the modern handshake.
+  const target = withEra(resolveConnect(flags, headers), flags.era);
+  if ("probe" in flags) target.era = "auto";
   let connection;
   try {
-    connection = await connect({ ...target, clientName: "mcp-lint" });
+    connection = await connectEra({ ...target, clientName: "mcp-lint" });
   } catch (e) {
     // A server that only speaks HTTP+SSE cannot be connected to over Streamable HTTP; `sse-only-transport` is the finding to report.
     if (!("probe" in flags) || !target.url) throw e;
@@ -74,14 +78,15 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     console.error(LIVE_RULES.map((r) => `  ${r.id} (${r.defaultSeverity}) — ${r.description}`).join("\n"));
     return;
   }
+  if (parseEra(flags.era) === "legacy" && "probe" in flags) throw new Error("--probe needs the default --era auto (its rules observe the server/discover handshake); drop --era legacy");
   if ("probe" in flags && flags.contract) throw new Error("--probe needs a live server (--url or --command); it cannot run against a pinned --contract file");
   const { contract, probes } = await loadContract(flags, headers);
 
   const opts: LintOptions = { rules: overridesFrom(flags) };
 
-  const base = contract ? lintContract(contract, opts) : { findings: [] as Finding[] };
+  const base = contract ? lintContract(contract, opts) : { findings: [] as Finding[], skipped: undefined };
   const findings = [...base.findings, ...(probes ?? [])];
-  const result = { findings, errors: findings.filter((f) => f.severity === "error").length, warnings: findings.filter((f) => f.severity === "warn").length };
+  const result = { findings, ...(base.skipped ? { skipped: base.skipped } : {}), errors: findings.filter((f) => f.severity === "error").length, warnings: findings.filter((f) => f.severity === "warn").length };
   console.error(formatLint(result, { color: process.stderr.isTTY }));
 
   const maxWarnings = flags["max-warnings"] !== undefined ? Number(flags["max-warnings"]) : Infinity;

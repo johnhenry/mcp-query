@@ -46,7 +46,7 @@ const REGISTRY_VERBS: Record<string, string> = {
   import: "Import servers from claude | cursor | vscode | <path>",
   login: "OAuth-authenticate a registered server or url",
   logout: "Forget cached OAuth tokens for a server or url",
-  card: "Show a server's Server Card and compare it with the live server",
+  card: "Show a server's Server Card and compare it with the live server (--era auto|legacy picks the handshake)",
 };
 const CLIENT_DESCRIBE: Record<string, string> = {
   tools: "List a live server's tools (--resources / --prompts / --schema / --json)",
@@ -168,7 +168,7 @@ const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
   import: ["scope", "config"],
   login: ["scope", "config"],
   logout: ["config"],
-  card: ["from-card", "config", "json", "no-live", "strict", "allow-insecure-localhost"],
+  card: ["from-card", "config", "json", "no-live", "strict", "allow-insecure-localhost", "era"],
 };
 
 async function runRegistry(verb: string, p: Parsed): Promise<void> {
@@ -309,6 +309,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
         noLive: !!p.flags["no-live"],
         strict: !!p.flags.strict,
         allowInsecureLocalhost: !!p.flags["allow-insecure-localhost"],
+        era: str(p.flags.era),
       });
     }
     default:

@@ -81,7 +81,7 @@ const cell = (x: unknown): string => String(x ?? "").replace(/\|/g, "\\|").repla
 
 function protocolLine(c: Contract): string {
   const p = c.protocol;
-  if (!p || (!p.negotiated && !p.supported?.length)) return "";
+  if (!p || (!p.era && !p.negotiated && !p.supported?.length)) return "";
   const parts: string[] = [];
   if (p.era) parts.push(p.era === "modern" ? "modern era" : "legacy era");
   if (p.negotiated) parts.push(`negotiated \`${p.negotiated}\``);
