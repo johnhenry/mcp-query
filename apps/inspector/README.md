@@ -16,7 +16,7 @@ the Web Components analog of `useSyncExternalStore`). Built per
 
 ![Raw JSON-RPC message log](screenshots/messages.png)
 
-**OAuth** — the browser-side OAuth debugger for http/sse servers (step-through timeline, re-authorize / clear credentials).
+**OAuth** — the browser-side OAuth debugger for http/sse servers: a plain-language summary (which client-registration path was used and why, the issuer check, DPoP on/off) above a step-through timeline, with re-authorize / clear credentials. See [OAuth](#oauth) below.
 
 ![OAuth debugger](screenshots/oauth.png)
 
@@ -152,6 +152,54 @@ trusted local component.
 - **Phase 4 (done):** PWA (web app manifest + app-shell service worker, registered in prod),
   a11y pass (semantic HTML, roles, `aria-live`, skip link, focus-visible, reduced-motion),
   CSP-friendly markup, and app tests (`npm test` — schema-form, reactive base, proxy defaults).
+
+### OAuth
+
+Check **direct (browser OAuth)** when connecting an http/sse server and the flow runs in the
+browser through `BrowserOAuthProvider` (`src/lib/oauth.ts`), recorded by `instrumentAuthProvider`.
+
+- **Client registration: Client ID Metadata Document first, dynamic registration as the fallback.**
+  The provider hands the SDK a `clientMetadataUrl`; the SDK uses it only when the authorization
+  server advertises `client_id_metadata_document_supported`, otherwise it registers dynamically.
+  Before connecting, the provider also fetches the document and refuses to offer it when it is
+  unreachable, not JSON, its `client_id` is not its own URL, or it does not list this page's redirect
+  URI. The summary says which path was taken and why (e.g. "the authorization server does not
+  advertise Client ID Metadata Document support", "document not reachable (HTTP 404)").
+- **The inspector's own document** is [`oauth/inspector-client-metadata.json`](../../oauth/inspector-client-metadata.json)
+  at the repo root, next to the CLI's (the CLI's lists loopback port 8976; this one lists the dev
+  server's origin, `http://localhost:5173/` and `http://127.0.0.1:5173/`, because the redirect URI is
+  the page's own URL). It is a public client (`token_endpoint_auth_method: none`, PKCE, no secret; the
+  draft forbids shared-secret methods and `client_secret` in these documents) with `http` loopback
+  redirect URIs and `application_type: native`. The draft itself puts no limit on `redirect_uris`, but
+  lets an authorization server restrict them (for example to the document's own origin), so a strict
+  server may refuse these localhost redirects for a `github.io` client; that cannot be detected ahead of
+  time and is not yet tried against any real server. Its URL
+  is `INSPECTOR_CLIENT_METADATA_URL` in `src/lib/oauth.ts`; override it at build time with
+  `VITE_INSPECTOR_CLIENT_METADATA_URL=<https url | off>`. Serve the app on a different origin or port and
+  the redirect URI is not in the document, so the inspector falls back to dynamic registration (or point
+  the constant at a document of your own that lists your origin).
+- **The document is not live until this change is merged and GitHub Pages rebuilds.** It is served by
+  Pages at `https://johnhenry.github.io/mcp-query/oauth/inspector-client-metadata.json`; until then that
+  URL returns 404, the pre-flight check fails, and the inspector registers dynamically (the stepper shows
+  "document not reachable (HTTP 404)"). Authorization servers that support the draft also fetch the
+  document themselves, so they need that URL to resolve.
+- **Issuer check (RFC 9207).** The provider keeps `discoveryState` across the redirect, so the SDK
+  compares the callback's `iss` with the issuer recorded at discovery before redeeming the code. The
+  summary shows pass or fail with the expected and received issuer; a failed check never redeems the
+  code. (On the SDK 2.0.0 floor, which does not validate `iss`, the callback leg passes the code alone and
+  the stepper records that the check did not run.) Credentials are stored per issuer.
+- **DPoP** is shown as on (with the key thumbprint, never the key) when a provider records it; the
+  browser provider does not enable DPoP, so it shows off.
+- Anything secret (tokens, PKCE verifier, client secrets) is masked in the timeline as before. The step
+  log is kept in `sessionStorage` so it survives the redirect to the authorization server.
+
+![CIMD path](screenshots/oauth-cimd.png)
+![Dynamic registration fallback](screenshots/oauth-dcr-fallback.png)
+![Issuer mismatch rejected](screenshots/oauth-issuer-mismatch.png)
+
+The screenshots were taken in headless Chromium against local mock authorization servers (the
+document request was intercepted, since the real URL is not live yet); no real authorization server
+was involved.
 
 ### Production CSP
 
