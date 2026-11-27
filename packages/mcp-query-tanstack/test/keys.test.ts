@@ -32,3 +32,17 @@ describe("tagToQueryKeyPrefix", () => {
     expect(tagToQueryKeyPrefix(entityTag("Issue", 1234))).toEqual(["mcp-query", "Issue", "1234"]);
   });
 });
+
+describe("skills keys", () => {
+  it("builders nest under [ns, server, 'skills']; a partition is appended only when set", async () => {
+    const { skillsQueryKey, skillQueryKey, skillFileQueryKey } = await import("../src/keys.js");
+    expect(skillsQueryKey("s1")).toEqual(["mcp-query", "s1", "skills", "list"]);
+    expect(skillQueryKey("s1", "skill://a/SKILL.md")).toEqual(["mcp-query", "s1", "skills", "get", "skill://a/SKILL.md"]);
+    expect(skillFileQueryKey("s1", "skill://a/SKILL.md", "sha256:x", "tenant")).toEqual([
+      "mcp-query", "s1", "skills", "file", "skill://a/SKILL.md", "sha256:x", "@partition", "tenant",
+    ]);
+  });
+  it("the skills tag maps to the skills prefix of that server", () => {
+    expect(tagToQueryKeyPrefix("skills:s1")).toEqual(["mcp-query", "s1", "skills"]);
+  });
+});

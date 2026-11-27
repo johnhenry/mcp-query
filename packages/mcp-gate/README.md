@@ -114,7 +114,9 @@ export default config;
 | `clientInfo` | `ClientInfo` | `mcp-gate` | Identity sent to upstreams. |
 | `interactions` | `"answer" \| "forward" \| "deny" \| { default?, upstreams? }` | `"answer"` | What an upstream's `input_required` (MRTR) round does — see [Forwarding upstream interactions](#forwarding-upstream-interactions). |
 | `urlElicitation` | `{ allowHosts?, denyHosts? }` | none (URL mode denied) | Host globs for a forwarded URL-mode elicitation. |
-| `answerPolicy` | `AnswerPolicy` (rules or function) | none (answers allowed) | allow / deny / approve for the consumer's answers to forwarded input requests — see [Answers going upstream](#answers-going-upstream). |
+| `answerPolicy` | `AnswerPolicy` (rules or function) | none (answers allowed) | allow / deny / approve for the consumer's answers to forwarded input requests (and to task input requests) — see [Answers going upstream](#answers-going-upstream). |
+| `extensions` | `{ allow?, deny?, passthrough?, tasksSecret?, taskResolveMs? }` | tasks, skills, MCP Apps allowed; no pass-through | Which MCP extensions the gate offers and forwards — see [Extensions](#extensions). |
+| `policy.skills` | `{ allow?, deny?, approve? }` | none (skills allowed) | Whole-skill globs on `server.<skill-path>` — see [Skills](#skills). |
 
 `HttpUpstreamSpec.getToken?: () => string | undefined | Promise<string | undefined>` resolves
 a bearer token fresh before every request (the SDK's own `AuthProvider.token()` hook — no
@@ -178,22 +180,25 @@ the policy compiler, and the CLI.
 Policy, redaction, rate-limit, circuit-breaker and `audit` run on every operation of the governed
 client, and the audit entry's `kind` says which: `read` (resources/read), `call`/`query` (tools),
 `prompt` (prompts/get, `target` = prompt name), `skill` (skills list/get/read; `target` = `skills`, a
-skill URI or a file) and `list` (the catalog behind `listTools()`/`listResources()`/`listPrompts()`;
+skill URI or a file), `task` (`tasks/get|update|cancel`; `target` = the tool that started the task),
+`extension` (an allowlisted pass-through method; `target` = the method) and `list` (the catalog behind `listTools()`/`listResources()`/`listPrompts()`;
 `target` = `tools`, `resources`, `resourceTemplates` or `prompts`).
 
 - **Declarative policy.** Globs apply to tool calls, resource reads and `prompts/get` (by prompt name,
-  the same ids `policyListFilter` already used to hide prompts from discovery). `list` and `skill`
-  operations are always allowed by a declarative policy, so existing `allow`/`deny` configs do not
-  start refusing catalogs or skills. Name-denied items are hidden from the client's own
-  `listTools()` / `listResources()` / `listPrompts()` the way they are from the gateway's `*/list`
-  (library mode included), and `approval.discovery: "annotated"` stamps `_meta.requiresApproval` there too.
-- **Function policy.** Receives every kind, including `list`, `prompt` and `skill`; return `"deny"` for
-  `skill` to refuse skills outright. An `"approve"` verdict on a `list` is treated as allow (a catalog
-  view is not an action and must not wait for a human); on `prompt`/`skill` it goes through approval.
-- **Redaction.** `redact` rules scrub `prompts/get` results and a skill file's `text`/`body` (the file is
-  then marked `verified: false`, as its bytes no longer match the manifest digest). Catalog views are
-  not redacted: a pattern must not rewrite a tool name the router resolves.
-- **Rate-limit / circuit-breaker.** Apply to `prompt` and `skill` (they reach the upstream); skip `list`
+  the same ids `policyListFilter` already used to hide prompts from discovery). `list` operations are
+  always allowed by a declarative policy, so existing `allow`/`deny` configs do not start refusing
+  catalogs; skills are allowed unless `policy.skills` says otherwise ([Skills](#skills)). Name-denied
+  items are hidden from the client's own `listTools()` / `listResources()` / `listPrompts()` the way they
+  are from the gateway's `*/list` (library mode included), and `approval.discovery: "annotated"` stamps
+  `_meta.requiresApproval` there too.
+- **Function policy.** Receives every kind, including `list`, `prompt`, `skill`, `task` and `extension`;
+  `req.method` says which MCP method (`skills/read`, `tasks/cancel`, ...). An `"approve"` verdict on a
+  `list` is treated as allow (a catalog view is not an action and must not wait for a human); on
+  `prompt`/`skill` it goes through approval.
+- **Redaction.** `redact` rules scrub `prompts/get` results, and the content of a task (see [Tasks](#tasks)).
+  They never touch a **skill** (see [Skills](#skills): a digest covers the bytes) and not catalog views
+  (a pattern must not rewrite a tool name the router resolves).
+- **Rate-limit / circuit-breaker.** Apply to every kind that reaches the upstream; skip `list`
   (a local view).
 
 ## Human-in-the-loop approval
@@ -364,6 +369,90 @@ one is checked against `urlElicitation` before the consumer sees it: `denyHosts`
 (`*.example.com` matches `a.example.com`, not `example.com`). **It fails closed**: forwarding
 with no `allowHosts` denies every URL-mode elicitation (form mode is unaffected). A denied
 round is `-32003` and an audit entry with `outcome: "denied"` naming the host.
+
+## Extensions
+
+The gate carries the MCP extensions (SEP-2133) a consumer behind it would get from an upstream directly,
+with policy, redaction and audit applied. The rule for all of them: an extension is **offered to a consumer
+only when** (1) an upstream advertises it, (2) `extensions` allows it (default: tasks, skills, MCP Apps),
+and (3) the consumer **declared** it, in per-request client capabilities on the 2026-07-28 era or in
+`initialize` on the 2025 era. The gate's `capabilities.extensions` is computed that way, per consumer
+(a 2026 `server/discover` that carries no declaration shows the full computed set), and what the consumer
+declared is what reaches the upstream: on a 2026-07-28 upstream connection it is sent as that request's
+client capabilities, never more. A 2025-era upstream has fixed capabilities from its `initialize`, so only
+the gate's own declaration applies there.
+
+```ts
+createGate({
+  upstreams: { /* ... */ },
+  extensions: {
+    deny: ["io.modelcontextprotocol/ui"],                          // never offer / forward MCP Apps
+    passthrough: { "io.modelcontextprotocol/events": { methods: ["events/poll"] } }, // see below
+    tasksSecret: process.env.GATE_TASKS_SECRET,                    // >= 16 bytes; share it across gate instances
+  },
+});
+```
+
+### Tasks
+
+`io.modelcontextprotocol/tasks` (SEP-2663). A consumer that declared the extension and calls a task-capable
+tool gets the task handle; `tasks/get`, `tasks/update` and `tasks/cancel` are served by the gate and routed
+to the upstream that owns the task. A consumer that did **not** declare it gets the old behaviour: the
+upstream is not told tasks are acceptable (or, if it returns a handle anyway, the gate polls it to the end,
+up to `taskResolveMs`) and the consumer receives the final result.
+
+- **Task ids are namespaced and signed**: `gw1.<payload>.<HMAC>`. The payload names the upstream, the tool
+  and the upstream's own id, and binds them to the **partition** (`partitionFrom`, default `_meta.partition`)
+  and `_meta.principal` that created the task. The gate holds no per-task state, so any instance with the same
+  `tasksSecret` can route an id (default: a random secret per instance, ids die with the process). An altered
+  id, one minted by another secret, or one presented by another tenant or principal is refused as `unknown task`
+  (-32602), the same message for all three, and the foreign-tenant case is audited as `denied`. The partition and
+  principal are read from request `_meta`, exactly as for every other gate decision: bind them to your
+  authenticated caller in front of the gate, or a tenant can claim another's.
+- **Policy and audit** run on every poll, answer and cancel as `kind: "task"` with `target` = the tool that
+  started the task and `method` = the task method. A declarative policy applies the tool's `deny`/`allow`
+  rules (a denied tool cannot be polled) but does not ask for approval again at each poll; a function policy
+  sees everything.
+- **Redaction** applies to what the consumer reads: the inlined `result` of a `completed` task, the
+  `inputRequests` of an `input_required` one, `error` and `statusMessage`. Ids, status and timestamps are never rewritten.
+- **Input requests inside a task** follow the same rules as forwarded MRTR rounds: a URL-mode elicitation is
+  judged against `urlElicitation` (fails closed), and the consumer's `tasks/update` answers go through
+  `answerPolicy` and `redact` before they reach the upstream (`AnswerInfo.surface` is `"task"`).
+- Modern-era (2026-07-28) upstream connections need an SDK that can send `tasks/*` there (>= 2.3.0, see
+  `@johnhenry/mcp-query`'s capability probe); on older SDKs the gate surfaces the SDK's error.
+
+### Skills
+
+`io.modelcontextprotocol/skills` (SEP-2640). `skills/list` and `skills/get` aggregate every upstream's skills, and
+a skill file is served for `resources/read` from the upstream it came from. The originating server stays attached:
+with `namespace` (the default) each `skill://` URI, the entry's and every manifest file's, gets the server as its first
+path segment (`skill://git-commit/SKILL.md` on `github` becomes `skill://github/git-commit/SKILL.md`), so same-named
+skills on two upstreams do not collide and a file read routes back to its own upstream; `_meta["io.johnhenry.mcp-query/server"]`
+names the origin either way. Needs a skills-capable SDK (`@modelcontextprotocol/client` >= 2.4.0, or `skillsSdk` on the client).
+
+**The gate never redacts or rewrites a skill.** A skill's manifest digest covers its exact bytes; rewriting a file would
+make every consumer's verification fail. So `redact` skips skill files, and a skill file read as a plain resource is the same
+file. (An earlier version scrubbed skill text on the client side and marked the file `verified: false`; that is gone.) The gate
+serves the upstream's SDK-verified bytes untouched, so an upstream that lies about a digest is refused at the gate. What you
+control is whole skills: `policy.skills` globs match `server.<skill-path>` (`github.git-commit`, `a.team/*`); `deny` wins, then
+`allow` (if set) must match, then `approve` holds the skill for a human at `get` and at file reads. A denied skill is hidden from
+`skills/list`. Function policies see `kind: "skill"` with `method` `skills/list`, `skills/get` or `skills/read` (and `args.skill`, the
+skill's URI, on file reads). List, get and file reads are audited.
+
+### MCP Apps (UI)
+
+`io.modelcontextprotocol/ui`. A host that connects through the gate as its MCP endpoint can negotiate the UI extension: the gate's own
+connection to upstreams declares it (so upstreams send tool `_meta.ui` and `ui://` resources), and the gateway hands that metadata on
+only to a consumer that declared it too, whose declaration (`mimeTypes`, ...) is what a 2026-07-28 upstream sees on the calls and reads
+made for it. A consumer that did not declare it sees no `_meta.ui` and no `ui://` resources. `extensions.deny` it to turn all of this off,
+including the gate's own declaration.
+
+### Unknown extensions (opt-in pass-through)
+
+Off by default. List an extension's request methods under `extensions.passthrough` and the gate re-serves exactly those methods to a consumer
+that declared the extension, through the interceptor chain (`kind: "extension"`, so `policy`, `redact`, rate-limit and `audit` apply) and to the one
+upstream that advertises it, or the one named by `_meta["io.johnhenry.mcp-query/server"]` when several do. Request/response methods only (no
+notifications), and the extension's own semantics are the upstream's job. This is how a new extension works through an existing gate release.
 
 ## Multi-tenancy
 
