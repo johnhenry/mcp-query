@@ -9,9 +9,12 @@ jobs:
   workflow-lint:
     uses: johnhenry/workflows/.github/workflows/workflow-lint.yml@v1
 
-  # mcp-query / mcp-gate accept any @modelcontextprotocol/{client,server} 2.x
-  # (peer / dependency range ^2.0.0, #42). The lockfile pins one version, so this
-  # job swaps in the floor (2.0.0) and the newest 2.x to catch SDK drift.
+  # Every published package (mcp-query, mcp-gate, mcp-query-ui, mcp-query-tanstack,
+  # mcp-contract, mcp-record) and the CLI accept any @modelcontextprotocol/{client,server}
+  # 2.x (peer / dependency range ^2.0.0, #42). The lockfile pins the latest 2.x that was
+  # current when it was last refreshed (so build-test below runs the SDK-gated tests); this job
+  # swaps in the floor (2.0.0) and the newest 2.x, then type-checks and tests all of them on
+  # both legs to catch SDK drift in either direction (#116).
   sdk-matrix:
     runs-on: ubuntu-latest
     strategy:
@@ -27,13 +30,28 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install SDK ${{ matrix.sdk }}
-        # --legacy-peer-deps: stale nested pre-rename copies in the lockfile
-        # (apps/cli depend on old @johnhenry/mcp-gate 0.0.1) still peer-pin 2.0.0.
+        # --legacy-peer-deps: kept for safety against stale peer pins in the lockfile; it is not
+        # needed today (the old nested pre-rename copies that peer-pinned 2.0.0 are gone).
         run: npm install --no-save --legacy-peer-deps "@modelcontextprotocol/client@${{ matrix.sdk }}" "@modelcontextprotocol/server@${{ matrix.sdk }}" "@modelcontextprotocol/core@${{ matrix.sdk }}"
-      - run: npm ls @modelcontextprotocol/client @modelcontextprotocol/server @modelcontextprotocol/core --depth=0 --workspaces=false || true
+      - name: Show the resolved SDK (one copy of each, matching the leg)
+        run: |
+          npm ls @modelcontextprotocol/client @modelcontextprotocol/server @modelcontextprotocol/core --all || true
+          node -e 'const v=JSON.parse(require("fs").readFileSync("node_modules/@modelcontextprotocol/client/package.json","utf8")).version; console.log("client", v); if ("${{ matrix.sdk }}"==="2.0.0" && v!=="2.0.0") { console.error("floor leg did not resolve 2.0.0"); process.exit(1); }'
+      # Other workspaces import @johnhenry/mcp-query's subpath exports (./server, ./testing),
+      # which resolve to dist/, so it must be built before any of them type-checks or tests.
       - run: npm run build -w @johnhenry/mcp-query
-      - run: npm run typecheck -w @johnhenry/mcp-query -w @johnhenry/mcp-gate
-      - run: npm test -w @johnhenry/mcp-query -w @johnhenry/mcp-gate
+      - name: Typecheck (published packages + CLI)
+        run: >-
+          npm run typecheck
+          -w @johnhenry/mcp-query -w @johnhenry/mcp-gate -w @johnhenry/mcp-query-ui
+          -w @johnhenry/mcp-query-tanstack -w @johnhenry/mcp-contract -w @johnhenry/mcp-record
+          -w @mcp-query/cli
+      - name: Test (published packages + CLI)
+        run: >-
+          npm test
+          -w @johnhenry/mcp-query -w @johnhenry/mcp-gate -w @johnhenry/mcp-query-ui
+          -w @johnhenry/mcp-query-tanstack -w @johnhenry/mcp-contract -w @johnhenry/mcp-record
+          -w @mcp-query/cli
 
   build-test:
     runs-on: ubuntu-latest
@@ -58,6 +76,8 @@ jobs:
         run: npm test
 
       - name: Coverage (mcp-query)
+        # The lockfile pins the latest 2.x SDK, so the SDK-gated tests (skills, modern-era
+        # tasks, DPoP) run and count here; the sdk-matrix floor leg proves 2.0.0 still works.
         run: npm run test:coverage
 
       - name: Publish smoke (import the built entrypoint)
