@@ -53,6 +53,32 @@ function redactDeep(value: unknown, rules: Compiled[]): unknown {
   return value;
 }
 
+function redactTrackedDeep(value: unknown, rules: Compiled[], path: string, changed: string[]): unknown {
+  if (typeof value === "string") {
+    let s = value;
+    for (const r of rules) s = s.replace(r.re, r.replacement);
+    if (s !== value) changed.push(path);
+    return s;
+  }
+  if (Array.isArray(value)) return value.map((v, i) => redactTrackedDeep(v, rules, `${path}[${i}]`, changed));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = redactTrackedDeep(v, rules, path ? `${path}.${k}` : k, changed);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Like `redactValue`, but also reports WHERE it changed something: dotted paths (`q0.content.token`,
+ * `a[2]`), never the values. For audit trails that must say what was scrubbed without leaking it.
+ */
+export function redactTracked<T = unknown>(rules: RedactRule[], value: T, options?: RedactOptions): { value: T; paths: string[] } {
+  const paths: string[] = [];
+  const out = redactTrackedDeep(value, compile(rules, options), "", paths) as T;
+  return { value: out, paths };
+}
+
 /**
  * Redact a value (string, array, plain object, nested) with the same rules the `redact`
  * interceptor applies to results. Pure and synchronous: e.g. scrub a recorded cassette or a

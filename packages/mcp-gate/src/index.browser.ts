@@ -16,9 +16,9 @@
 // validate, client, upstream-http, approval) — the browser test bundles this entry for a
 // browser platform and fails if any `node:` builtin or Node-only package sneaks in.
 
-export type { GateConfig, GatePolicy, GatePolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { GateConfig, GatePolicy, GatePolicyRules, AnswerPolicy, AnswerPolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule, RedactOptions } from "./redact.js";
-export { redact, redactValue } from "./redact.js";
+export { redact, redactValue, redactTracked } from "./redact.js";
 export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { validateGateConfig } from "./validate.js";
 export { createGateClient } from "./client.js";
@@ -26,4 +26,4 @@ export type { GateClient } from "./client.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export type { ApprovalConfig, ApprovalRequest } from "./config.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
-export { urlElicitationPolicy, compileUrlPolicy, type UrlElicitationPolicy } from "./interaction.js";
+export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";

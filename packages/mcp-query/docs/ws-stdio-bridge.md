@@ -224,7 +224,7 @@ and any `localhost` origin, and spawned any requested command): loopback bind, t
 | Second `connect` on one socket | Leaks the first target process until the socket closes | Clients must not do this (not pinned) |
 | `port: 0` | The returned `url` echoes `0` rather than the bound port | Pass an explicit port |
 | Token printed | `proxy-cli.ts` prints a URL containing the token; `PROXY_PORT` / `PROXY_TOKEN` env vars are honoured | Do not run it in shared terminals or CI logs |
-| Escape hatch | `allowAnyTarget` / `PROXY_ALLOW_ANY=1` lets a token holder run any command. The `composer`, `console` and `ops-cockpit` dev scripts use it because their UI lets the user type an arbitrary server command | Only for local dev tools of that kind |
+| Escape hatch | `allowAnyTarget` / `PROXY_ALLOW_ANY=1` lets a token holder run any command. The `composer`, `console`, `ops-cockpit` and `inspector` dev scripts use it because their UI lets the user type an arbitrary server command (the inspector also has `dev:restricted`, which runs with its `proxy-allow.json` only, and ships an allowlist entry for its bundled demo server) | Only for local dev tools of that kind |
 
 ## Conformance
 

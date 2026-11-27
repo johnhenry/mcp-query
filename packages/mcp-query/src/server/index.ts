@@ -2,11 +2,11 @@
 // import from `mcp-query/server`.
 
 export { authorize, denyDestructiveUnless, AuthorizationError } from "./authorize.js";
-export type { AuthzVerdict, AuthzRequest, AuthorizeOptions } from "./authorize.js";
+export type { AuthzVerdict, AuthzRequest, AnswerInfo, AuthorizeOptions } from "./authorize.js";
 export { listFilter } from "./listFilter.js";
 export type { ListFilterOptions, ListItemKind } from "./listFilter.js";
 export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError, interactionModeFor } from "./gateway.js";
-export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions } from "./gateway.js";
+export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions, AnswerGuard, AnswerGuardRequest, AnswerGuardResult } from "./gateway.js";
 export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";
 export type { CircuitOptions, CircuitBreaker } from "./circuitBreaker.js";
 export { rateLimit } from "./rateLimit.js";
