@@ -1,5 +1,0 @@
----
-"@johnhenry/mcp-contract": minor
----
-
-Shared connection and answering helpers for the tool CLIs, plus the server card. New exports: `connectEra` / `parseEra` / `versionNegotiationFor` / `DEFAULT_ERA` / `ERA_PROBE_TIMEOUT_MS` / `Era` (connect with `legacy` or `auto`, where `auto` probes `server/discover` with a bounded timeout, 5 s by default and `MCPQ_ERA_PROBE_TIMEOUT_MS` to override, and falls back to `initialize`; on HTTP a timed-out probe is retried once as legacy); `parseAnswers` / `answerFor` / `runRounds` / `InputRequiredError` / `describeRequests` / `coerceArgs` (the `--answer key=value` machinery for `input_required` rounds, moved out of the private CLI so `mcp-record` can share it); `cardForContract` and the `ContractCard` / `ContractCardRemote` types (a contract could already carry a card, but the helper was not exported). Registry entries gain an optional `era: "legacy" | "auto"` pin, carried on `ConnectOptions.era`. The `mcp-contract` CLI gains `snapshot --card <url|auto>` (also on `verify` / `diff`) to pin the Server Card. README corrections: the contract's protocol field is `supported`.

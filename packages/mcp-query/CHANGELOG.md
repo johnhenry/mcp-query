@@ -1,5 +1,15 @@
 # @johnhenry/mcp-query
 
+## 0.8.0
+
+### Minor Changes
+
+- fb816ff: Gateway: `interactions: "forward"` now covers `resources/read` (same guarantees as tool calls and prompts: `requestState` byte-for-byte, redaction, answer guard, never cached, audited on both hops), and works for 2025-era upstreams: their server-initiated `elicitation/create` is relayed to the consumer in its own era's form (an `input_required` round for a modern consumer; the SDK's server-initiated `elicitation/create` for a 2025-era consumer that declared the capability) through the new `InteractionRelay` (install it as the client's `interactions`). Calls to a relayed upstream run one at a time, answers are bound to the verified principal, partition and call by a one-use `requestState`, and an unanswered request is declined after a timeout. New `guardInputRequests` option; `ReadResourceOpts.interaction`; the answer guard gains `kind: "resource"`. `subscriptions/listen` now honours `inboundAuth.required` (it bypassed the request-handler wrapper), and `list_changed` is only sent when the visible catalog changed.
+
+### Patch Changes
+
+- 9f272bb: Fix `mcp-query-inspect` and `mcp-query-codegen` doing nothing when run from an install. Both checked whether they were the entry script by comparing `import.meta.url` with `process.argv[1]` as strings; an installed bin is a symlink, so the check never matched and the command exited 0 with no output. They now compare real paths, as the `mcp-gate`, `mcp-contract` and `mcp-record` CLIs already do.
+
 ## 0.7.0
 
 ### Minor Changes
