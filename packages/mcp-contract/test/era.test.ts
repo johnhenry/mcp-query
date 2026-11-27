@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectEra, parseEra, versionNegotiationFor, DEFAULT_ERA, ERA_PROBE_TIMEOUT_MS } from "../src/index.js";
 import { entryToConnectOptions } from "../src/registry.js";
+
+vi.setConfig({ testTimeout: 60_000 }); // each test spawns real server processes; slow on a loaded CI runner
 
 const FIXTURE = fileURLToPath(new URL("./helpers/legacyStdioServer.mjs", import.meta.url));
 

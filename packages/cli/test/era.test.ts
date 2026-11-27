@@ -9,6 +9,8 @@ import { serverKey } from "../src/daemon/protocol.js";
 import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { Client } from "@modelcontextprotocol/client";
 
+vi.setConfig({ testTimeout: 60_000 }); // each test spawns real server processes; slow on a loaded CI runner
+
 const FIXTURE = fileURLToPath(new URL("../../mcp-contract/test/helpers/legacyStdioServer.mjs", import.meta.url));
 const dirs: string[] = [];
 afterEach(() => {

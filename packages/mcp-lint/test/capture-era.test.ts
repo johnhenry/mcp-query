@@ -3,12 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { run } from "../src/cli.js";
 import { lintContract } from "../src/lint.js";
 import { formatLint } from "../src/report.js";
 import type { Contract } from "../../mcp-contract/src/index.js";
 import { runCli } from "../../mcp-contract/test/helpers/cliHarness.js";
+
+vi.setConfig({ testTimeout: 60_000 }); // each test spawns real server processes; slow on a loaded CI runner
 
 const DUAL = fileURLToPath(new URL("../../mcp-contract/test/helpers/dualStdioServer.mjs", import.meta.url));
 const LEGACY_ONLY = fileURLToPath(new URL("../../mcp-contract/test/helpers/legacyStdioServer.mjs", import.meta.url));

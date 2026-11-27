@@ -3,9 +3,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { run } from "../src/cli.js";
 import { renderMarkdown } from "../src/render.js";
+
+vi.setConfig({ testTimeout: 60_000 }); // each test spawns real server processes; slow on a loaded CI runner
 
 const DUAL = fileURLToPath(new URL("../../mcp-contract/test/helpers/dualStdioServer.mjs", import.meta.url));
 const LEGACY_ONLY = fileURLToPath(new URL("../../mcp-contract/test/helpers/legacyStdioServer.mjs", import.meta.url));
