@@ -8,11 +8,37 @@
 //   createGatewayHandler — 2026-07-28-era: createMcpHandler's per-exchange Server
 //                          instances, with subscriptions/listen fan-out via ServerNotifier.
 
-import { createMcpHandler, Server, SdkError, SdkErrorCode, type CreateMcpHandlerOptions, type McpHttpHandler } from "@modelcontextprotocol/server";
+import { createMcpHandler, inputRequired, Server, SdkError, SdkErrorCode, CLIENT_CAPABILITIES_META_KEY, type CreateMcpHandlerOptions, type McpHttpHandler } from "@modelcontextprotocol/server";
 import { MissingRequiredClientCapabilityError } from "@modelcontextprotocol/client";
 import type { MCPClient } from "../core/client.js";
 import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
+import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
+import { AuthorizationError } from "./authorize.js";
+
+/**
+ * What the gateway does when an upstream `tools/call` or `prompts/get` returns a
+ * 2026-07-28 `input_required` (MRTR) result:
+ * - `"answer"` (default, the historic behaviour): the gate's own `MCPClient` host handlers
+ *   answer it, or it fails because the gate declared no such capability. The consumer never sees it.
+ * - `"forward"`: the round is returned to the consumer (`inputRequests` after the gate's own
+ *   interceptors, `requestState` byte-for-byte) and the consumer's retry is routed back to the
+ *   same upstream. Elicitation requests only; the upstream is told the consumer's real
+ *   elicitation capability. Applies to upstreams on a modern (2026-07-28) connection.
+ * - `"deny"`: the upstream is told the gate cannot ask anyone, and an `input_required` result
+ *   anyway is refused with a -32003 error.
+ */
+export type InteractionMode = "answer" | "forward" | "deny";
+
+/** One mode for every upstream, or a default plus per-upstream (server name) overrides. */
+export type GatewayInteractions = InteractionMode | { default?: InteractionMode; upstreams?: Record<string, InteractionMode> };
+
+/** Resolve the mode for one upstream. */
+export function interactionModeFor(interactions: GatewayInteractions | undefined, server: string): InteractionMode {
+  if (interactions === undefined) return "answer";
+  if (typeof interactions === "string") return interactions;
+  return (Object.hasOwn(interactions.upstreams ?? {}, server) ? interactions.upstreams![server] : undefined) ?? interactions.default ?? "answer";
+}
 
 export interface GatewayOptions {
   name?: string;
@@ -28,6 +54,11 @@ export interface GatewayOptions {
    * mcp-gate to flag approval-gated tools; list-only — it never changes call behavior.
    */
   annotate?: (server: string, kind: "tool" | "resource" | "prompt", name: string) => Record<string, unknown> | undefined;
+  /**
+   * How upstream `input_required` (MRTR) rounds are handled; see {@link InteractionMode}.
+   * Default `"answer"`. Give an object for per-upstream overrides.
+   */
+  interactions?: GatewayInteractions;
 }
 
 export interface GatewayHandlerOptions extends GatewayOptions {
@@ -56,6 +87,15 @@ export class GatewayUpstreamCapabilityError extends Error {
     super(message ?? `upstream "${server}" requires a client capability the gateway's connection to it does not declare`);
     this.name = "GatewayUpstreamCapabilityError";
   }
+}
+
+/** The slice of the SDK's handler context the MRTR pass-through reads. */
+interface MrtrCtx {
+  mcpReq: {
+    envelope?: Record<string, unknown>;
+    inputResponses?: unknown;
+    requestState<T = unknown>(): T | undefined;
+  };
 }
 
 const SEP = ".";
@@ -95,6 +135,41 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
     { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } },
   );
 
+  // ── MRTR pass-through (#82) ──
+  // Returns the per-call `_meta` and retry params for an upstream whose mode isn't "answer",
+  // plus a `settle` that turns an upstream `input_required` into this gateway's own result.
+  // "answer" returns undefined: the call is made exactly as before.
+  const mrtr = (s: string, req: { params: { _meta?: unknown } }, ctx: MrtrCtx) => {
+    const mode = interactionModeFor(opts.interactions, s);
+    if (mode === "answer") return undefined;
+    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
+    const consumerCaps = (ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? callerMeta?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
+      | { elicitation?: object }
+      | undefined;
+    // Per-request client capabilities for the upstream hop: the consumer's real elicitation
+    // support when forwarding, nothing when denying. Never claim more than we can deliver.
+    const caps = mode === "forward" && consumerCaps?.elicitation ? { elicitation: consumerCaps.elicitation } : {};
+    const interaction: ToolInteraction = {
+      ...(ctx.mcpReq.inputResponses ? { inputResponses: ctx.mcpReq.inputResponses as Record<string, unknown> } : {}),
+      ...(ctx.mcpReq.requestState<string>() !== undefined ? { requestState: ctx.mcpReq.requestState<string>() } : {}),
+    };
+    const meta = { ...(callerMeta ?? {}), [CLIENT_CAPABILITIES_META_KEY]: caps };
+    const settle = (res: unknown): unknown => {
+      if (!isInputRequiredResult(res)) return res;
+      if (mode === "deny") throw new AuthorizationError(`denied: ${s} asked for input, and this gateway does not relay interactions`);
+      const requests = res.inputRequests ?? {};
+      for (const [key, r] of Object.entries(requests)) {
+        if (r.method !== "elicitation/create") throw new AuthorizationError(`denied: ${s} sent a ${r.method} request ("${key}"); only elicitation is forwarded`);
+      }
+      // Rebuild with only the three MRTR fields; requestState is passed through untouched.
+      return inputRequired({
+        ...(res.inputRequests ? { inputRequests: res.inputRequests as never } : {}),
+        ...(res.requestState !== undefined ? { requestState: res.requestState } : {}),
+      });
+    };
+    return { meta, interaction, settle };
+  };
+
   // SEP-2549 cache hints: the 2026-07-28 encode step reads `ttlMs`/`cacheScope` directly
   // off the object a handler returns. Harmless extra fields on legacy (2025) responses —
   // unaware clients ignore unknown result keys — so both serving entries share this.
@@ -125,11 +200,18 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
       ...listHint(ss, "tools"),
     };
   });
-  server.setRequestHandler("tools/call", async (req) => {
+  server.setRequestHandler("tools/call", async (req, ctx) => {
     const [s, tool] = split(req.params.name, servers(), namespace);
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
     // the gateway — without this, multi-tenant _meta dies at the gate.
     const meta = req.params._meta as Record<string, unknown> | undefined;
+    const m = mrtr(s, req, ctx);
+    if (m) {
+      const res = await viaUpstream(s, () =>
+        client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {}, { context: { meta: m.meta }, interaction: m.interaction }),
+      );
+      return m.settle(res) as never;
+    }
     return (await viaUpstream(s, () =>
       client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {}, meta ? { context: { meta } } : {}),
     )) as never;
@@ -162,9 +244,16 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
       ...listHint(ss, "prompts"),
     };
   });
-  server.setRequestHandler("prompts/get", async (req) => {
+  server.setRequestHandler("prompts/get", async (req, ctx) => {
     const [s, name] = split(req.params.name, servers(), namespace);
     const meta = req.params._meta as Record<string, unknown> | undefined;
+    const m = mrtr(s, req, ctx);
+    if (m) {
+      const res = await viaUpstream(s, () =>
+        client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { meta: m.meta }, interaction: m.interaction }),
+      );
+      return m.settle(res) as never;
+    }
     return (await viaUpstream(s, () =>
       client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, meta ? { context: { meta } } : {}),
     )) as never;
