@@ -1,5 +1,0 @@
----
-"@johnhenry/mcp-query": minor
----
-
-The interceptor chain now covers `getPrompt` (`kind: "prompt"`), the skills calls `listSkills`/`getSkill`/`readSkillFile` (`kind: "skill"`) and the catalogs behind `listTools`/`listResources`/`listResourceTemplates`/`listPrompts` (`kind: "list"`, run where the catalog is fetched or re-fetched, so the synchronous accessors return what the chain answered and a throwing interceptor hides the catalog). New: `OperationKind` gains `list | prompt | skill`, `Operation.method`, `CatalogName`, async `client.discover(catalog, server?, { context })` (also on `scope()`, plus `scope().getPrompt`), and `listFilter({ keep, annotate })` in `@johnhenry/mcp-query/server`. Interceptors written against `read | call | query` keep working if they pass other kinds to `next`. `authorize()` treats `"approve"` on a `list` as allow, `rateLimit` and `circuitBreaker` skip `list`, and a synchronous throw from an interceptor is now audited like an async one. An `authorize` policy that denies every kind it does not recognise will now also deny the new kinds.
