@@ -3,6 +3,7 @@
 
 const TABS = [
   ["tools", "Tools"],
+  ["apps", "Apps"],
   ["resources", "Resources"],
   ["prompts", "Prompts"],
   ["messages", "Messages"],
@@ -14,6 +15,7 @@ const TABS = [
 
 const TAG: Record<string, string> = {
   tools: "mcp-tools",
+  apps: "mcp-apps",
   resources: "mcp-resources",
   prompts: "mcp-prompts",
   messages: "mcp-messages",

@@ -5,18 +5,23 @@
   "type": "module",
   "description": "A flagship MCP Inspector built on mcp-query — Web Components + Vite, with a local stdio/HTTP proxy.",
   "scripts": {
-    "dev": "WEB_PORT=5173 PROXY_PORT=6280 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
+    "dev": "WEB_PORT=5173 PROXY_PORT=6280 SANDBOX_PORT=5174 concurrently -n proxy,web,sandbox -c magenta,cyan,yellow \"npm:dev:proxy\" \"npm:dev:web\" \"npm:dev:sandbox\"",
     "dev:web": "vite",
     "dev:proxy": "tsx server/proxy.ts",
+    "dev:sandbox": "tsx sandbox/server.ts",
+    "demo:app": "tsx fixtures/mcp-app-demo.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
-    "@johnhenry/mcp-query": "*"
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@johnhenry/mcp-query": "*",
+    "@johnhenry/mcp-query-ui": "*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/ws": "^8.5.13",
     "concurrently": "^9.1.0",
     "happy-dom": "^20.10.6",

@@ -1,6 +1,6 @@
-import type { CallContext, MCPClient } from "@johnhenry/mcp-query";
+import type { CallContext, InteractionBroker, MCPClient } from "@johnhenry/mcp-query";
 import type { McpUiAppCapabilities, McpUiHostContext, McpUiResourceCsp, McpUiResourcePermissions } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { CspDomainKind } from "./csp.js";
+import type { CspDomainKind, HostCspOptions, HostPermissionOptions } from "./csp.js";
 
 export type AppStatus = "loading" | "loaded" | "connecting" | "ready" | "closing" | "closed" | "error";
 
@@ -16,13 +16,39 @@ export interface AppMessage {
 export interface AppCall {
   id: number;
   at: number;
-  kind: "tool" | "resource";
-  /** Tool name, or resource URI. */
+  kind: "tool" | "resource" | "resources-list" | "prompts-list" | "sampling" | "model-context";
+  /** Tool name, resource URI, or (for the opt-in capabilities) the wire method: `resources/list`, `prompts/list`, `sampling/createMessage`, `ui/update-model-context`. */
   target: string;
   args?: Record<string, unknown>;
   /** `denied` = an authorization/approval refusal (JSON-RPC -32003); other failures are `error`. */
   outcome: "pending" | "ok" | "denied" | "error";
   error?: string;
+}
+
+/** An app's `ui/update-model-context`: context the app wants included in the model's next turns. Untrusted input. */
+export interface AppModelContext {
+  content?: unknown[];
+  structuredContent?: Record<string, unknown>;
+}
+
+/**
+ * Which extra requests an app may make. EVERYTHING here is off by default; an app's request for a
+ * capability that is off is refused with a clear JSON-RPC error and recorded in `state.calls` as `denied`.
+ * (`prompts/get` is not listed: ext-apps' `AppBridge` exposes no handler for it.)
+ */
+export interface AppCapabilityOptions {
+  /** `resources/list`: the server's resource list from the client. */
+  resourcesList?: boolean;
+  /** `prompts/list`: the server's prompt list from the client. */
+  promptsList?: boolean;
+  /**
+   * `sampling/createMessage`: the app asks the host's model for a completion. Needs an {@link InteractionBroker}
+   * (`client.interactions` or `interactions`), so policy / a human approves each request. DISCOURAGED: sampling is
+   * deprecated in the core MCP protocol (SEP-2577).
+   */
+  sampling?: boolean;
+  /** `ui/update-model-context`: the app pushes context for the model. Needs `onUpdateModelContext`. */
+  updateModelContext?: boolean;
 }
 
 /** The subscribable, immutable snapshot of one mounted app (`useSyncExternalStore`-compatible). */
@@ -54,6 +80,16 @@ export interface AppResource {
   /** Dedicated sandbox origin the server asked for, if any (informational). */
   domain?: string;
   prefersBorder?: boolean;
+  /** True when the host customised the CSP (`frame.csp`); `cspHeader` then differs from the spec-derived default. */
+  hostCsp?: boolean;
+}
+
+/** Host-owned policy for the app frame (issue #66). Defaults are the spec's; the host may tighten freely, loosening is an explicit `unsafeLoosen` opt-in. */
+export interface AppFrameOptions {
+  /** Extra / overriding CSP directives and host-added domains. See {@link HostCspOptions}. */
+  csp?: HostCspOptions;
+  /** Narrow (or, with `unsafeLoosen`, extend) the Permission-Policy `allow` list / inner `permissions`. See {@link HostPermissionOptions}. */
+  permissions?: HostPermissionOptions;
 }
 
 export interface AppHostOptions {
@@ -70,12 +106,26 @@ export interface AppHostOptions {
    * defaults to `mcp-app:<uri>` so gate audit/approval can tell app-initiated traffic apart.
    */
   context?: CallContext | ((session: { id: string; uri: string }) => CallContext);
+  /** Host-owned CSP / permission policy for the app frame. Sandbox tokens and the iframe element itself are options of `mountIframe`. */
+  frame?: AppFrameOptions;
   /** Host-level allowlist over the CSP domains an app declared. Return false to drop one. */
   allowDomain?: (domain: string, kind: CspDomainKind) => boolean;
   /** Deliver an app's `ui/message`. Return `{ isError: true }` to refuse. Default: accept (it is also in `state.messages`). */
   onMessage?: (message: AppMessage, session: { id: string; uri: string }) => { isError?: boolean } | void | Promise<{ isError?: boolean } | void>;
   /** Open a link for the app. Return false to refuse. Default: refuse everything. Only http(s) URLs are ever offered. */
   onOpenLink?: (url: string, session: { id: string; uri: string }) => boolean | Promise<boolean>;
+  /** Extra app capabilities, all OFF by default and opt-in one by one. See {@link AppCapabilityOptions}. */
+  appCapabilities?: AppCapabilityOptions;
+  /**
+   * Broker that approves the opt-in capabilities (policy and/or a human). Defaults to `client.interactions`.
+   * Needed for `sampling`; for the others it is used when present. Interactions are filed under the peer
+   * `mcp-app:<ui uri>`, so a policy that auto-allows the server's own requests does not auto-allow an app's.
+   */
+  interactions?: InteractionBroker;
+  /** Receives an approved `ui/update-model-context` (required with `appCapabilities.updateModelContext`). Throw to refuse. */
+  onUpdateModelContext?: (update: AppModelContext, session: { id: string; uri: string }) => void | Promise<void>;
+  /** Wait at most this long (ms) for a human on an approval; then deny. Default: wait forever. */
+  approvalTimeoutMs?: number;
   /** Cap on retained `messages`/`calls` per session. Default 100. */
   maxHistory?: number;
   /** Per-request timeout (ms) for the teardown handshake on close. Default 1000. */
