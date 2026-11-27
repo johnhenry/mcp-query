@@ -19,6 +19,7 @@ export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
 export { validateGateConfig } from "./validate.js";
+export { gateServerCard, gateCardUrl, createGateCardHandler, GATE_CARD_META_KEY, type GateCardConfig, type GateServerCard } from "./card.js";
 export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 
