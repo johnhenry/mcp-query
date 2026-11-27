@@ -8,8 +8,14 @@ export {
   cassetteHash,
   sealCassette,
   loadCassette,
+  upgradeCassette,
+  tagInteraction,
+  CASSETTE_VERSION,
   type Cassette,
   type Interaction,
+  type InteractionKind,
+  type CassetteV1,
+  type CassetteProtocol,
 } from "./cassette.js";
 export { recordTransport, redactPaths, type RecordOptions } from "./record.js";
-export { replayServer, replayTransport } from "./replay.js";
+export { replayServer, replayTransport, type ReplayOptions } from "./replay.js";

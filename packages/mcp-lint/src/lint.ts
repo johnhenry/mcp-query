@@ -8,6 +8,8 @@ export interface Finding {
   severity: "error" | "warn";
   target: string;
   message: string;
+  /** Set on findings from live probes (`--probe`); contract-only findings leave it unset. */
+  probe?: true;
 }
 
 export interface LintResult {

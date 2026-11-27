@@ -38,10 +38,23 @@ npx tsx packages/mcp-bench/src/cli.ts --url https://host/mcp --duration 10
 | `--iterations N` | calls per op (default 20) — or `--duration S` for time-boxed |
 | `--warmup N` | untimed calls before measuring (default 3) |
 | `--max-p95 MS` / `--max-error-rate R` | budgets; exit non-zero if exceeded |
+| `--discover` | benchmark `server/discover` (2026-07-28; implies `--era auto`) |
+| `--task name:json` | benchmark a task-returning tool to its **terminal** state (repeatable); the time to the task handle is shown on a `[handle]` row |
+| `--poll-interval MS` / `--task-timeout S` | `tasks/get` cadence when the server suggests none (default 50) / give-up time (default 60) |
+| `--era legacy\|auto` | `legacy` (default): `initialize` handshake. `auto`: try `server/discover` first |
 
 By default it benchmarks `tools/list` plus any `--call` ops. **Destructive tools are never
 hammered automatically** — `--read-only` only adds tools annotated `readOnlyHint` with no
 required inputs.
+
+### Task-returning tools and `server/discover`
+
+A task-returning tool answers `tools/call` with a task handle straight away; the work finishes
+later (SEP-2663). `--call` therefore measures the handle. `--task` times the whole thing: the call,
+then `tasks/get` polling until the task is `completed` (a `failed` or `cancelled` task, or a timeout,
+counts as an error). The report adds an informational `[handle]` row with the time to the handle;
+budgets apply to the terminal-state row. A tool that answers synchronously counts as terminal at once.
+`tasks/*` on a 2026-07-28 connection need an SDK that allows them (>= 2.3.0; SDK 2.0.0 gates them off).
 
 > ⚠ **Benchmarking sends real traffic.** Against a hosted server that's real load on someone
 > else's infrastructure — mind rate limits and terms of service. Defaults are deliberately
@@ -60,6 +73,9 @@ const { text, passed } = evaluateReport(report, { maxP95: 200, maxErrorRate: 0 }
 console.log(text);
 if (!passed) process.exit(1);
 ```
+
+`taskToTerminalOp(client, name, args)` and `discoverOp(client)` build the 2026-07-28 ops; an op whose
+`invoke` returns `{ phases: { name: ms } }` gets those timings summarised under `OpResult.phases`.
 
 `benchmark(ops, opts)` is generic over an `invoke` thunk (MCP-agnostic and deterministically
 testable); `summarize(samples)` and `evaluateReport(report, budget)` are exported too.

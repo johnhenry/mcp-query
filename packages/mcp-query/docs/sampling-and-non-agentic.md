@@ -5,6 +5,11 @@ the sampling handler."* That conflated two different things. This note corrects 
 because plugging an LLM (e.g. Chrome's built-in AI) into a non-agentic app is a genuinely
 good fit.
 
+> **Deprecation clock:** Sampling is deprecated as of MCP 2026-07-28 (SEP-2577). It stays in the
+> specification for at least twelve months (SEP-2596), so this keeps working, but plan for its removal. Sampling
+> *with tools* (SEP-1577) sits on the same deprecated feature, so it is on the same clock. For your own
+> AI features, call the model directly and leave MCP out of it.
+
 ## Two distinct things that both involve "plugging in an AI"
 
 **1. Your app uses AI for its own features.** A non-agentic app can call an LLM —

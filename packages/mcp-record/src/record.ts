@@ -5,7 +5,7 @@
 import type { Transport } from "@modelcontextprotocol/client";
 import type { ServerCapabilities } from "@modelcontextprotocol/server";
 import { instrumentTransport, type TrafficEvent } from "../../mcp-query/src/core/instrument.js";
-import type { Cassette, Interaction } from "./cassette.js";
+import { tagInteraction, type Cassette, type Interaction } from "./cassette.js";
 
 interface RpcMessage {
   method?: string;
@@ -55,6 +55,7 @@ export function redactPaths(paths: string[], mask: unknown = "[REDACTED]"): (int
  * the `initialize` exchange populates the cassette's capabilities/identity.
  */
 export function recordTransport(inner: Transport, cassette: Cassette, opts: RecordOptions = {}): Transport {
+  const rounds = new Map<string, number>(); // requestState → MRTR round, for tagging retries
   const pending = new Map<string | number, { method: string; params: unknown }>();
 
   const onTraffic = (e: TrafficEvent): void => {
@@ -73,14 +74,34 @@ export function recordTransport(inner: Transport, cassette: Cassette, opts: Reco
     if (req.method === "initialize" && m.result && typeof m.result === "object") {
       const r = m.result as { protocolVersion?: string; capabilities?: ServerCapabilities; serverInfo?: { name?: string; version?: string } };
       cassette.protocolVersion = r.protocolVersion;
+      cassette.protocol = { era: "legacy", ...(r.protocolVersion ? { version: r.protocolVersion } : {}) };
       cassette.capabilities = r.capabilities;
       cassette.recordedFrom = r.serverInfo;
       return; // initialize is replayed by the Server constructor, not from interactions
     }
 
-    const entry: Interaction = { method: req.method, params: req.params };
+    // 2026-07-28: no initialize. `server/discover` carries the capabilities, identity and versions.
+    if (req.method === "server/discover" && m.result && typeof m.result === "object") {
+      const r = m.result as { supportedVersions?: unknown; capabilities?: ServerCapabilities; _meta?: Record<string, unknown> };
+      const info = r._meta?.["io.modelcontextprotocol/serverInfo"] as { name?: string; version?: string } | undefined;
+      const versions = Array.isArray(r.supportedVersions) ? r.supportedVersions.filter((v): v is string => typeof v === "string") : undefined;
+      const requested = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta?.["io.modelcontextprotocol/protocolVersion"];
+      cassette.capabilities = r.capabilities;
+      cassette.recordedFrom = info;
+      cassette.protocol = {
+        era: "modern",
+        ...(typeof requested === "string" ? { version: requested } : versions?.length ? { version: [...versions].sort().at(-1)! } : {}),
+        ...(versions ? { supportedVersions: versions } : {}),
+      };
+      return; // replayed from the header (the replay server answers discover itself)
+    }
+
+    if (req.method === "server/discover") return; // a failed probe (e.g. a legacy server) is negotiation noise, not traffic
+
+    let entry: Interaction = { method: req.method, params: req.params };
     if (m.error) entry.error = { code: m.error.code, message: m.error.message };
     else entry.result = m.result;
+    entry = tagInteraction(entry, rounds); // classify from the unredacted wire data, then redact
     cassette.interactions.push(opts.redact ? opts.redact(entry) : entry);
   };
 

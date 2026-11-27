@@ -5,7 +5,7 @@
 //             → delegate to the existing per-tool CLI (lazy-loaded).
 //   Registry  add · servers(ls) · remove(rm) · get · import · login · logout
 //             → a named catalog of MCP servers (.mcp.json / ~/.mcp-query/servers.json).
-//   Client    tools · call · read · prompt · ping
+//   Client    tools · call · read · prompt · ping · skills · skill · tasks
 //             → drive a live server (registered name | URL | inline flags).
 //
 //   mcp-query lint everything                     # tool verb, by registered name
@@ -36,7 +36,7 @@ import { addFromCard, addFromDomain, showCard } from "./discovery-verbs.js";
 import { request, daemonStatus, daemonStop, daemonStart } from "./daemon/client.js";
 import type { DaemonRequest } from "./daemon/protocol.js";
 
-const CLIENT_VERBS = ["tools", "call", "read", "prompt", "ping", "session"] as const;
+const CLIENT_VERBS = ["tools", "call", "read", "prompt", "ping", "skills", "skill", "tasks", "session"] as const;
 const REGISTRY_VERBS: Record<string, string> = {
   add: "Register a server (stdio command or http/sse url)",
   servers: "List registered servers (alias: ls)",
@@ -49,10 +49,13 @@ const REGISTRY_VERBS: Record<string, string> = {
 };
 const CLIENT_DESCRIBE: Record<string, string> = {
   tools: "List a live server's tools (--resources / --prompts / --schema / --json)",
-  call: "Call a tool (flags or a function-call string; coerced by inputSchema)",
+  call: "Call a tool (flags or a function-call string; coerced by inputSchema; --answer key=value for input_required rounds)",
   read: "Read a resource by URI",
-  prompt: "Get a prompt by name",
+  prompt: "Get a prompt by name (--answer key=value for input_required rounds)",
   ping: "Check that a server is reachable",
+  skills: "List a server's skills (io.modelcontextprotocol/skills)",
+  skill: "Read a skill file, verified against its manifest (<server> <uri> [--file <ref>])",
+  tasks: "Inspect or cancel a task: tasks get|cancel <server> <taskId>",
   session: "Open an interactive REPL holding one live connection",
 };
 
@@ -122,6 +125,12 @@ export function helpText(): string {
       CLIENT_VERBS.map((k) => [k, CLIENT_DESCRIBE[k]!] as [string, string]),
     ),
     "",
+    section("Client flags", [
+      ["--answer key=value", "call/prompt: answer an input_required round (repeatable; key = request key or form field). Needs a 2026-07-28 server; without it, pending requests are printed and the exit code is 1"],
+      ["--file <ref>", "skill: file within the skill to read (default SKILL.md)"],
+      ["--era legacy|auto", "legacy (default): initialize handshake. auto: try server/discover first (2026-07-28 servers)"],
+    ]),
+    "",
     section("Daemon", [
       ["daemon start|status|stop|logs", "Keep-alive daemon: reuse live upstreams across `--daemon` calls"],
       ["<client verb> --daemon", "Route a tools/call/read/prompt/ping through the daemon"],
@@ -135,6 +144,10 @@ export function helpText(): string {
     "  mcp-query tools linear",
     '  mcp-query call linear \'create_issue(title: "Bug", team: "ENG")\'',
     "  mcp-query lint everything            # tool verb by registered name",
+    "  mcp-query skills docs-server",
+    "  mcp-query skill docs-server skill://pdf-tools/SKILL.md --file references/GUIDE.md",
+    "  mcp-query tasks get linear task-1",
+    "  mcp-query call linear delete_repo --answer confirm=true   # answer an input_required round (name or form field)",
     "",
   ].join("\n");
 }
@@ -324,7 +337,7 @@ function flatEntry(entry: RegistryEntry): Record<string, string> {
 // flags and keep the remaining tokens verbatim (preserving their order).
 
 // Connection + output flags we own. The boolean ones never consume a following token.
-const CLIENT_VALUE_FLAGS = new Set(["command", "args", "url", "bearer", "config"]);
+const CLIENT_VALUE_FLAGS = new Set(["command", "args", "url", "bearer", "config", "era"]);
 const CLIENT_BOOL_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts", "daemon"]);
 
 interface ClientParse {
@@ -332,13 +345,18 @@ interface ClientParse {
   rest: string[]; // positionals + passthrough tool-arg tokens, in original order
 }
 
-function parseClient(argv: string[]): ClientParse {
+export function parseClient(argv: string[], verb?: string): ClientParse {
   const f: InvokeFlags = { headers: [] };
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--header") {
       f.headers!.push(argv[++i] ?? "");
+    } else if (a === "--answer" && (verb === "call" || verb === "prompt")) {
+      // Repeatable; only reserved on the verbs that run input_required rounds, so other verbs keep it as a tool arg.
+      (f.answers ??= []).push(argv[++i] ?? "");
+    } else if (a === "--file" && verb === "skill") {
+      f.file = argv[++i] ?? "";
     } else if (a.startsWith("--") && CLIENT_BOOL_FLAGS.has(a.slice(2))) {
       const key = a.slice(2);
       if (key === "json") f.json = true;
@@ -356,6 +374,7 @@ function parseClient(argv: string[]): ClientParse {
       else if (key === "url") f.url = val;
       else if (key === "bearer") f.bearer = val;
       else if (key === "config") f.config = val;
+      else if (key === "era") f.era = val;
     } else {
       rest.push(a); // positional, or a tool-arg flag like `--title` (kept verbatim)
     }
@@ -364,16 +383,19 @@ function parseClient(argv: string[]): ClientParse {
 }
 
 async function runClient(verb: string, argv: string[]): Promise<void> {
-  const { flags: f, rest } = parseClient(argv);
+  const { flags: f, rest } = parseClient(argv, verb);
   // The first leftover token is the server ref (name | url) UNLESS the connection was given
   // inline via --command/--url. Everything after that is the verb's own arguments.
   const hasInline = !!(f.command || f.url);
   const tokens = [...rest];
+  // `tasks get|cancel <server> <taskId>`: the subcommand comes before the server ref.
+  const taskSub = verb === "tasks" ? tokens.shift() : undefined;
   let serverRef: string | undefined;
   if (!hasInline && tokens.length) serverRef = tokens.shift();
 
   // `--daemon` routes tools/call/read/prompt/ping through the keep-alive daemon (session
   // and one-shot stay as they are).
+  if (f.daemon && (f.answers?.length || f.era)) throw new Error("--answer and --era are not supported with --daemon (the daemon holds a legacy-handshake connection)");
   if (f.daemon && verb !== "session") {
     return runClientViaDaemon(verb, serverRef, tokens, f);
   }
@@ -398,6 +420,18 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
       const uri = tokens.shift();
       if (!uri) throw new Error("usage: mcp-query read <server> <uri>");
       return client.read(serverRef, uri, f);
+    }
+    case "skills":
+      return client.skills(serverRef, f);
+    case "skill": {
+      const uri = tokens.shift();
+      if (!uri) throw new Error("usage: mcp-query skill <server> <uri> [--file <ref>]");
+      return client.skill(serverRef, uri, f);
+    }
+    case "tasks": {
+      const taskId = tokens.shift();
+      if ((taskSub !== "get" && taskSub !== "cancel") || !taskId) throw new Error("usage: mcp-query tasks get|cancel <server> <taskId>");
+      return client.tasks(serverRef, taskSub, taskId, f);
     }
     case "prompt": {
       const name = tokens.shift();

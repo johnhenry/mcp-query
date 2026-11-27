@@ -3,6 +3,9 @@
 // MCP servers borrow the host's local model — no API key, private, free. See
 // docs/sampling-and-non-agentic.md.
 //
+// Deprecation clock (SEP-2577 / SEP-2596): MCP's Sampling feature is deprecated as of 2026-07-28 and stays
+// in the specification for at least twelve months. Sampling with tools (SEP-1577) sits on the same feature.
+//
 // The `LanguageModel` is injectable so this is testable without a browser. The real
 // global API surface is still evolving; check current Chrome Prompt API docs.
 
@@ -72,6 +75,10 @@ export interface ChromeSamplingOptions {
  * Build a `HostHandlers["sampling"]` that fulfills `sampling/createMessage` via Chrome's
  * built-in AI. Maps the MCP message history onto a Prompt API session and shapes the
  * reply back into a CreateMessageResult.
+ *
+ * Deprecation clock: Sampling is deprecated as of MCP 2026-07-28 (SEP-2577) and stays in the spec for at
+ * least twelve months (SEP-2596). Sampling with tools (SEP-1577) sits on the same deprecated feature.
+ * Registering this handler still works; prefer calling Chrome's Prompt API directly for your own AI features.
  */
 export function chromeBuiltinAISampling(
   opts: ChromeSamplingOptions = {},

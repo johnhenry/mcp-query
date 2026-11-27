@@ -5,3 +5,4 @@
 export { benchmark, runOp, type BenchOp, type BenchOptions, type OpResult, type BenchReport } from "./bench.js";
 export { summarize, type Summary } from "./stats.js";
 export { evaluateReport, type Budget, type Evaluated } from "./report.js";
+export { taskToTerminalOp, discoverOp, isPhased, type Phased, type TaskOpOptions, type RequestClient, type DiscoverClient } from "./ops.js";

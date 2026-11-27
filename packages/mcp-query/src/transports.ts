@@ -8,14 +8,29 @@
 // (it drags in child_process); we re-export it here for Node consumers — browser
 // bundlers that tree-shake unused exports are unaffected.
 
+import { SSEClientTransport as SdkSSEClientTransport } from "@modelcontextprotocol/client";
+import type { SSEClientTransportOptions as SdkSSEClientTransportOptions } from "@modelcontextprotocol/client";
+
+/**
+ * The legacy HTTP+SSE client transport.
+ *
+ * @deprecated HTTP+SSE (deprecated since protocol 2025-03-26) is reclassified as Deprecated by the
+ * 2026-07-28 revision's feature lifecycle policy (SEP-2596); it stays available for at least twelve
+ * months. Use `StreamableHTTPClientTransport`. (SEP-2577 deprecates Sampling, Roots and Logging, not this
+ * transport; SEP-2596 is the one that covers it.)
+ */
+export const SSEClientTransport = SdkSSEClientTransport;
+/** @deprecated See the {@link SSEClientTransport} value: HTTP+SSE is Deprecated (SEP-2596). */
+export type SSEClientTransport = SdkSSEClientTransport;
+/** @deprecated HTTP+SSE is Deprecated (SEP-2596). Use `StreamableHTTPClientTransportOptions`. */
+export type SSEClientTransportOptions = SdkSSEClientTransportOptions;
+
 export {
-  SSEClientTransport,
   StreamableHTTPClientTransport,
   InMemoryTransport,
   UnauthorizedError,
 } from "@modelcontextprotocol/client";
 export type {
-  SSEClientTransportOptions,
   StreamableHTTPClientTransportOptions,
   Transport,
   OAuthClientProvider,
