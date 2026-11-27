@@ -12,7 +12,23 @@
 import type { Client, ClientCapabilities } from "@modelcontextprotocol/client";
 
 import { TASKS_EXT } from "./tasksExt.js";
-import type { ElicitationRequest, HostHandlers } from "./types.js";
+import { warnDeprecatedFeature } from "./deprecations.js";
+import type { ElicitationRequest, HostHandlers, RootsHandlerResult } from "./types.js";
+
+/** Normalize a roots handler's return value to a `roots/list` result, keeping an optional `_meta` (restored by the draft revision). */
+export function rootsResult(
+  roots: NonNullable<HostHandlers["roots"]>,
+  params?: unknown,
+): { roots: Array<{ uri: string; name?: string }>; _meta?: Record<string, unknown> } {
+  const out: RootsHandlerResult = roots(params as { _meta?: Record<string, unknown> } | undefined);
+  return Array.isArray(out) ? { roots: out } : out;
+}
+
+/** Where a handler is installed: lets the deprecation warning name the server and tell eras apart. */
+export interface HandlerContext {
+  server: string;
+  era: () => string | undefined;
+}
 
 /** Returns the client-capabilities object to advertise, given which handlers exist. */
 export function clientCapabilities(h: HostHandlers, extensions?: Record<string, object>): ClientCapabilities {
@@ -31,9 +47,15 @@ export function clientCapabilities(h: HostHandlers, extensions?: Record<string, 
 }
 
 /** Wire the host handlers onto a freshly constructed SDK client (call before connect). */
-export function installHandlers(client: Client, h: HostHandlers): void {
+export function installHandlers(client: Client, h: HostHandlers, ctx?: HandlerContext): void {
+  // A modern-era server that asks for sampling/roots is using a feature SEP-2577 deprecates
+  // (a legacy-era server is using the feature its own revision defines, so no warning there).
+  const modern = (): boolean => ctx?.era() === "modern";
   if (h.sampling) {
-    client.setRequestHandler("sampling/createMessage", async (req) => (await h.sampling!(req.params)) as never);
+    client.setRequestHandler("sampling/createMessage", async (req) => {
+      if (modern()) warnDeprecatedFeature("sampling", ctx?.server);
+      return (await h.sampling!(req.params)) as never;
+    });
   }
   if (h.elicitation) {
     // Pass the params through as-is (mode "form" or "url") — don't assume form
@@ -43,6 +65,9 @@ export function installHandlers(client: Client, h: HostHandlers): void {
     });
   }
   if (h.roots) {
-    client.setRequestHandler("roots/list", () => ({ roots: h.roots!() }));
+    client.setRequestHandler("roots/list", (req) => {
+      if (modern()) warnDeprecatedFeature("roots", ctx?.server);
+      return rootsResult(h.roots!, req.params) as never;
+    });
   }
 }

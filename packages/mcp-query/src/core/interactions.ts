@@ -61,6 +61,8 @@ export interface InteractionDecision extends BaseDecision {
   editedResult?: unknown;
   /** elicitation: the structured content the user supplied. */
   content?: unknown;
+  /** elicitation: optional `_meta` to return on the result (restored by the draft revision). */
+  _meta?: Record<string, unknown>;
 }
 
 export interface InteractionBrokerOptions {
@@ -159,7 +161,7 @@ export class InteractionBroker extends CoreInteractionBroker<InteractionDecision
     return result;
   }
 
-  async handleElicitation(server: string, params: ElicitationRequest): Promise<{ action: string; content?: unknown }> {
+  async handleElicitation(server: string, params: ElicitationRequest): Promise<{ action: string; content?: unknown; _meta?: Record<string, unknown> }> {
     const verdict = await this.decide({ peer: server, type: "elicitation", payload: params });
     if (verdict === "deny") {
       this.record(server, "elicitation", "auto-deny");
@@ -172,10 +174,10 @@ export class InteractionBroker extends CoreInteractionBroker<InteractionDecision
     const d = await this.enqueue("elicitation", "request", server, params);
     if (d.action === "deny") {
       this.record(server, "elicitation", "denied", d.reason);
-      return { action: "decline" };
+      return { action: "decline", ...(d._meta ? { _meta: d._meta } : {}) };
     }
     this.record(server, "elicitation", "approved");
-    return { action: "accept", content: d.content ?? {} };
+    return { action: "accept", content: d.content ?? {}, ...(d._meta ? { _meta: d._meta } : {}) };
   }
 
   /** Build server-bound HostHandlers that route sampling/elicitation through the broker. */

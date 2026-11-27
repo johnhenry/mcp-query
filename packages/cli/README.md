@@ -10,7 +10,7 @@ mcp-query <verb> [args] [--json|--raw]
 | ------------ | ------------------------------------------------------------------- | ------------ |
 | **Tools**    | `codegen` `inspect` `contract` `lint` `docs` `bench` `record` `gate` | Umbrella over the per-tool CLIs (lazy-loaded). |
 | **Registry** | `add` `servers`/`ls` `remove`/`rm` `get` `import` `login` `logout`   | A named catalog of MCP servers. |
-| **Client**   | `tools` `call` `read` `prompt` `ping`                                | Drive a live server. |
+| **Client**   | `tools` `call` `read` `prompt` `ping` `skills` `skill` `tasks`       | Drive a live server. |
 
 `mcp-query help` (or `--help`) prints the grouped verb list.
 
@@ -89,10 +89,26 @@ mcp-query read  linear "linear://issues/ISSUE-1"
 mcp-query prompt linear standup --team ENG
 mcp-query ping  linear
 
+# 2026-07-28 extensions and multi round-trip requests
+mcp-query skills docs                                   # skills/list
+mcp-query skill  docs skill://pdf-tools/SKILL.md --file references/GUIDE.md   # verified against the manifest
+mcp-query tasks get    linear task-1                    # tasks/get
+mcp-query tasks cancel linear task-1
+mcp-query call linear delete_repo --repo acme/x --answer confirm=true   # answer an input_required round
+
 # Inline (no registration needed)
 mcp-query tools --command npx --args "-y @modelcontextprotocol/server-everything"
 mcp-query tools --url https://host/mcp --bearer "$TOKEN"
 ```
+
+`--answer key=value` (repeatable, `call` and `prompt`) answers an `input_required` round without a
+prompt: `key` is the request key (`q0`; the value is a JSON object, or `accept` / `decline` / `cancel`,
+or a bare value for a one-field form) or the name of a form field. It implies `--era auto`, because
+`input_required` exists only on 2026-07-28 connections (`--era auto` tries `server/discover` first;
+the default `legacy` uses the `initialize` handshake). With `--era auto` and no `--answer`, a round that
+asks something prints the pending requests and exits 1. Sampling and roots requests need a JSON answer.
+`skill` refuses a file that is not in the skill's manifest or whose size/digest differs.
+`tasks` on a 2026-07-28 connection needs an SDK that allows `tasks/*` there (>= 2.3.0).
 
 `--json` emits machine-readable output (and, on failure, a
 `{ server, tool, issue, message }` object where `issue` is one of

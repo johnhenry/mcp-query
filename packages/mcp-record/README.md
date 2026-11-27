@@ -58,6 +58,35 @@ Drop the replay server into an MCP host (CI, a demo) exactly where the real one 
 }}}
 ```
 
+## Cassette format versions and the 2026-07-28 surface
+
+Cassettes carry a `version`. This build writes **2** and reads **1** (and cassettes with no `version`):
+a v1 file is upgraded in memory on load, its integrity seal is verified against the original hash first
+and then re-issued in the new format. A version newer than the build understands is refused with a clear error.
+
+What v2 adds:
+
+- `protocol` (`era`, negotiated `version`, `supportedVersions`). On a 2026-07-28 connection there is
+  no `initialize`; the header is filled from `server/discover` (record with `--era auto`, or any client
+  using `versionNegotiation: auto`). `replayTransport` serves a modern cassette through the SDK's
+  era-aware handler, so a modern client negotiates with `server/discover` against the replay too.
+  The integrity hash covers this header as well as the interactions.
+- `kind` / `mrtr` tags on interactions, derived from the wire: **multi round-trip requests**
+  (`input_required` result = `round` 0, each retry carrying `requestState` / `inputResponses` = the next
+  round), **task** exchanges (`tasks/*`, task handles) and **skill** calls (`skills/*`).
+- Replay matches a retry on its `inputResponses` and `requestState`, restored from the request context
+  because the SDK lifts them out of `params`, so round 0 and round N never get mixed up. Matching is
+  exact by default; `replayTransport(cassette, { looseInputResponses: true })` opts in to replaying
+  a recorded retry against *different* answers (same method, params and `requestState`).
+- `tasks/get` polling replays the recorded statuses in order and the terminal status sticks;
+  `tasks/update` / `tasks/cancel` / `skills/list` / `skills/get` replay like any other method.
+
+Limits: `mcp-record replay` (stdio) serves the classic handshake only, so a modern client should use
+`replayTransport`. On SDK 2.0.0 `tasks/*` are era-gated off the 2026-07-28 wire (both ends), so task
+sequences on a modern connection need SDK >= 2.3.0; legacy-era task sequences work everywhere.
+`record --call` drives tool calls only (no MRTR answers); record richer flows through `recordTransport`
+around your own client.
+
 ## Programmatic API
 
 Record by wrapping any transport; replay as a server or a transport factory:

@@ -17,6 +17,7 @@ import {
 import { MCPCache, type CachePatch } from "./cache.js";
 import type { CacheStore } from "./cacheStore.js";
 import { cacheScope, cacheTtl, ServerConnection, type ConnectionConfig } from "./connection.js";
+import { rootsResult } from "./handlers.js";
 import { InteractionBroker } from "./interactions.js";
 import type { TrafficEvent } from "./instrument.js";
 import { runInterceptors, type CatalogName, type Operation, type RequestInterceptor } from "./interceptors.js";
@@ -95,6 +96,9 @@ export interface MCPClientConfig {
    * requests carrying the `io.modelcontextprotocol/logLevel` `_meta` key. Set
    * this to attach it to every request (per-call `CallContext.logLevel` wins).
    * Legacy-era log delivery still uses `setLogLevel`.
+   *
+   * @deprecated The Logging feature is deprecated as of MCP 2026-07-28 (SEP-2577; stays for at
+   * least twelve months, SEP-2596). Log to stderr (stdio) or use OpenTelemetry instead.
    */
   defaultLogLevel?: LoggingLevel;
   /** Fallback poll cadence (ms) for task handles when the server sends no pollIntervalMs. Default 150. */
@@ -166,6 +170,9 @@ export interface CallContext {
    * Modern-era per-request log delivery (2026-07-28): attaches the
    * `io.modelcontextprotocol/logLevel` `_meta` key so the server emits
    * `notifications/message` for this request at the given severity.
+   *
+   * @deprecated The Logging feature is deprecated as of MCP 2026-07-28 (SEP-2577; stays for at
+   * least twelve months, SEP-2596). Log to stderr (stdio) or use OpenTelemetry instead.
    */
   logLevel?: LoggingLevel;
 }
@@ -837,7 +844,8 @@ export class MCPClient {
   /**
    * Set a server's logging verbosity (logging/setLevel).
    *
-   * @deprecated Logging is deprecated as of 2026-07-28 (SEP-2577); the RPC does
+   * @deprecated Logging is deprecated as of 2026-07-28 (SEP-2577; at least twelve
+   * months before removal, SEP-2596); the RPC does
    * not exist on modern connections (no-op there). Use `CallContext.logLevel` /
    * `defaultLogLevel` for modern-era per-request log delivery.
    */
@@ -1023,7 +1031,7 @@ export class MCPClient {
           } else if (reqObj.method === "sampling/createMessage" && handlers.sampling) {
             inputResponses[k] = await handlers.sampling(reqObj.params);
           } else if (reqObj.method === "roots/list" && handlers.roots) {
-            inputResponses[k] = { roots: handlers.roots() };
+            inputResponses[k] = rootsResult(handlers.roots, reqObj.params);
           } else if (reqObj.method === "elicitation/create") {
             inputResponses[k] = { action: "decline" }; // no handler ⇒ decline rather than hang
           } else {

@@ -104,20 +104,33 @@ export interface HostHandlers {
    * @deprecated The Sampling feature is deprecated as of MCP 2026-07-28
    * (SEP-2577; functional through the ≥12-month deprecation window, and still
    * used by the multi-round-trip driver when a server embeds a sampling
-   * request). New designs should integrate LLM provider APIs directly.
+   * request). New designs should integrate LLM provider APIs directly. The twelve-month
+   * minimum window is the feature lifecycle policy (SEP-2596). The request (including its
+   * optional `_meta`) is passed through as-is, and a `_meta` on the result is returned.
    */
   sampling?: (req: unknown) => Promise<unknown>;
-  /** Server asks the user for input mid-call: a form to fill out, or a URL to visit. */
+  /**
+   * Server asks the user for input mid-call: a form to fill out, or a URL to visit. The request carries the
+   * server's optional `_meta` as-is; the result may carry `_meta` back (`ElicitResult._meta`).
+   */
   elicitation?: (
     req: ElicitationRequest,
-  ) => Promise<{ action: "accept" | "decline" | "cancel"; content?: unknown }>;
+  ) => Promise<{ action: "accept" | "decline" | "cancel"; content?: unknown; _meta?: Record<string, unknown> }>;
   /**
    * Filesystem/URI boundaries the client exposes to the server.
    *
    * @deprecated The Roots feature is deprecated as of MCP 2026-07-28
    * (SEP-2577; functional through the deprecation window, and still used by
    * the multi-round-trip driver for embedded `roots/list` requests). Prefer
-   * passing paths via tool parameters, resource URIs, or configuration.
+   * passing paths via tool parameters, resource URIs, or configuration. The twelve-month
+   * minimum window is the feature lifecycle policy (SEP-2596).
    */
-  roots?: () => Array<{ uri: string; name?: string }>;
+  roots?: (req?: { _meta?: Record<string, unknown> }) => RootsHandlerResult;
 }
+
+/**
+ * What a `roots` handler may return: the roots, or `{ roots, _meta }` to also set the optional
+ * `_meta` the draft revision restores on `ListRootsResult`. The request's `_meta` arrives as the
+ * handler's argument.
+ */
+export type RootsHandlerResult = Array<{ uri: string; name?: string }> | { roots: Array<{ uri: string; name?: string }>; _meta?: Record<string, unknown> };

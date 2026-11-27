@@ -13,7 +13,7 @@ export function formatLint(result: LintResult, opts: { color?: boolean } = {}): 
     .sort((a, b) => (a.severity === b.severity ? a.target.localeCompare(b.target) : a.severity === "error" ? -1 : 1))
     .map((f) => {
       const tag = f.severity === "error" ? red("error") : yellow("warn ");
-      return `  ${tag}  ${f.target}  ${f.message}  ${c ? `\x1b[2m(${f.rule})\x1b[0m` : `(${f.rule})`}`;
+      return `  ${tag}  ${f.target}  ${f.message}  ${c ? `\x1b[2m(${f.rule}${f.probe ? ", probe" : ""})\x1b[0m` : `(${f.rule}${f.probe ? ", probe" : ""})`}`;
     });
 
   const summary = `${result.errors} error${result.errors === 1 ? "" : "s"}, ${result.warnings} warning${result.warnings === 1 ? "" : "s"}`;

@@ -12,13 +12,15 @@
 
 import { createInterface } from "node:readline";
 import type { Client } from "@modelcontextprotocol/client";
-import { connectClient, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
+import { Client as SdkClient } from "@modelcontextprotocol/client";
+import { buildTransport, connectClient, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../mcp-contract/src/schema.js";
 
 // The function-call / literal parsing now lives in mcp-contract (shared with
 // `mcp-bench --call` / `mcp-record --call`); re-exported here for existing importers.
 export { parseCallExpr } from "../../mcp-contract/src/index.js";
 import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
+import { InputRequiredError, opSkill, opSkills, opTasks, runRounds } from "./extension-verbs.js";
 
 const log = (s: string): void => console.log(s);
 
@@ -41,6 +43,12 @@ export interface InvokeFlags {
   headers?: string[];
   /** Route the verb through the keep-alive daemon (reuses a live upstream connection). */
   daemon?: boolean;
+  /** `--answer key=value` (repeatable): answers for an `input_required` round (call / prompt). */
+  answers?: string[];
+  /** `--file <ref>` (skill): which file of the skill to read. Default SKILL.md. */
+  file?: string;
+  /** `--era legacy|auto`: `legacy` (default) uses the initialize handshake; `auto` tries server/discover first (2026-07-28). */
+  era?: string;
 }
 
 function modeOf(f: InvokeFlags): OutputMode {
@@ -77,7 +85,20 @@ function inlineHeaders(f: InvokeFlags): Record<string, string> {
 
 /** Resolve + connect; caller owns close(). Shared by one-shot verbs, the REPL, and the daemon. */
 export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcp-query"): Promise<{ client: Client; close: () => Promise<void> }> {
-  return connectClient(resolveInvoke(serverRef, f, clientName));
+  const opts = resolveInvoke(serverRef, f, clientName);
+  if (f.era !== undefined && f.era !== "legacy" && f.era !== "auto") throw new Error('--era must be "legacy" (default, initialize handshake) or "auto" (try server/discover first)');
+  const answering = !!f.answers?.length;
+  if (answering && f.era === "legacy") throw new Error("--answer needs a 2026-07-28 connection (the multi round-trip pattern); drop --era legacy");
+  // --answer implies auto negotiation: `input_required` rounds only exist on 2026-07-28 connections.
+  if (f.era === "auto" || answering) return connectAuto(opts, answering);
+  return connectClient(opts);
+}
+
+async function connectAuto(opts: ConnectOptions, answering: boolean): Promise<{ client: Client; close: () => Promise<void> }> {
+  // Declare elicitation only when we can actually answer it (from --answer).
+  const client = new SdkClient({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: answering ? { elicitation: { form: {}, url: {} } } : {}, versionNegotiation: { mode: "auto" } });
+  await client.connect(buildTransport(opts));
+  return { client, close: () => client.close().catch(() => {}) };
 }
 
 // ── failure classification (for --json error reports) ─────────────────────────
@@ -95,6 +116,10 @@ export function classify(err: unknown): { issue: Issue; message: string } {
 
 /** Emit a structured failure in --json mode, else rethrow for the top-level handler. */
 function fail(err: unknown, ctx: { server: string; tool?: string }, mode: OutputMode): never {
+  if (mode === "json" && err instanceof InputRequiredError) {
+    log(JSON.stringify({ server: ctx.server, tool: ctx.tool, issue: "input_required", message: err.message, pending: err.pending }, null, 2));
+    process.exit(1);
+  }
   if (mode === "json") {
     const { issue, message } = classify(err);
     log(JSON.stringify({ server: ctx.server, tool: ctx.tool, issue, message }, null, 2));
@@ -233,7 +258,10 @@ export async function opCall(client: Client, toolName: string | undefined, argTo
     if (!ok) throw new Error("aborted");
   }
 
-  const result = await client.callTool({ name, arguments: args });
+  // Without --answer an `input_required` result must be visible (not swallowed by the SDK driver) so it can be reported.
+  const result = f.era === "auto" || f.answers?.length
+    ? await runRounds((retry) => client.callTool({ name, arguments: args, ...retry } as never, { allowInputRequired: true } as never) as Promise<Awaited<ReturnType<Client["callTool"]>>>, f.answers ?? [])
+    : await client.callTool({ name, arguments: args });
   if (mode === "raw") return log(formatResult(result, "raw"));
   if (mode === "json") return log(formatResult(result.content, "json"));
   log(formatResult(result.content, "human"));
@@ -252,7 +280,9 @@ export async function opPrompt(client: Client, name: string, argTokens: string[]
   const parsed = parseCallArgs(name, argTokens);
   const args: Record<string, string> = {};
   for (const [k, v] of Object.entries(parsed.args)) args[k] = typeof v === "string" ? v : JSON.stringify(v);
-  const result = await client.getPrompt({ name, arguments: args });
+  const result = f.era === "auto" || f.answers?.length
+    ? await runRounds((retry) => client.getPrompt({ name, arguments: args, ...retry } as never, { allowInputRequired: true } as never) as Promise<Awaited<ReturnType<Client["getPrompt"]>>>, f.answers ?? [])
+    : await client.getPrompt({ name, arguments: args });
   if (mode === "raw") return log(formatResult(result, "raw"));
   if (mode === "json") return log(formatResult(result.messages, "json"));
   log(
@@ -302,3 +332,8 @@ export const read = (serverRef: string | undefined, uri: string, f: InvokeFlags)
 export const prompt = (serverRef: string | undefined, name: string, argTokens: string[], f: InvokeFlags): Promise<void> =>
   oneShot(serverRef, f, name, (c) => opPrompt(c, name, argTokens, f));
 export const ping = (serverRef: string | undefined, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opPing(c, f));
+
+export const skills = (serverRef: string | undefined, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opSkills(c, f));
+export const skill = (serverRef: string | undefined, uri: string, f: InvokeFlags): Promise<void> => oneShot(serverRef, f, undefined, (c) => opSkill(c, uri, f));
+export const tasks = (serverRef: string | undefined, sub: string | undefined, taskId: string | undefined, f: InvokeFlags): Promise<void> =>
+  oneShot(serverRef, f, undefined, (c) => opTasks(c, sub, taskId, f));
