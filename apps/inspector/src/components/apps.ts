@@ -3,10 +3,13 @@
 // Uses the framework-agnostic host API: createAppHost -> host.open -> mountIframe -> session.subscribe.
 import { mountIframe, type AppSession, type AppSessionState } from "@johnhenry/mcp-query-ui";
 import { Reactive, esc } from "../lib/reactive.js";
-import { client, hub, activeServer } from "../lib/store.js";
+import { client, hub, activeServer, disconnectHooks } from "../lib/store.js";
 import { buildSchemaForm } from "../lib/schema-form.js";
 import { hostFor, listAppTools, sandboxProxyUrl, type AppTool } from "../lib/apps.js";
 import { governance, parsePatterns } from "../lib/governed.js";
+
+// Disconnecting a server refuses whatever still waits for approval on it.
+disconnectHooks.add((name) => governance.closeServer(name));
 
 export class Apps extends Reactive {
   private selected = "";
@@ -17,7 +20,7 @@ export class Apps extends Reactive {
   private built = "";
   private mounted: HTMLIFrameElement | undefined;
   private openError = "";
-  /** Governed mode (off by default): app calls go through mcp-gate and wait for a decision here. */
+  /** Governed mode (off by default): this app's tool calls matching the patterns wait for a decision here. */
   private governed = false;
   private openedUri = "";
   private openedServer = "";
@@ -70,8 +73,8 @@ export class Apps extends Reactive {
       <p class="muted">${esc(tool.description ?? "")} <code>${esc(tool.uri)}</code></p>
       <div class="row" id="app-controls"></div>
       <div class="row" id="app-governance">
-        <label class="inline" title="Open the app through an mcp-gate governed client: calls matching the patterns wait for your approval">
-          <input type="checkbox" id="governed" ${this.governed ? "checked" : ""} /> governed (mcp-gate approvals)
+        <label class="inline" title="Hold this app's tool calls that match the patterns until you approve them (other inspector traffic is not held)">
+          <input type="checkbox" id="governed" ${this.governed ? "checked" : ""} /> governed (approvals)
         </label>
         <input id="approve-patterns" aria-label="approve patterns" title="server.tool globs that need approval, space or comma separated" value="${esc(governance.patterns.join(" "))}" ${this.governed ? "" : "disabled"} />
       </div>
@@ -114,9 +117,9 @@ export class Apps extends Reactive {
     this.openError = "";
     this.frame.replaceChildren();
     try {
-      // Governed: the same server through mcp-gate's browser client; its approvals show up beside the app.
-      const through = this.governed ? await governance.clientFor(server) : client;
-      const session = await hostFor(through, server).open({ tool: tool.name, toolInput: this.form?.getValues() ?? {} });
+      // Governed: the inspector's one client holds this app's matching calls (its interceptor); approvals show up beside the app.
+      governance.setGoverned(tool.uri, this.governed);
+      const session = await hostFor(client, server).open({ tool: tool.name, toolInput: this.form?.getValues() ?? {} });
       this.openedServer = this.governed ? server : "";
       this.openedUri = session.resource.uri;
       this.attach(session);
@@ -135,7 +138,7 @@ export class Apps extends Reactive {
     this.renderState();
   }
 
-  /** Pending mcp-gate approvals beside the app. Everything shown here is app-supplied: text only, never HTML. */
+  /** Pending approvals beside the app. Everything shown here is app-supplied: text only, never HTML. */
   private renderApprovals(): void {
     const host = this.querySelector<HTMLElement>("#app-approvals");
     if (!host) return;

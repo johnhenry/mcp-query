@@ -15,7 +15,7 @@ export default defineConfig({
       { find: "@johnhenry/mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
       { find: "@johnhenry/mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
       { find: "@johnhenry/mcp-query/testing", replacement: resolve(lib, "testing/mockServer.ts") },
-      // Governed mode (Apps tab) uses mcp-gate's browser-safe entry: no gateway Server, no stdio upstreams.
+      // mcp-gate's browser-safe entry (no gateway Server, no stdio upstreams) for anything that imports it.
       { find: "@johnhenry/mcp-gate", replacement: resolve(here, "../../packages/mcp-gate/src/index.browser.ts") },
       { find: "@johnhenry/mcp-query-ui", replacement: resolve(here, "../../packages/mcp-query-ui/src/index.ts") },
       { find: "@johnhenry/mcp-query", replacement: resolve(lib, "index.ts") },
