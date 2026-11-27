@@ -19,6 +19,7 @@ import { listKeyFor } from "./keys.js";
 import { ListenManager } from "./listen.js";
 import type { SessionStore } from "./sessionStore.js";
 import { capsTag, serverTag } from "./tags.js";
+import { SKILLS_EXT } from "./skillsExt.js";
 import { TASKS_EXT, TaskNotificationParamsSchema } from "./tasksExt.js";
 import type {
   ClientInfo,
@@ -525,9 +526,10 @@ export class ServerConnection {
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
-  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks"): boolean {
+  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks" | "skills"): boolean {
     if (feature === "resources.subscribe") return !!this.capabilities.resources?.subscribe;
     if (feature === "tasks") return !!this.capabilities.extensions?.[TASKS_EXT];
+    if (feature === "skills") return !!this.capabilities.resources && !!this.capabilities.extensions?.[SKILLS_EXT];
     return !!this.capabilities[feature];
   }
 

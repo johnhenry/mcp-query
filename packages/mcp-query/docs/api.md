@@ -258,6 +258,65 @@ const { state, isReady, supports } = useServerState("github");
 
 **useInteractions / useAuditLog** — see [Human-in-the-loop](#human-in-the-loop).
 
+## Skills over MCP (`io.modelcontextprotocol/skills`, SEP-2640)
+
+Skills are folders of instructions a server publishes (`SKILL.md` plus reference files). The
+client lists them, fetches one, and reads its files **with the SDK's verification**: every file
+is checked against the skill entry's manifest (size, sha256 digest, and for `SKILL.md` the
+frontmatter) before you see its bytes. mcp-query adds caching, invalidation, hooks and the
+server tag; it does not re-implement any check.
+
+Needs `@modelcontextprotocol/client` **>= 2.4.0** (it provides `@modelcontextprotocol/client/ext/skills`).
+The package's peer range stays `^2.0.0`: on an older SDK nothing else changes, and the skills
+calls reject with an `MCPError` that names the minimum version.
+
+```ts
+client.connection("docs")!.supports("skills");          // server advertised the extension (and resources)
+
+const all = await client.listSkills();                  // union across skills-capable servers, each tagged `server`
+const mine = await client.listSkills("docs");           // one server; throws if it has no skills extension
+const skill = await client.getSkill("skill://git-commit/SKILL.md", "docs");   // skills/get, listed or not
+
+const md = await client.readSkillFile(skill);                         // SKILL.md: { text, body, frontmatter, verified }
+const ref = await client.readSkillFile(skill, "references/STYLE.md"); // relative to the skill root, or an absolute URI
+```
+
+- **Verification.** A failed check throws an `MCPError` (`kind: "protocol"`, `server`, `uri`) whose
+  `data.skillVerification` is `{ reason: "unlisted" | "size" | "digest" | "frontmatter", uri, differences }`;
+  `skillVerificationReason(err)` returns the reason. A file the manifest does not list is rejected
+  before any request. Bytes are never returned unverified, except for `"dynamic"` skills
+  (`resources: "dynamic"`), whose files come back with `verified: false` and are never cached.
+- **Origin.** Every `Skill` and `SkillFile` carries the `server` that published it. Skill content is
+  instructions to a model: treat it like a tool description and keep the origin attached.
+- **Caching.** `skills/list` and `skills/get` honor the server's `ttlMs` / `cacheScope` (SEP-2549)
+  like every other cacheable result, keyed per server and per `client.scope({ partition })`
+  (`scope()` has `listSkills` / `getSkill` / `readSkillFile`). Verified file bytes are cached under
+  their manifest **digest**, so a changed manifest can never serve old bytes. `{ force: true }`
+  bypasses the cache; `{ staleTime }` overrides the freshness window.
+- **Invalidation.** `notifications/resources/list_changed` (legacy push or the modern
+  `subscriptions/listen` stream) marks the catalog stale (tag `skillsTag(server)`); the next
+  `listSkills` re-fetches and the hooks below do it for you.
+- **Union errors.** `listSkills()` with no server skips a server whose listing fails and reports it to
+  `opts.onError(server, error)`.
+- **Bundlers.** The default loader imports the SDK subpath at runtime so older SDKs and bundlers never
+  need it. A bundled browser app passes `skillsSdk: () => import("@modelcontextprotocol/client/ext/skills")`
+  in the `MCPClient` config.
+- **Not yet here:** routing "load this skill" through the `InteractionBroker` for approval (bound to the
+  manifest digests), `skillsQueryOptions` in `@johnhenry/mcp-query-tanstack`, mcp-gate pass-through.
+
+```tsx
+import { useSkills, useSkill } from "@johnhenry/mcp-query/react";
+
+const { skills, isLoading, error, refetch } = useSkills("docs");   // omit the server for the union
+const { skill, readFile } = useSkill("skill://git-commit/SKILL.md", { server: "docs" });
+const file = await readFile("references/STYLE.md");                // verified, fetched on demand
+```
+
+Testing: `MockMCPServer({ skills: [{ name, description, body?, files?, dynamic?, tamper? }] })` serves
+spec-shaped skills (sha256 manifest, `skills/list`, `skills/get`, files over `resources/read`);
+`tamper: "digest" | "size" | "frontmatter"` makes the entry lie so verification has something to
+reject. `skillsCache: { ttlMs, cacheScope }` stamps the cache fields; `server.skillLog` records traffic.
+
 ## Cache
 
 ```ts

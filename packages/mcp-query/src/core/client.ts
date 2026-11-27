@@ -23,6 +23,7 @@ import { runInterceptors, type Operation, type RequestInterceptor } from "./inte
 import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
+import { SkillsController, type ListSkillsOpts, type Skill, type SkillFile, type SkillOpts, type SkillsSdkLoader } from "./skills.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
 import { describeInteraction, isInputRequiredResult, mrtrParams, type AuditInteraction, type ToolInteraction } from "./interaction.js";
 import {
@@ -119,6 +120,13 @@ export interface MCPClientConfig {
    *   A synchronous throw is caught the same way.
    */
   onCall?: (entry: CallAuditEntry) => void | Promise<void>;
+  /**
+   * How to load the SDK's skills module (`@modelcontextprotocol/client/ext/skills`, SDK >= 2.4.0).
+   * The default is a runtime `import()` that fails with a clear `MCPError` on older SDKs. Bundled
+   * apps should pass `() => import("@modelcontextprotocol/client/ext/skills")` so the bundler
+   * resolves it.
+   */
+  skillsSdk?: SkillsSdkLoader;
 }
 
 /** One audited operation (every read/call/query) for a durable governance log. */
@@ -273,6 +281,7 @@ export class MCPClient {
   private cacheStore?: CacheStore;
   private schemeMap?: Record<string, string>;
   private syncTaskSeq = 0;
+  private skills: SkillsController;
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -320,6 +329,18 @@ export class MCPClient {
       this.conns.set(name, this.newConnection(name, conf));
     }
     this.router = new Router(this.conns, cfg.schemeMap);
+    this.skills = new SkillsController({
+      cache: this.cache,
+      connection: (n) => this.conns.get(n),
+      connections: () => [...this.conns.values()],
+      wake: (n) => this.wake(n),
+      toError: (e, n) => this.toError(e, n, "protocol"),
+      loader: cfg.skillsSdk,
+    });
+    // Skills are resources: a resources list_changed makes the cached skill catalog stale.
+    this.subscribeCapabilities((server, kind) => {
+      if (kind === "resources") this.skills.invalidate(server);
+    });
   }
 
   /** Build a ServerConnection with the shared deps (broker routing, devtools taps, identity). */
@@ -406,6 +427,9 @@ export class MCPClient {
         this.callTool<A, R>(name, args, merge(opts)),
       queryTool: <A extends Record<string, unknown>, R = unknown>(name: string, args: A, opts: QueryToolOpts = {}) =>
         this.queryTool<A, R>(name, args, merge(opts)),
+      listSkills: (server?: string, opts: ListSkillsOpts = {}) => this.listSkills(server, merge(opts)),
+      getSkill: (uri: string, server: string, opts: SkillOpts = {}) => this.getSkill(uri, server, merge(opts)),
+      readSkillFile: (skill: Skill, ref?: string, opts: SkillOpts = {}) => this.readSkillFile(skill, ref, merge(opts)),
     };
   }
 
@@ -666,6 +690,20 @@ export class MCPClient {
     return this.listCaps(server, (c) => [...c.prompts.values()]);
   }
   capsTagFor = capsTag;
+
+  // ── skills over MCP (io.modelcontextprotocol/skills, SEP-2640; SDK >= 2.4.0) ─
+  /** Skills of one server, or the union across every skills-capable server (each tagged `server`). Cached. */
+  listSkills(server?: string, opts?: ListSkillsOpts): Promise<Skill[]> {
+    return this.skills.list(server, opts);
+  }
+  /** One skill by its `SKILL.md` URI (listed or not). Cached. */
+  getSkill(uri: string, server: string, opts?: SkillOpts): Promise<Skill> {
+    return this.skills.get(uri, server, opts);
+  }
+  /** One verified file of `skill` (default `SKILL.md`; `ref` is relative to the skill root or absolute). */
+  readSkillFile(skill: Skill, ref?: string, opts?: SkillOpts): Promise<SkillFile> {
+    return this.skills.readFile(skill, ref, opts);
+  }
 
   // ── server-state reactive store (useServerState) ─────────────────────────
   subscribeServerState = (fn: () => void): (() => void) => {

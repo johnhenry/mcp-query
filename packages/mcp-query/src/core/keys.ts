@@ -18,7 +18,11 @@ export type CacheKey =
   | ({ kind: "promptList"; server: string } & Partitioned)
   | ({ kind: "toolResult"; server: string; tool: string; argsHash: string } & Partitioned)
   | ({ kind: "prompt"; server: string; name: string; argsHash: string } & Partitioned)
-  | ({ kind: "task"; server: string; taskId: string } & Partitioned);
+  | ({ kind: "task"; server: string; taskId: string } & Partitioned)
+  | ({ kind: "skillList"; server: string } & Partitioned)
+  | ({ kind: "skill"; server: string; uri: string } & Partitioned)
+  // Keyed by the manifest digest: a changed manifest can never hit stale bytes.
+  | ({ kind: "skillFile"; server: string; uri: string; digest: string } & Partitioned);
 
 /**
  * Stable string form, used only as a Map key and a devtools label. Code never
@@ -35,6 +39,10 @@ export function serializeKey(k: CacheKey): string {
       return `${p}prompt ${k.server} ${k.name} ${k.argsHash}`;
     case "task":
       return `${p}task ${k.server} ${k.taskId}`;
+    case "skill":
+      return `${p}skill ${k.server} ${k.uri}`;
+    case "skillFile":
+      return `${p}skillFile ${k.server} ${k.uri} ${k.digest}`;
     default:
       return `${p}${k.kind} ${k.server}`;
   }

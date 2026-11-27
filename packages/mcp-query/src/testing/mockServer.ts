@@ -42,6 +42,9 @@ import * as z from "zod";
 
 import { TASKS_EXT, type DetailedTask } from "../core/tasksExt.js";
 import type { TransportContext } from "../core/connection.js";
+import { buildMockSkill, SKILLS_EXT, type BuiltSkill, type MockSkill, type MockSkillsCacheHint } from "./mockSkills.js";
+
+export type { MockSkill, MockSkillTamper, MockSkillsCacheHint } from "./mockSkills.js";
 
 /** Context a tool handler can use to call back into the client (sampling/elicitation/roots). */
 export interface MockToolContext {
@@ -110,6 +113,14 @@ export interface MockSpec {
   capabilities?: ServerCapabilities;
   /** If set, list responses are chunked to exercise cursor pagination. */
   pageSize?: number;
+  /**
+   * Skills over MCP (io.modelcontextprotocol/skills): serves skills/list, skills/get and the skill
+   * files over resources/read, with a sha256 manifest per skill. A skill's `tamper` makes its entry
+   * lie so host verification can be tested. Advertises `resources` + the skills extension.
+   */
+  skills?: MockSkill[];
+  /** `ttlMs` / `cacheScope` stamped on skills/list + skills/get results (default 0 / "private"). */
+  skillsCache?: MockSkillsCacheHint;
 }
 
 export interface MockMCPServerOptions {
@@ -157,6 +168,8 @@ export class MockMCPServer {
    *  behavior instead). */
   subscribed = new Set<string>();
   callLog: Array<{ name: string; args: unknown }> = [];
+  /** Skills traffic seen by the mock: `skills/list`, `skills/get <uri>`, `read <uri>` (for cache assertions). */
+  skillLog: string[] = [];
 
   private readonly eraOpt: "legacy" | "modern" | "both";
   private readonly bus = new InMemoryServerEventBus();
@@ -302,6 +315,10 @@ export class MockMCPServer {
     if (this.spec.tools?.some((t) => t.task)) {
       caps.extensions = { ...(caps.extensions ?? {}), [TASKS_EXT]: {} };
     }
+    if (this.spec.skills) {
+      caps.resources ??= { subscribe: true, listChanged: true };
+      caps.extensions = { ...(caps.extensions ?? {}), [SKILLS_EXT]: {} };
+    }
     return caps;
   }
 
@@ -342,6 +359,7 @@ export class MockMCPServer {
       });
     }
     if (caps.extensions?.[TASKS_EXT]) this.installTasks(server);
+    if (caps.extensions?.[SKILLS_EXT]) this.installSkills(server);
     return server;
   }
 
@@ -582,6 +600,27 @@ export class MockMCPServer {
     });
   }
 
+  // ── skills extension (SEP-2640) — spec-shaped entries, built from spec.skills ──
+  private async builtSkills(): Promise<BuiltSkill[]> {
+    return Promise.all((this.spec.skills ?? []).map((k) => buildMockSkill(k)));
+  }
+
+  private installSkills(server: Server): void {
+    const hint = () => ({ ttlMs: this.spec.skillsCache?.ttlMs ?? 0, cacheScope: this.spec.skillsCache?.cacheScope ?? "private" });
+    server.setRequestHandler("skills/list", { params: z.looseObject({ cursor: z.string().optional() }) }, async (params) => {
+      this.skillLog.push("skills/list");
+      const entries = (await this.builtSkills()).map((b) => b.entry);
+      const { slice, nextCursor } = this.page(entries, params.cursor);
+      return { skills: slice, ...(nextCursor ? { nextCursor } : {}), ...hint() } as never;
+    });
+    server.setRequestHandler("skills/get", { params: z.looseObject({ uri: z.string() }) }, async (params) => {
+      this.skillLog.push(`skills/get ${params.uri}`);
+      const found = (await this.builtSkills()).find((b) => b.entry.uri === params.uri);
+      if (!found) throw new ProtocolError(INVALID_PARAMS, `unknown skill ${params.uri}`, { uri: params.uri });
+      return { skill: found.entry, ...hint() } as never;
+    });
+  }
+
   // ── resources / prompts ────────────────────────────────────────────────────
   private installResources(server: Server, s: () => MockSpec): void {
     server.setRequestHandler("resources/list", (req) => {
@@ -594,8 +633,15 @@ export class MockMCPServer {
     server.setRequestHandler("resources/templates/list", () => ({
       resourceTemplates: (s().templates ?? []).map((t) => ({ uriTemplate: t.uriTemplate, name: t.name })),
     }));
-    server.setRequestHandler("resources/read", (req) => {
+    server.setRequestHandler("resources/read", async (req) => {
       const r = (s().resources ?? []).find((x) => x.uri === req.params.uri);
+      if (!r) {
+        const text = (await this.builtSkills()).find((b) => b.files.has(req.params.uri))?.files.get(req.params.uri);
+        if (text !== undefined) {
+          this.skillLog.push(`read ${req.params.uri}`);
+          return { contents: [{ uri: req.params.uri, mimeType: "text/markdown", text }] };
+        }
+      }
       if (!r) throw new ProtocolError(INVALID_PARAMS, `unknown resource ${req.params.uri}`, { uri: req.params.uri });
       const contents = r.read?.() ?? { text: `contents of ${r.uri}` };
       return {
