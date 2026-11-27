@@ -1,4 +1,4 @@
-// Gateway, stateless-era details (#82 item 6) and routing headers (#82 item 7), on the lockfile SDK.
+// Gateway, stateless-era details (#82 item 6) and routing headers (#82 item 7), on any 2.x SDK.
 // Upstreams are real SDK HTTP handlers reached through the SDK's Streamable HTTP client transport
 // (in process), and every assertion about "what went upstream" reads the recorded wire.
 

@@ -1,6 +1,6 @@
 // Inbound auth at the gateway: ONE choke point (every registered request handler, including the
 // task / skill / extension handlers) sees the verified principal and partition, never the consumer's claim.
-// Legacy-era wires and a fake skills SDK, so this runs on the lockfile's SDK 2.0.0.
+// Legacy-era wires and a fake skills SDK, so this runs on SDK 2.0.0 and newer.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as z from "zod";

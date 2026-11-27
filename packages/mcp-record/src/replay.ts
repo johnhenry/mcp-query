@@ -71,15 +71,10 @@ function withoutResponses(params: unknown): unknown {
   return rest;
 }
 
-/** Build an SDK Server that replays the cassette. Connect it to any server transport. */
-export function replayServer(input: Cassette | CassetteV1, opts: ReplayOptions = {}): Server {
-  const cassette = upgradeCassette(input);
-  const caps: ServerCapabilities = cassette.capabilities ?? {};
-  const server = new Server(
-    { name: cassette.recordedFrom?.name ?? "mcp-record-replay", version: cassette.recordedFrom?.version ?? "0.0.1" },
-    { capabilities: caps },
-  );
+type ReplayState = { lookup: (method: string, params: unknown) => unknown; countByMethod: Map<string, number> };
 
+/** The per-connection replay cursor: queues of recorded results, consumed in order. */
+function createReplayState(cassette: Cassette, opts: ReplayOptions): ReplayState {
   // Index interactions into per-key queues so identical calls replay in order.
   const queues = new Map<string, Array<{ result: unknown; error?: { code?: number; message?: string } }>>();
   const loose = new Map<string, Array<{ result: unknown; error?: { code?: number; message?: string } }>>();
@@ -119,6 +114,23 @@ export function replayServer(input: Cassette | CassetteV1, opts: ReplayOptions =
     );
   };
 
+  return { lookup, countByMethod };
+}
+
+/** Build an SDK Server that replays the cassette. Connect it to any server transport. */
+export function replayServer(input: Cassette | CassetteV1, opts: ReplayOptions = {}): Server {
+  const cassette = upgradeCassette(input);
+  return buildReplayServer(cassette, createReplayState(cassette, opts));
+}
+
+function buildReplayServer(cassette: Cassette, state: ReplayState): Server {
+  const caps: ServerCapabilities = cassette.capabilities ?? {};
+  const { lookup, countByMethod } = state;
+  const server = new Server(
+    { name: cassette.recordedFrom?.name ?? "mcp-record-replay", version: cassette.recordedFrom?.version ?? "0.0.1" },
+    { capabilities: caps },
+  );
+
   for (const method of Object.keys(CAPABILITY_FOR)) {
     if (!CAPABILITY_FOR[method]!(caps)) continue;
     (server as unknown as { setRequestHandler(m: string, h: (req: { params?: unknown }, ctx: Ctx) => unknown): void }).setRequestHandler(
@@ -149,11 +161,15 @@ export function replayServer(input: Cassette | CassetteV1, opts: ReplayOptions =
 export function replayTransport(input: Cassette | CassetteV1, opts: ReplayOptions = {}): () => Transport {
   const cassette = upgradeCassette(input);
   if (cassette.protocol?.era === "modern") {
-    const handler = createMcpHandler(() => replayServer(cassette, opts), { legacy: "reject" });
-    return () =>
-      new StreamableHTTPClientTransport(new URL("http://replay.local/mcp"), {
+    return () => {
+      // The handler builds a server per HTTP request, so the replay cursor must live outside it:
+      // otherwise every `tasks/get` poll would restart from the first recorded status.
+      const state = createReplayState(cassette, opts);
+      const handler = createMcpHandler(() => buildReplayServer(cassette, state), { legacy: "reject" });
+      return new StreamableHTTPClientTransport(new URL("http://replay.local/mcp"), {
         fetch: (url, init) => handler.fetch(new Request(url, init)),
       });
+    };
   }
   return () => {
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();

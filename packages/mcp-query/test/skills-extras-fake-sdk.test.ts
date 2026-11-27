@@ -1,5 +1,5 @@
 // Skills over MCP, second wave, against an INJECTED fake SDK skills module so every
-// case runs on the lockfile's SDK 2.0.0 (no `ext/skills` subpath needed): directory
+// case runs on SDK 2.0.0 and newer (no `ext/skills` subpath needed): directory
 // reads, `CallContext.meta` forwarding (through a REAL SDK Client + MockMCPServer),
 // the opt-in InteractionBroker approval, and the L2 cacheStore for verified files.
 

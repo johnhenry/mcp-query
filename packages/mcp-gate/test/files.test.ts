@@ -1,6 +1,6 @@
 // EXPERIMENTAL files extension at the gate (owner decision: uploads bypass the gate, so the gate denies them
 // unless every upload host is allowlisted; download URLs follow an allowlist; x-mcp-file arguments are limited).
-// Runs on the lockfile's SDK 2.0.0: an `upload_required` result is re-injected where the SDK cannot decode it.
+// Runs on SDK 2.0.0 and newer: an `upload_required` result is re-injected where the SDK cannot decode it.
 import { afterEach, describe, expect, it } from "vitest";
 import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import { MCPClient, type CallAuditEntry, type Operation } from "@johnhenry/mcp-query";

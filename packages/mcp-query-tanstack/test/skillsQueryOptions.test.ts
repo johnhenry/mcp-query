@@ -6,7 +6,7 @@ import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { mcpqSkillFileQueryOptions, mcpqSkillQueryOptions, mcpqSkillsQueryOptions } from "../src/queryOptions.js";
 import { attachMcpqSync } from "../src/bridge.js";
 
-// An injected SDK skills module, so these run on the lockfile's SDK (no ext/skills needed).
+// An injected SDK skills module, so these run on any SDK (no ext/skills needed).
 const ROOT = "skill://git-commit/";
 const ENTRY = {
   uri: `${ROOT}SKILL.md`,

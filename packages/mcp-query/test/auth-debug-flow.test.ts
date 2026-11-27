@@ -3,7 +3,7 @@ import { instrumentAuthProvider } from "../src/core/authDebug.js";
 import { applyInboundAuth } from "../src/server/inboundAuth.js";
 import { AuthorizationError } from "../src/server/authorize.js";
 
-// Fakes stand in for the SDK so these run on the lockfile's 2.0.0 (no DPoP there).
+// Fakes stand in for the SDK so these run on any 2.x SDK (no DPoP on 2.0.0).
 const CIMD = "https://client.example/oauth/client.json";
 const metadata = {
   issuer: "https://as.example",

@@ -15,7 +15,7 @@ const ENTRY = {
   frontmatter: { name: "git-commit", description: "Commits" },
   resources: [{ uri: "skill://git-commit/SKILL.md", digest: "sha256:aaa", size: 10 }],
 };
-// The lockfile's SDK predates `ext/skills`: inject a fake skills module into the gate's client (same idea as
+// SDK 2.0.0 (the CI floor) predates `ext/skills`: inject a fake skills module into the gate's client (same idea as
 // mcp-query's skills-fake-sdk.test.ts, which does it through `MCPClientConfig.skillsSdk`).
 const fakeSkillsSdk = async () => {
   class SkillsClient {
