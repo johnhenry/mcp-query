@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: [
       // Point at protocol.ts (DevtoolsHub) directly — index.ts also re-exports the React Panel.
+      { find: "@johnhenry/mcp-query/discovery", replacement: resolve(lib, "discovery/index.ts") },
       { find: "@johnhenry/mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
       { find: "@johnhenry/mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
       { find: "@johnhenry/mcp-query/testing", replacement: resolve(lib, "testing/mockServer.ts") },

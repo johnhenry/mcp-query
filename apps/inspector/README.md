@@ -89,6 +89,15 @@ postMessage target to the inspector origin passed as `?host=`. It is a local cop
 press is an app-initiated `next_count` call listed under *Calls*. Override ports with `SANDBOX_PORT` (server)
 and `?sandboxPort=` (inspector URL) if 5174 is taken.
 
+### Server Cards (the Card tab)
+
+The **Card** tab fetches the [Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (SEP-2127) for
+the active HTTP server (`<url>/server-card`; or paste any card URL) and shows its identity, remotes and protocol
+versions next to the live connection, listing every disagreement (name, version, connected URL, negotiated and
+supported protocol versions; the live server wins). The fetch runs in the browser, so the card host must send CORS
+headers. Card text is untrusted: it is rendered as text only, icons are listed but never loaded, and nothing in the card
+is clickable.
+
 ## Architecture
 
 ```

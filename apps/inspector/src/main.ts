@@ -3,6 +3,7 @@ import "./components/app-shell.js";
 import "./components/connections.js";
 import "./components/tools.js";
 import "./components/apps.js";
+import "./components/card.js";
 import "./components/resources.js";
 import "./components/prompts.js";
 import "./components/messages.js";
