@@ -237,7 +237,7 @@ function cors(req, res) {
 
 A page cannot spawn a stdio server, so a local **bridge** relays JSON-RPC between a WebSocket and the
 child process. The wire protocol (framing, how the target command is selected, token and `Origin`
-checks, lifecycle, errors) is specified in [docs/ws-stdio-bridge.md](./docs/ws-stdio-bridge.md); the
+checks, lifecycle, errors) is specified in [docs/ws-stdio-bridge.md](https://github.com/johnhenry/mcp-query/blob/main/packages/mcp-query/docs/ws-stdio-bridge.md); the
 reference implementation is `apps/shared`'s `startProxy` and is pinned by tests. mcp-query does not ship
 a bridge itself. Because the bridge **spawns local processes on behalf of a web page**, any
 implementation must bind to loopback, check `Origin`, and require a token; the doc lists the exact
