@@ -60,6 +60,11 @@ export type {
   SkillsSdk,
   SkillsSdkLoader,
 } from "./core/skills.js";
+export { EVENTS_EXT, EVENTS_LIST_CHANGED, EVENTS_ERROR, EventOccurrenceSchema, EventTypeSchema, PollEventsResultSchema } from "./core/eventsExt.js";
+export type { EventDelivery, EventType, EventOccurrence, PollEventsResult } from "./core/eventsExt.js";
+export { eventsTag } from "./core/events.js";
+export type { EventGap, EventSubscription, EventsOpts, EventsSnapshot, EventsStatus, ListEventsOpts, ServerEventType } from "./core/events.js";
+export { sdkSupportsEventMethods } from "./core/eventsProbe.js";
 export { memorySessionStore, webStorageSessionStore } from "./core/sessionStore.js";
 export type { SessionStore, PersistedSession, StorageLike } from "./core/sessionStore.js";
 export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.js";

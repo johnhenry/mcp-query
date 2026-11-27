@@ -31,8 +31,11 @@ import type { ToolInteraction } from "./interaction.js";
  *            for `client.discover()`. The "result" is the array of items: filter or annotate it.
  * - `prompt` prompts/get (`target` = prompt name, `args` = its arguments)
  * - `skill`  a skills-extension call; `method` says which (`skills/list`, `skills/get`, `skills/read`)
+ * - `event`  an events-extension call; `method` says which (`events/list`: `target` = `events`;
+ *            `events/poll`: `target` = the event name, `args` = the subscription arguments, and the
+ *            "result" is the poll result `{ events, cursor, truncated, ... }`: filter or redact `events[].data`)
  */
-export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill";
+export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill" | "event";
 
 /** The four catalogs a `list` operation can target. */
 export type CatalogName = "tools" | "resources" | "resourceTemplates" | "prompts";

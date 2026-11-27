@@ -44,7 +44,11 @@ import { TASKS_EXT, type DetailedTask } from "../core/tasksExt.js";
 import type { TransportContext } from "../core/connection.js";
 import { buildMockSkill, SKILLS_EXT, type BuiltSkill, type MockSkill, type MockSkillsCacheHint } from "./mockSkills.js";
 
+import { EVENTS_EXT, MockEventSource, type MockEventsSpec } from "./mockEvents.js";
+
 export type { MockSkill, MockSkillTamper, MockSkillsCacheHint } from "./mockSkills.js";
+export { MockEventSource } from "./mockEvents.js";
+export type { MockEventType, MockEventsSpec, MockPollRecord } from "./mockEvents.js";
 
 /** Context a tool handler can use to call back into the client (sampling/elicitation/roots). */
 export interface MockToolContext {
@@ -121,6 +125,11 @@ export interface MockSpec {
   skills?: MockSkill[];
   /** `ttlMs` / `cacheScope` stamped on skills/list + skills/get results (default 0 / "private"). */
   skillsCache?: MockSkillsCacheHint;
+  /**
+   * Events extension (io.modelcontextprotocol/events): serves events/list and events/poll from a
+   * controllable source (`server.events`: emit / truncate / fail). Advertises the extension; modern era only.
+   */
+  events?: MockEventsSpec;
   /** Advertise `directoryRead` and serve `resources/directory/read` for the skill directories. */
   skillsDirectoryRead?: boolean;
 }
@@ -172,6 +181,8 @@ export class MockMCPServer {
   callLog: Array<{ name: string; args: unknown }> = [];
   /** Skills traffic seen by the mock: `skills/list`, `skills/get <uri>`, `read <uri>` (for cache assertions). */
   skillLog: string[] = [];
+  /** The events fixture's controllable source (`spec.events`): `emit`, `truncate`, `fail`, `polls`. */
+  events?: MockEventSource;
   /** The `_meta` (minus protocol envelope keys) seen on skills traffic: `{ method, meta }` per request. */
   skillMetaLog: Array<{ method: string; meta: Record<string, unknown> | undefined }> = [];
 
@@ -191,6 +202,7 @@ export class MockMCPServer {
   constructor(spec: MockSpec, opts: MockMCPServerOptions = {}) {
     this.spec = spec;
     this.eraOpt = opts.era ?? "both";
+    if (spec.events) this.events = new MockEventSource(spec.events);
     this.handler = createMcpHandler(({ era }) => this.buildServer(era), { legacy: "reject", bus: this.bus });
   }
 
@@ -282,6 +294,13 @@ export class MockMCPServer {
   async notifyTaskStatus(task: Record<string, unknown>): Promise<void> {
     await this.eachLegacySession((s) => s.notification({ method: "notifications/tasks", params: task }));
   }
+  /**
+   * Send `notifications/events/list_changed`. LEGACY-era delivery only (the SDK's modern listen router
+   * carries a fixed set of change kinds), so modern-era tests inject the notification client-side.
+   */
+  async notifyEventsListChanged(): Promise<void> {
+    await this.eachLegacySession((s) => s.notification({ method: "notifications/events/list_changed" }));
+  }
   private async eachLegacySession(fn: (server: Server) => Promise<void>): Promise<void> {
     await Promise.allSettled([...this.legacySessions.values()].map(({ server }) => fn(server)));
   }
@@ -322,6 +341,9 @@ export class MockMCPServer {
     if (this.spec.skills) {
       caps.resources ??= { subscribe: true, listChanged: true };
       caps.extensions = { ...(caps.extensions ?? {}), [SKILLS_EXT]: this.spec.skillsDirectoryRead ? { directoryRead: true } : {} };
+    }
+    if (this.spec.events) {
+      caps.extensions = { ...(caps.extensions ?? {}), [EVENTS_EXT]: this.spec.events.listChanged === false ? {} : { listChanged: true } };
     }
     return caps;
   }
@@ -364,6 +386,7 @@ export class MockMCPServer {
     }
     if (caps.extensions?.[TASKS_EXT]) this.installTasks(server);
     if (caps.extensions?.[SKILLS_EXT]) this.installSkills(server);
+    if (caps.extensions?.[EVENTS_EXT] && this.events) this.installEvents(server, this.events);
     return server;
   }
 
@@ -602,6 +625,40 @@ export class MockMCPServer {
       }
       return {} as never;
     });
+  }
+
+  // ── events extension (SEP-3415) — custom-method handlers over the controllable source ──
+  private installEvents(server: Server, source: MockEventSource): void {
+    const clientExt = (ctx: ServerContext) => {
+      const envCaps = (ctx.mcpReq.envelope as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientCapabilities"];
+      const metaCaps = (ctx.mcpReq._meta as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientCapabilities"];
+      return ((envCaps ?? metaCaps) as { extensions?: Record<string, unknown> } | undefined)?.extensions;
+    };
+    server.setRequestHandler("events/list", { params: z.looseObject({ cursor: z.string().optional() }) }, (params) => {
+      return { resultType: "complete", ...source.list(params.cursor) } as never;
+    });
+    server.setRequestHandler(
+      "events/poll",
+      {
+        params: z.looseObject({
+          name: z.string(),
+          arguments: z.record(z.string(), z.unknown()).optional(),
+          cursor: z.string().nullable().optional(),
+          maxAgeMs: z.number().optional(),
+          maxEvents: z.number().optional(),
+        }),
+      },
+      (params, ctx) => {
+        try {
+          return source.poll(params, clientExt(ctx)) as never;
+        } catch (e) {
+          if ((e as { notFound?: boolean }).notFound) throw new ProtocolError(-32023, (e as Error).message, { kind: "event" });
+          const rpc = e as { code?: number; message?: string; data?: unknown };
+          if (typeof rpc?.code === "number") throw new ProtocolError(rpc.code, rpc.message ?? "events error", rpc.data);
+          throw e;
+        }
+      },
+    );
   }
 
   // ── skills extension (SEP-2640) — spec-shaped entries, built from spec.skills ──
