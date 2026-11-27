@@ -20,7 +20,6 @@
     "@mcp-query/app-shared": "*",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/ext-apps": "^2.0.3",
-    "@johnhenry/mcp-gate": "*",
     "@johnhenry/mcp-query": "*",
     "@johnhenry/mcp-query-ui": "*"
   },
