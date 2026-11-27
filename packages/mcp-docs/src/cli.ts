@@ -11,6 +11,8 @@
 // A live server is reached over stdio (--command) or Streamable HTTP (--url, with optional
 // --bearer / repeated --header "K: V").
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import { captureFrom, resolveConnect, rejectUnknownFlags, upgradeContract, withEra, type Contract } from "../../mcp-contract/src/index.js";
 import { renderMarkdown } from "./render.js";
@@ -47,7 +49,17 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// An installed bin is a symlink, so compare real paths (a plain string compare never matches there).
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-docs]", e instanceof Error ? e.message : e);
     process.exit(1);

@@ -7,6 +7,7 @@
 //   mcp-query-inspect --url https://mcp.example.com --transport http --method resources/list
 //   mcp-query-inspect --command … --method ping
 
+import { isEntryPoint } from "./entry.js";
 import { MCPClient } from "../core/client.js";
 import { SSEClientTransport, StreamableHTTPClientTransport, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -95,7 +96,7 @@ export async function dispatch(
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   run().catch((e) => {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);

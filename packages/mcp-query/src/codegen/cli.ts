@@ -6,6 +6,7 @@
 // The pure generator (generate.ts) is what carries the test weight; this is the
 // thin I/O wrapper around it.
 
+import { isEntryPoint } from "../cli/entry.js";
 import { writeFile } from "node:fs/promises";
 import { Client, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -82,7 +83,7 @@ export function parseNegotiate(v: string): VersionNegotiationOptions {
 }
 
 // Run only when invoked directly (not when imported by tests).
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   run().catch((e) => {
     console.error(e);
     process.exit(1);

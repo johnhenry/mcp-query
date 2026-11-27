@@ -13,6 +13,8 @@
 //   mcp-query tools linear                        # list a live server's tools
 //   mcp-query call linear 'create_issue(title: "Bug", team: "ENG")'
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   addServer,
   removeServer,
@@ -661,7 +663,17 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   process.exit(1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// An installed bin is a symlink, so compare real paths (a plain string compare never matches there).
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     const msg = e instanceof Error ? e.message : String(e);
     // Some servers put the SDK's "MCP error <code>: " prefix in their message and the
