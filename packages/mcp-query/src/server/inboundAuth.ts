@@ -59,3 +59,36 @@ export function applyInboundAuth(
     ...(auth.clientId !== undefined ? { authClientId: auth.clientId } : {}),
   };
 }
+
+/**
+ * Fronts a fetch-style handler so a `subscriptions/listen` request is refused (HTTP 401, JSON-RPC
+ * `-32003`) when `inboundAuth.required` and the host handed over no verified `authInfo`. The SDK
+ * serves `subscriptions/listen` itself, before any request handler the gateway registered runs
+ * (the inbound-auth wrapper on those handlers never sees it), so an unauthenticated caller could
+ * otherwise hold a change-notification stream open on a gateway that requires a token everywhere
+ * else. Everything else, and every request when `required` is off, passes straight through.
+ */
+export function withListenAuth<O extends { authInfo?: unknown }>(
+  fetchFn: (req: Request, opts?: O) => Promise<Response>,
+  opts: boolean | InboundAuthOptions | undefined,
+): (req: Request, opts?: O) => Promise<Response> {
+  if (!opts || opts === true || !opts.required) return fetchFn;
+  return async (req, o) => {
+    if (req.method !== "POST" || o?.authInfo !== undefined) return fetchFn(req, o);
+    let body: unknown;
+    try {
+      const text = await req.clone().text();
+      if (!text.includes("subscriptions/listen")) return fetchFn(req, o); // cheap pre-check: most requests are not it
+      body = JSON.parse(text);
+    } catch {
+      return fetchFn(req, o); // not JSON: the SDK reports that its own way
+    }
+    const msg = Array.isArray(body) ? body : [body];
+    const listen = msg.find((m) => typeof m === "object" && m !== null && (m as { method?: unknown }).method === "subscriptions/listen") as { id?: unknown } | undefined;
+    if (!listen) return fetchFn(req, o);
+    return new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: listen.id ?? null, error: { code: -32003, message: "denied: this gateway requires a verified bearer token (inbound auth)" } }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    );
+  };
+}

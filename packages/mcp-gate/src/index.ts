@@ -4,7 +4,7 @@
 
 import type { InteractionBroker } from "@johnhenry/mcp-query";
 import { createGateway, createGatewayHandler, type GatewayHandlerOptions } from "@johnhenry/mcp-query/server";
-import { createAnswerGuard } from "./interaction.js";
+import { createAnswerGuard, createRequestGuard } from "./interaction.js";
 import { policyListAnnotator, policyListFilter, policySkillFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { buildGateClient } from "./client.js";
 import { resolveUpstream } from "./upstream.js";
@@ -22,7 +22,7 @@ export { tokenSourceFor, cachedTokenSource, type UpstreamTokenSource } from "./u
 export { validateGateConfig } from "./validate.js";
 export { filesGuard, hostAllowed, type GateFilesPolicy } from "./files.js";
 export { gateServerCard, gateCardUrl, createGateCardHandler, GATE_CARD_META_KEY, type GateCardConfig, type GateServerCard } from "./card.js";
-export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
+export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, createRequestGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 
 export interface Gate {
@@ -44,7 +44,7 @@ export interface Gate {
    * SDK's `requireBearerAuth` and pass the verified `AuthInfo` along (see the README, "Inbound
    * authentication"). Close it before the gate.
    */
-  handler(opts?: Omit<GatewayHandlerOptions, "namespace" | "interactions" | "inboundAuth" | "guardAnswers" | "filter" | "annotate">): ReturnType<typeof createGatewayHandler>;
+  handler(opts?: Omit<GatewayHandlerOptions, "namespace" | "interactions" | "inboundAuth" | "guardAnswers" | "guardInputRequests" | "filter" | "annotate">): ReturnType<typeof createGatewayHandler>;
   close(): Promise<void>;
 }
 
@@ -69,6 +69,8 @@ export async function createGate(config: GateConfig): Promise<Gate> {
         return { destructive: def?.annotations?.destructiveHint === true, readOnly: def?.annotations?.readOnlyHint === true };
       },
     }),
+    // A 2025-era upstream's elicitation, shown to the consumer: redacted and URL-checked like an in-band round.
+    guardInputRequests: createRequestGuard({ redact: config.redact, urlElicitation: config.urlElicitation }),
     extensions: config.extensions,
     // Task ids are bound to the same tenant partition the gate isolates rate limits by.
     partitionFrom: config.partitionFrom ?? ((meta) => (typeof meta?.partition === "string" ? meta.partition : undefined)),
