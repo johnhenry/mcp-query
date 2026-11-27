@@ -19,7 +19,7 @@
     "@mcp-query/docs": "*",
     "@mcp-query/bench": "*",
     "@johnhenry/mcp-record": "*",
-    "@johnhenry/mcp-gate": "0.0.1",
+    "@johnhenry/mcp-gate": "*",
     "@modelcontextprotocol/client": "^2.0.0"
   },
   "devDependencies": {

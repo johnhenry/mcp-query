@@ -77,6 +77,21 @@ typecheck + build for each app in `apps/` (`inspector`, `console`,
 `ops-cockpit`, `approvals`, `notebook`, `composer`, `prompt-studio`,
 `switchboard`). Match that order locally before pushing.
 
+**SDK versions.** The lockfile pins the latest `@modelcontextprotocol/{client,server,core}`
+2.x (currently 2.4.0), so `npm ci`, local runs and the `build-test` job exercise the
+SDK-gated tests (skills, modern-era tasks, DPoP) and they count toward coverage. The
+published packages' ranges stay `^2.0.0`. The `sdk-matrix` job re-installs the floor
+(`2.0.0`) and the newest `^2` over that tree and type-checks + tests every published
+package (`mcp-query`, `mcp-gate`, `mcp-query-ui`, `mcp-query-tanstack`, `mcp-contract`,
+`mcp-record`) and the CLI on both legs. When you change code that touches SDK types,
+reproduce a leg locally: `npm ci && npm install --no-save "@modelcontextprotocol/client@2.0.0"
+"@modelcontextprotocol/server@2.0.0" "@modelcontextprotocol/core@2.0.0"`, build `mcp-query`,
+then `npm run typecheck -w <pkg> ...` and `npm test -w <pkg> ...` (plain `npm test` goes
+through turbo, which replays cached results from the other SDK). Bump the lockfile with
+`npm update --package-lock-only`; keep `packages/cli` and `apps/switchboard` on the workspace
+`@johnhenry/mcp-gate` (`"*"`), since an exact registry pin drags in an old copy that peer-pins
+SDK 2.0.0 and keeps two SDK copies in the tree.
+
 A genuinely fresh clone before a release:
 `git clone . /tmp/mcp-query-verifyN && cd $_ && npm ci && npm run build -w @johnhenry/mcp-query && npm test`.
 This is the only way to catch "works on my checked-out tree" bugs (missing

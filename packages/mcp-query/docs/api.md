@@ -432,7 +432,7 @@ Servers publish typed events (an incident was created, an email arrived) that a 
 with arguments and consumes at its own pace, resuming from a cursor. The extension is **Beta** and
 needs protocol **2026-07-28 or later**. The official TypeScript SDK (through 2.4.0) has no Events
 runtime, so mcp-query drives mcp-query-defined schemas (`core/eventsExt.ts`) over the SDK client's
-raw `request()`, the way it drives tasks. It works on the lockfile's SDK 2.0.0: `events/*` is outside
+raw `request()`, the way it drives tasks. It works from SDK 2.0.0 (the CI floor) up: `events/*` is outside
 the SDK's spec registry, so the SDK carries it on the 2026 wire (`eventsProbe.ts` checks this at
 runtime instead of comparing versions, and fails with an `MCPError` naming the reason if a future SDK
 era-gates it).

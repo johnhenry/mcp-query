@@ -75,7 +75,7 @@ Without `experimental.files` nothing changes: no capability is declared, argumen
 - **Audit.** `CallAuditEntry.files` on the upload/download step: `phase`, `fileId`, `name`, `mimeType`, `size`, `digest`, `host`, `method`.
   Never content, never the URL (it carries a secret signature).
 
-## The SDK limit (probed, on the lockfile's `@modelcontextprotocol/client` 2.0.0)
+## The SDK limit (probed on `@modelcontextprotocol/client` 2.0.0, the CI floor)
 
 - **2026-07-28 wire:** the SDK's result codec knows only `resultType` `complete` and `input_required`. Any other value, including
   `upload_required`, fails with `SdkError(UnsupportedResultType)` before mcp-query sees the result, and the payload (uploads,

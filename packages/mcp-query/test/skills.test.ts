@@ -4,7 +4,7 @@
 // server (`loadSkills(folder)` + `SkillsExtension.attach`).
 //
 // The skills client lives at `@modelcontextprotocol/client/ext/skills` (SDK >= 2.4.0).
-// On an older SDK (the lockfile pins 2.0.0) the SDK-backed blocks are SKIPPED, visibly,
+// On an older SDK (the sdk-matrix floor leg, 2.0.0) the SDK-backed blocks are SKIPPED, visibly,
 // with the reason in their name; the capability / missing-SDK tests always run.
 
 import { afterEach, describe, expect, it } from "vitest";

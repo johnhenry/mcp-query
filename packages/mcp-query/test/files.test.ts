@@ -1,5 +1,5 @@
 // EXPERIMENTAL files extension (io.modelcontextprotocol/files) against MockMCPServer's files fixture and
-// a local HTTP sink, on the lockfile's SDK 2.0.0. The SDK rejects `resultType: "upload_required"` on the
+// a local HTTP sink, on SDK 2.0.0 and newer. The SDK rejects `resultType: "upload_required"` on the
 // 2026-07-28 wire (probe tests below), so the out-of-band round-trip tests re-inject the result the way a
 // future SDK would hand it back: `decodeUploadRequired` replaces only that one SDK failure.
 

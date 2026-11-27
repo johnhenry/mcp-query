@@ -1,6 +1,6 @@
 // #82 items 3, 4, 5 at the gate: tasks (redaction, URL policy, answer guard, tenancy), skills
 // (policy only, never redaction) and MCP Apps negotiation. Legacy wires + an injected skills SDK:
-// runs on the lockfile's SDK 2.0.0.
+// runs on SDK 2.0.0 and newer.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 60_000 });

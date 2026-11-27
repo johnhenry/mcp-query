@@ -8,7 +8,7 @@
 // wire (>= 2.3.0); SDK 2.0.0 era-gates them. The modern block below detects the
 // installed SDK's version independently of the code under test (reads its
 // package.json) and asserts the matching behaviour, so it passes on both the
-// lockfile SDK and newer ones, and a behaviour change fails CI instead of hiding.
+// SDK 2.0.0 and newer ones, and a behaviour change fails CI instead of hiding.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";

@@ -1,5 +1,5 @@
 // #82 items 3, 4, 5 — tasks, skills and extension negotiation at the gateway.
-// Legacy-era wires and an injected skills SDK, so everything here runs on the lockfile's SDK 2.0.0.
+// Legacy-era wires and an injected skills SDK, so everything here runs on SDK 2.0.0 and newer.
 
 import { describe, it, expect, vi } from "vitest";
 import * as z from "zod";

@@ -153,6 +153,24 @@ describe("format 2 cassettes", () => {
     await taskSequence("modern");
   });
 
+  it("replays identical modern-era calls in recorded order across HTTP requests (one replay cursor per connection)", async () => {
+    let n = 0;
+    const mock = new MockMCPServer({ tools: [{ name: "tick", handler: () => ({ content: [{ type: "text", text: String(++n) }] }) }] }, { era: "modern" });
+    const cassette = createCassette();
+    const rec = modernClient();
+    await rec.connect(recordTransport(mock.transport(), cassette));
+    const recorded = [text(await rec.callTool({ name: "tick", arguments: {} })), text(await rec.callTool({ name: "tick", arguments: {} })), text(await rec.callTool({ name: "tick", arguments: {} }))];
+    await rec.close();
+    mock.close();
+    expect(recorded).toEqual(["1", "2", "3"]);
+
+    const rp = modernClient();
+    await rp.connect(replayTransport(cassette)());
+    const replayed = [text(await rp.callTool({ name: "tick", arguments: {} })), text(await rp.callTool({ name: "tick", arguments: {} })), text(await rp.callTool({ name: "tick", arguments: {} }))];
+    await rp.close();
+    expect(replayed).toEqual(recorded);
+  });
+
   it("records and replays skills/* calls and the skill file read", async () => {
     const mock = new MockMCPServer({ skills: [{ name: "pdf-tools", description: "Work with PDFs", body: "# PDF" }] }, { era: "modern" });
     const cassette = createCassette();
