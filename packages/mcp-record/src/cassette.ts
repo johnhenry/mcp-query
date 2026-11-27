@@ -3,7 +3,7 @@
 // contract (shape only) or a shape-mock, a cassette holds the *actual results* the server
 // returned — so replay is faithful, deterministic, and offline. (VCR/Polly/nock for MCP.)
 
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/server";
 
 /** The cassette format this build writes. Bump on any change a reader of the previous version could misread. */
@@ -135,7 +135,7 @@ export function cassetteHash(cassette: Pick<Cassette, "interactions"> & Partial<
   const body = cassette.version === undefined || cassette.version === 1
     ? cassette.interactions
     : { protocol: cassette.protocol, capabilities: cassette.capabilities, recordedFrom: cassette.recordedFrom, interactions: cassette.interactions };
-  return createHash("sha256").update(JSON.stringify(stable(body))).digest("hex");
+  return sha256Hex(JSON.stringify(stable(body)));
 }
 
 /** Stamp `cassette.integrity` with its current content hash. Call once recording is complete, before persisting to disk. */

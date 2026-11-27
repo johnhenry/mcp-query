@@ -3,7 +3,7 @@
 **ESLint for MCP servers.** Quality-lint a server's capability surface against a set of
 design rules — descriptions, annotations, typed inputs, naming — and gate CI on the result.
 
-It's the complement to [`@mcp-query/contract`](../mcp-contract): contract checks *drift*
+It's the complement to [`@johnhenry/mcp-contract`](../mcp-contract): contract checks *drift*
 between two versions (*"did it change incompatibly?"*); lint checks *quality* of one
 version (*"is this surface well-designed?"*). Both run on the same captured surface.
 
@@ -102,7 +102,7 @@ you can silence per-rule when a name is a false positive.
 
 ```ts
 import { lintContract, formatLint, RULES } from "@mcp-query/lint";
-import { captureContract } from "@mcp-query/contract";
+import { captureContract } from "@johnhenry/mcp-contract";
 
 const contract = await captureContract(connectedSdkClient);
 const result = lintContract(contract, { rules: { "naming-consistency": "off" } });

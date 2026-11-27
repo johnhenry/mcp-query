@@ -6,7 +6,7 @@
 // SDK auto-refreshes expired access tokens.
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -20,7 +20,15 @@ import {
   type StoredOAuthTokens,
   type StoredOAuthClientInformation,
   type OAuthClientMetadata,
+  type OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
+import {
+  DEFAULT_CALLBACK_PORT,
+  DEFAULT_CLIENT_METADATA_REDIRECT_URIS,
+  isValidClientMetadataUrl,
+  resolveClientMetadataUrl,
+} from "./clientMetadata.js";
+import { assertDpopSupported, dpopKeyPath, loadOrCreateDpopSession, type DpopSessionLike } from "./dpop.js";
 
 interface IssuerEntry {
   clientInformation?: StoredOAuthClientInformation;
@@ -41,6 +49,8 @@ interface CacheState {
    */
   lastIssuer?: string;
   codeVerifier?: string;
+  /** RFC 9728 / RFC 8414 discovery results, persisted so the callback leg can check the issuer binding. */
+  discovery?: OAuthDiscoveryState;
 }
 
 /** Old (pre-issuer-keying) on-disk shape — migrated into `byIssuer[""]` on load. */
@@ -56,7 +66,13 @@ function isLegacyCacheState(s: unknown): s is LegacyCacheState {
 
 function readCacheState(file: string): CacheState {
   if (!existsSync(file)) return { byIssuer: {} };
-  const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  } catch {
+    return { byIssuer: {} }; // unreadable/corrupt cache: ignore it rather than crash a login
+  }
+  if (!parsed || typeof parsed !== "object") return { byIssuer: {} };
   if (isLegacyCacheState(parsed)) {
     return {
       byIssuer: { "": { clientInformation: parsed.clientInformation, tokens: parsed.tokens } },
@@ -65,7 +81,8 @@ function readCacheState(file: string): CacheState {
     };
   }
   const s = parsed as CacheState;
-  return { byIssuer: s.byIssuer ?? {}, lastIssuer: s.lastIssuer, codeVerifier: s.codeVerifier };
+  const byIssuer = s.byIssuer && typeof s.byIssuer === "object" ? s.byIssuer : {};
+  return { byIssuer, lastIssuer: s.lastIssuer, codeVerifier: s.codeVerifier, discovery: s.discovery };
 }
 
 /**
@@ -120,20 +137,93 @@ export function tokenCachePath(url: string): string {
  * more than one issuer over its lifetime (e.g. a migration), and this provider must never
  * hand back a different issuer's client registration or tokens.
  */
+export interface FileOAuthProviderOptions {
+  redirectUrl?: string;
+  scope?: string;
+  interactive?: boolean;
+  /**
+   * Client ID Metadata Document URL. Default: `MCPQ_CLIENT_METADATA_URL` or the checked-in
+   * document's URL; `false` (or env `off`) disables CIMD so only Dynamic Client Registration
+   * is used. The SDK uses it only when the authorization server advertises
+   * `client_id_metadata_document_supported`, otherwise it registers dynamically.
+   */
+  clientMetadataUrl?: string | false;
+  /** Pin the authorization server: discovery that resolves any other issuer is rejected. */
+  expectedIssuer?: string;
+  /** Opt in to DPoP (RFC 9449) sender-constrained tokens. Needs SDK >= 2.1.0. */
+  dpop?: boolean;
+}
+
 export class FileOAuthProvider implements OAuthClientProvider {
   lastAuthorizationUrl?: URL;
   private cache: CacheState;
+  private dpopPromise?: Promise<DpopSessionLike>;
+  /** Present only when constructed with `dpop: true`; the SDK detects DPoP by this member. */
+  dpop?: () => Promise<DpopSessionLike>;
+  private readonly cimdUrl: string | undefined;
 
   constructor(
     private readonly file: string,
-    private readonly opts: { redirectUrl?: string; scope?: string; interactive?: boolean } = {},
+    private readonly opts: FileOAuthProviderOptions = {},
   ) {
     this.cache = readCacheState(file);
+    const explicit = opts.clientMetadataUrl;
+    this.cimdUrl = resolveClientMetadataUrl(explicit);
+    if (opts.dpop) {
+      assertDpopSupported();
+      const keyFile = dpopKeyPath(file);
+      this.dpop = () => (this.dpopPromise ??= loadOrCreateDpopSession(keyFile));
+    }
+  }
+
+  /**
+   * The CIMD URL handed to the SDK, or undefined when CIMD cannot work for this run. The
+   * checked-in document lists fixed loopback redirect URIs, so with the default URL we only
+   * offer it when this run's redirect URL is one of them; an explicit URL (flag/env/option)
+   * is the caller's responsibility.
+   */
+  get clientMetadataUrl(): string | undefined {
+    const url = this.cimdUrl;
+    if (!url || !isValidClientMetadataUrl(url)) return undefined;
+    const explicit = this.opts.clientMetadataUrl !== undefined || process.env.MCPQ_CLIENT_METADATA_URL !== undefined;
+    if (!explicit && !DEFAULT_CLIENT_METADATA_REDIRECT_URIS.includes(this.redirectUrl)) return undefined;
+    return url;
+  }
+
+  /** The issuer whose credentials were touched most recently ("" for legacy/no-ctx saves). */
+  lastIssuerKey(): string | undefined {
+    return this.cache.lastIssuer;
+  }
+
+  /** Which registration mechanism produced the stored client for `issuer` (for logs/UX). */
+  registrationMethod(issuer?: string): "cimd" | "dcr" | undefined {
+    const info = this.clientInformation(issuer === undefined ? undefined : { issuer });
+    if (!info) return undefined;
+    return this.cimdUrl && info.client_id === this.cimdUrl ? "cimd" : "dcr";
   }
 
   private persist(): void {
-    mkdirSync(join(this.file, ".."), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.cache, null, 2));
+    mkdirSync(join(this.file, ".."), { recursive: true, mode: 0o700 });
+    writeFileSync(this.file, JSON.stringify(this.cache, null, 2), { mode: 0o600 });
+    chmodSync(this.file, 0o600); // tokens live here: owner-only even if the file pre-existed
+  }
+
+  /**
+   * SEP-2352 callback-leg binding: the SDK records discovery before redirecting and checks the
+   * re-discovered issuer against it when the code comes back. `expectedIssuer` additionally
+   * pins which authorization server this host may use at all.
+   */
+  discoveryState(): OAuthDiscoveryState | undefined {
+    return this.cache.discovery;
+  }
+  saveDiscoveryState(state: OAuthDiscoveryState): void {
+    const issuer = state.authorizationServerMetadata?.issuer ?? state.authorizationServerUrl;
+    const want = this.opts.expectedIssuer;
+    if (want !== undefined && issuer !== undefined && issuer !== want) {
+      throw new Error(`authorization server issuer mismatch: expected "${want}" but discovery resolved "${issuer}" — refusing to continue`);
+    }
+    this.cache.discovery = state;
+    this.persist();
   }
 
   private entry(issuer: string): IssuerEntry {
@@ -164,6 +254,9 @@ export class FileOAuthProvider implements OAuthClientProvider {
   }
   saveClientInformation(info: StoredOAuthClientInformation, ctx?: OAuthClientInformationContext): void {
     const issuer = ctx?.issuer ?? "";
+    if (this.opts.expectedIssuer !== undefined && ctx?.issuer !== undefined && ctx.issuer !== this.opts.expectedIssuer) {
+      throw new Error(`authorization server issuer mismatch: expected "${this.opts.expectedIssuer}" but got "${ctx.issuer}"`);
+    }
     this.entry(issuer).clientInformation = info;
     this.cache.lastIssuer = issuer;
     this.persist();
@@ -215,40 +308,45 @@ export function hasCachedAuth(url: string): boolean {
   }
 }
 
-function startCallbackServer(fixedPort?: number): Promise<{ port: number; code: Promise<string>; close: () => void }> {
+/** What the callback carried: the code (or error) plus RFC 9207's `iss`. */
+function startCallbackServer(fixedPort?: number): Promise<{ port: number; params: Promise<URLSearchParams>; close: () => void }> {
   return new Promise((resolve, reject) => {
-    let resolveCode: (c: string) => void;
-    const code = new Promise<string>((r) => (resolveCode = r));
+    let resolveParams: (p: URLSearchParams) => void;
+    const params = new Promise<URLSearchParams>((r) => (resolveParams = r));
     const server = createServer((req, res) => {
       const u = new URL(req.url ?? "/", "http://localhost");
-      const c = u.searchParams.get("code");
+      const ok = u.searchParams.has("code");
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(`<!doctype html><body style="font-family:sans-serif"><h2>${c ? "✓ Authorized" : "No code received"}</h2><p>You may close this tab and return to the terminal.</p>`);
-      if (c) resolveCode(c);
+      // Never echo callback parameters: on an issuer mix-up they are attacker-controlled.
+      res.end(`<!doctype html><body style="font-family:sans-serif"><h2>${ok ? "✓ Authorized" : "No code received"}</h2><p>You may close this tab and return to the terminal.</p>`);
+      if (ok || u.searchParams.has("error")) resolveParams(u.searchParams);
     });
     server.on("error", reject);
     // A fixed port (0 → ephemeral) lets a remote box be reached via `ssh -L PORT:localhost:PORT`.
     server.listen(fixedPort ?? 0, "127.0.0.1", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
-      resolve({ port, code, close: () => server.close() });
+      resolve({ port, params, close: () => server.close() });
     });
   });
 }
 
-function pasteFallback(redirectUrl: string): Promise<string> {
-  return new Promise((resolve) => {
+function pasteFallback(redirectUrl: string): { params: Promise<URLSearchParams>; cancel: () => void } {
+  let cancel = () => {};
+  const params = new Promise<URLSearchParams>((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stderr });
+    cancel = () => rl.close(); // stop reading stdin once the callback server won the race
     rl.question(`If your browser is on another machine, paste the full redirected URL (${redirectUrl}?code=…) here:\n> `, (line) => {
       rl.close();
       try {
-        const code = new URL(line.trim()).searchParams.get("code");
-        if (code) resolve(code);
+        const p = new URL(line.trim()).searchParams;
+        if (p.has("code") || p.has("error")) resolve(p);
       } catch {
-        if (line.trim()) resolve(line.trim()); // allow pasting the bare code
+        if (line.trim()) resolve(new URLSearchParams({ code: line.trim() })); // allow pasting the bare code
       }
     });
   });
+  return { params, cancel: () => cancel() };
 }
 
 /** Platform-appropriate launcher; candidates after the first are Linux fallbacks. */
@@ -286,17 +384,43 @@ export interface AuthenticateOptions {
   out?: string;
   /** Attempt to open the authorize URL in a local browser. Default true. */
   open?: boolean;
-  /** Fixed callback port (default ephemeral). Set this to forward it over `ssh -L`. */
+  /** Fixed callback port (default: the CIMD document's port when CIMD is enabled, else ephemeral). */
   port?: number;
   /** Overall wait for consent (ms). Default 5 min. */
   timeoutMs?: number;
+  /** CIMD URL override (`false` disables CIMD); see {@link FileOAuthProviderOptions.clientMetadataUrl}. */
+  clientMetadataUrl?: string | false;
+  /** Pin the authorization server's issuer. */
+  expectedIssuer?: string;
+  /** Opt in to DPoP-bound tokens (SDK >= 2.1.0). */
+  dpop?: boolean;
+}
+
+/** Bind the callback server: prefer the CIMD document's port, fall back to ephemeral if busy. */
+async function bindCallback(opts: AuthenticateOptions): Promise<Awaited<ReturnType<typeof startCallbackServer>>> {
+  if (opts.port !== undefined) return startCallbackServer(opts.port);
+  if (resolveClientMetadataUrl(opts.clientMetadataUrl)) {
+    try {
+      return await startCallbackServer(DEFAULT_CALLBACK_PORT);
+    } catch {
+      /* port busy: use an ephemeral one; the provider then registers dynamically */
+    }
+  }
+  return startCallbackServer(undefined);
 }
 
 /** Run the interactive browser-consent flow and return the obtained tokens. */
 export async function authenticate(url: string, opts: AuthenticateOptions = {}): Promise<StoredOAuthTokens> {
-  const cb = await startCallbackServer(opts.port);
+  const cb = await bindCallback(opts);
   const redirectUrl = `http://localhost:${cb.port}/callback`;
-  const provider = new FileOAuthProvider(tokenCachePath(url), { redirectUrl, scope: opts.scope, interactive: true });
+  const provider = new FileOAuthProvider(tokenCachePath(url), {
+    redirectUrl,
+    scope: opts.scope,
+    interactive: true,
+    clientMetadataUrl: opts.clientMetadataUrl,
+    expectedIssuer: opts.expectedIssuer,
+    dpop: opts.dpop,
+  });
   const transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider, fetch: tokenNormalizingFetch });
   const client = new Client({ name: "mcp-contract-auth", version: "0.0.1" }, { capabilities: {} });
 
@@ -317,7 +441,12 @@ export async function authenticate(url: string, opts: AuthenticateOptions = {}):
     cb.close();
     throw new Error("authorization URL was not produced by the SDK");
   }
-  console.error(`\nDynamic client registered. Open this URL in the browser where you're logged in, and approve:\n\n  ${authUrl}\n`);
+  const how = provider.registrationMethod(provider.lastIssuerKey());
+  console.error(
+    `\n${how === "cimd" ? `Client ID Metadata Document in use (${provider.clientMetadataUrl}).` : "Dynamic client registration used (the authorization server does not advertise Client ID Metadata Document support, or CIMD is off)."}` +
+      `${opts.dpop ? " DPoP enabled." : ""}`,
+  );
+  console.error(`Open this URL in the browser where you're logged in, and approve:\n\n  ${authUrl}\n`);
   console.error(`Waiting for the callback on ${redirectUrl} —`);
   console.error(`  • browser on THIS machine → it just works`);
   console.error(`  • browser on another machine → forward the port:  ssh -L ${cb.port}:localhost:${cb.port} <this-host>`);
@@ -325,13 +454,22 @@ export async function authenticate(url: string, opts: AuthenticateOptions = {}):
   if (opts.open ?? true) openInBrowser(authUrl);
 
   const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timed out waiting for authorization")), opts.timeoutMs ?? 300_000).unref());
-  const code = await Promise.race([cb.code, pasteFallback(redirectUrl), timeout]);
+  const paste = pasteFallback(redirectUrl);
+  let callbackParams: URLSearchParams;
+  try {
+    callbackParams = await Promise.race([cb.params, paste.params, timeout]);
+  } finally {
+    paste.cancel();
+  }
 
-  await transport.finishAuth(code); // exchanges code → tokens, provider.saveTokens persists to cache
+  // Hands the whole callback (code, `iss`, error) to the SDK, which validates `iss` against
+  // the recorded issuer (RFC 9207) before the code is redeemed; on a mismatch it throws
+  // without surfacing the callback's error text.
+  await transport.finishAuth(callbackParams);
   cb.close();
   const tokens = provider.tokens();
   if (!tokens) throw new Error("token exchange did not yield tokens");
-  if (opts.out) writeFileSync(opts.out, JSON.stringify(tokens, null, 2));
+  if (opts.out) writeFileSync(opts.out, JSON.stringify(tokens, null, 2), { mode: 0o600 });
   await client.close().catch(() => {});
   return tokens;
 }

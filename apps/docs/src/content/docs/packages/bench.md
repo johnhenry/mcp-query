@@ -14,7 +14,7 @@ tool:echo      200    0%     0.9ms     1.2ms     1.5ms     1.5ms     4438
 ✓ within budget
 ```
 
-It reuses [`@mcp-query/contract`](../mcp-contract)'s connect path, so it benchmarks **local
+It reuses [`@johnhenry/mcp-contract`](../mcp-contract)'s connect path, so it benchmarks **local
 (stdio)** or **hosted (Streamable HTTP / OAuth)** servers with the same flags.
 
 ## Use

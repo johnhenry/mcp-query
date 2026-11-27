@@ -1,0 +1,13 @@
+{
+  "client_id": "https://johnhenry.github.io/mcp-query/oauth/client-metadata.json",
+  "client_name": "mcp-query CLI",
+  "client_uri": "https://github.com/johnhenry/mcp-query",
+  "redirect_uris": [
+    "http://localhost:8976/callback",
+    "http://127.0.0.1:8976/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}
