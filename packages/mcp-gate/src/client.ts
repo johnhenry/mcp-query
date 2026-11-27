@@ -9,6 +9,7 @@ import { authorize, rateLimit, circuitBreaker, type RateLimit, type CircuitBreak
 import { redact } from "./redact.js";
 import { compilePolicy, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
+import { forwardsAnything, urlElicitationPolicy } from "./interaction.js";
 import { resolveHttpUpstream } from "./upstream-http.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
 
@@ -47,6 +48,9 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   // reaches a human, and a human wait doesn't hold a rate-limit slot or feed the breaker.
   const approval = config.approval ? createApproval(config.approval) : undefined;
   if (config.policy) interceptors.push(authorize(compilePolicy(config.policy), { onApprove: approval?.onApprove }));
+  // A forwarded URL-mode elicitation sends a person to an upstream-chosen URL: judge the host
+  // here (outside redact, so the URL checked is the URL shown) and fail closed.
+  if (forwardsAnything(config.interactions)) interceptors.push(urlElicitationPolicy(config.urlElicitation));
   const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
   const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;

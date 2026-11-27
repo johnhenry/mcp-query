@@ -30,8 +30,9 @@ low-level escape hatch. Deprecated
 surfaces (sampling/roots/logging per SEP-2577, sessions per SEP-2567, the old
 tasks RPCs per SEP-2663) are annotated `@deprecated` and remain functional on
 legacy connections. Tasks are reimplemented on the `io.modelcontextprotocol/tasks`
-extension wire shapes (legacy-era-gated until the SDK ships its extension
-runtime).
+extension wire shapes. They work on legacy connections with any SDK and on
+2026-07-28 connections with `@modelcontextprotocol/client` >= 2.3.0 (status is
+poll-only on the modern era); see [Tasks and SDK versions](#tasks-and-sdk-versions).
 
 > Status: **published, working reference implementation.** `main` is pre-2026-07-28:
 > this package is at `0.0.1`, the `latest` tag on npm, and speaks MCP 2025-11-25 (v1)
@@ -76,6 +77,26 @@ This probes each server with `server/discover`, speaks 2026-07-28 where the serv
 offers it, and falls back losslessly to 2025-11-25 (v1) otherwise; a modern-only list
 pins (no fallback). Unconfigured connections — and everything installed from `latest`
 today — keep speaking 2025-11-25 byte-for-byte, no probe.
+
+
+### Tasks and SDK versions
+
+The `io.modelcontextprotocol/tasks` extension (SEP-2663) is driven over raw
+requests with mcp-query's own schemas (field names verified against the
+ext-tasks v2 schema: `ttlMs`, `pollIntervalMs`, `inputRequests`, `inputResponses`).
+
+| Connection era | SDK 2.0.x - 2.2.x | SDK >= 2.3.0 |
+| --- | --- | --- |
+| 2025-11-25 (legacy) | works | works |
+| 2026-07-28 (modern) | fails fast: the SDK blocks `tasks/get` / `tasks/cancel` on that wire | works: `callToolTask`, `getTask`, `cancelTask`, `input_required` rounds via `tasks/update` |
+
+The peer range stays `^2.0.0`; mcp-query probes the installed SDK at runtime rather
+than comparing versions. On a modern connection with an older SDK, the task calls
+reject with an error naming the 2.3.0 requirement (or pin that server's `versions` to
+a legacy revision). Task status on the modern era is **poll-only**:
+`notifications/tasks` needs a `taskIds` filter on `subscriptions/listen`, which the SDK
+client does not expose, so handles poll `tasks/get` at the server's `pollIntervalMs`.
+`notifications/tasks` pushes are still consumed on legacy connections.
 
 ## Develop
 

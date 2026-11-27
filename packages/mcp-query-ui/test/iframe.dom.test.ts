@@ -69,3 +69,84 @@ describe("mountIframe (double-iframe sandbox)", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 });
+
+describe("mountIframe host options (#66)", () => {
+  const mount = async (extra: Parameters<typeof mountIframe>[1] extends infer O ? Partial<O> : never) => {
+    fx = await makeFixture();
+    const session = await fx.host.open({ uri: APP_URI });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    return { session, container, run: () => mountIframe(session, { container, sandboxUrl: "https://sandbox.example.test/proxy.html", ...extra }) };
+  };
+
+  it("uses a host-supplied iframe element but still stamps the policy attributes on it", async () => {
+    const own = document.createElement("iframe");
+    own.setAttribute("sandbox", "allow-top-navigation allow-scripts"); // a weaker policy the host element tried to bring
+    own.setAttribute("allowfullscreen", "");
+    own.setAttribute("class", "viaframe");
+    const { run, container } = await mount({ iframe: own });
+    const { iframe } = await run();
+    expect(iframe).toBe(own);
+    expect(iframe.getAttribute("class")).toBe("viaframe");
+    expect(iframe.getAttribute("sandbox")).toBe(SANDBOX_PROXY_SANDBOX);
+    expect(iframe.hasAttribute("allowfullscreen")).toBe(false);
+    expect(iframe.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(iframe.src).toBe("https://sandbox.example.test/proxy.html");
+    expect(container.contains(own)).toBe(true);
+  });
+
+  it("accepts an iframe factory", async () => {
+    const seen: Document[] = [];
+    const { run } = await mount({ iframe: (doc) => (seen.push(doc), doc.createElement("iframe")) });
+    const { iframe } = await run();
+    expect(seen).toEqual([document]);
+    expect(iframe.getAttribute("sandbox")).toBe(SANDBOX_PROXY_SANDBOX);
+  });
+
+  it("refuses a supplied element that is not an iframe or that carries srcdoc (host-origin document)", async () => {
+    const bad = document.createElement("iframe");
+    bad.setAttribute("srcdoc", "<script>parent.x</script>");
+    const a = await mount({ iframe: bad });
+    await expect(a.run()).rejects.toThrow(/srcdoc/);
+    const b = await mount({ iframe: (() => document.createElement("div")) as never });
+    await expect(b.run()).rejects.toThrow(/<iframe>/);
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("still refuses a same-origin sandbox URL when the iframe is host-supplied", async () => {
+    const { session, container } = await mount({});
+    await expect(mountIframe(session, { container, sandboxUrl: `${window.location.origin}/p.html`, iframe: document.createElement("iframe") })).rejects.toThrow(/different origin/);
+  });
+
+  it("applies host sandbox tokens: tighten freely, loosen only with unsafeLoosen, inner never gets allow-same-origin", async () => {
+    const posted: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+    const proxyWin = { postMessage: (m: { method?: string; params?: Record<string, unknown> }) => void posted.push(m) };
+    vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue(proxyWin as never);
+    const { run } = await mount({ sandbox: { inner: [], extraOuter: ["allow-popups"], unsafeLoosen: true } });
+    const { iframe } = await run();
+    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-popups");
+    window.dispatchEvent(new MessageEvent("message", { data: { jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, source: proxyWin as never }));
+    await vi.waitFor(() => expect(posted.some((m) => m.method === "ui/notifications/sandbox-resource-ready")).toBe(true));
+    expect(posted.find((m) => m.method === "ui/notifications/sandbox-resource-ready")!.params).toMatchObject({ sandbox: "" });
+
+    const bad = await mount({ sandbox: { inner: "allow-scripts allow-forms" } });
+    await expect(bad.run()).rejects.toThrow(/unsafeLoosen/);
+    const worse = await mount({ sandbox: { inner: "allow-scripts allow-same-origin", unsafeLoosen: true } });
+    await expect(worse.run()).rejects.toThrow(/allow-same-origin/);
+  });
+
+  it("sends the host-customised CSP header to the sandbox proxy, and nothing extra by default", async () => {
+    const posted: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+    const proxyWin = { postMessage: (m: { method?: string; params?: Record<string, unknown> }) => void posted.push(m) };
+    vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue(proxyWin as never);
+    fx = await makeFixture({}, { frame: { csp: { directives: { "connect-src": "'none'" } } } });
+    const session = await fx.host.open({ uri: APP_URI });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    await mountIframe(session, { container, sandboxUrl: "https://sandbox.example.test/proxy.html" });
+    window.dispatchEvent(new MessageEvent("message", { data: { jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, source: proxyWin as never }));
+    await vi.waitFor(() => expect(posted.some((m) => m.method === "ui/notifications/sandbox-resource-ready")).toBe(true));
+    const params = posted.find((m) => m.method === "ui/notifications/sandbox-resource-ready")!.params!;
+    expect(String(params.cspHeader)).toContain("connect-src 'none'");
+  });
+});

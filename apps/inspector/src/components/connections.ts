@@ -26,6 +26,7 @@ export class Connections extends Reactive {
           <input type="checkbox" name="direct" /> direct (browser OAuth)
         </label>
         <button type="submit">connect</button>
+        <button type="button" id="demo-app" title="stdio: npx tsx fixtures/mcp-app-demo.ts (runs relative to apps/inspector, where npm run dev starts the proxy)">+ demo MCP App server</button>
       </form>
       <ul class="server-list" role="list">
         ${conns
@@ -53,6 +54,13 @@ export class Connections extends Reactive {
       try {
         await connectServer({ name: String(fd.get("name")), ...spec });
         form.reset();
+      } catch (err) {
+        alert("connect failed: " + (err instanceof Error ? err.message : String(err)));
+      }
+    };
+    this.querySelector<HTMLButtonElement>("#demo-app")!.onclick = async () => {
+      try {
+        await connectServer({ name: "app-demo", transport: "stdio", command: "npx", args: ["tsx", "fixtures/mcp-app-demo.ts"] });
       } catch (err) {
         alert("connect failed: " + (err instanceof Error ? err.message : String(err)));
       }

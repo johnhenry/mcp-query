@@ -17,6 +17,8 @@
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
 import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, CallContext } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
+import type { GatewayInteractions } from "@johnhenry/mcp-query/server";
+import type { UrlElicitationPolicy } from "./interaction.js";
 
 /**
  * Declarative policy: glob-matched `server.tool` allow/deny/approve lists + a destructive switch.
@@ -165,6 +167,23 @@ export interface GateConfig {
    */
   audit?: (entry: CallAuditEntry) => void;
   clientInfo?: ClientInfo;
+  /**
+   * What happens when an upstream `tools/call`/`prompts/get` returns `input_required`
+   * (MRTR, 2026-07-28). `"answer"` (default): the gate's own host handlers answer it, or it
+   * fails; the consumer never sees it. `"forward"`: the round is returned to the consumer
+   * (`inputRequests` redacted and audited, `requestState` untouched) and the consumer's retry
+   * is routed back to the same upstream. `"deny"`: refuse any such round. Pass an object for
+   * per-upstream overrides: `{ default: "deny", upstreams: { github: "forward" } }`.
+   * Forwarding relays elicitations only, and only for upstreams on a modern (2026-07-28)
+   * connection.
+   */
+  interactions?: GatewayInteractions;
+  /**
+   * Which hosts a forwarded URL-mode elicitation may send the consumer to (see
+   * `UrlElicitationPolicy`). Fails closed: with `interactions` forwarding but no `allowHosts`,
+   * URL-mode requests are denied (-32003, audited "denied"). Form-mode is unaffected.
+   */
+  urlElicitation?: UrlElicitationPolicy;
   /**
    * Derive a tenant/session partition from request `_meta` for per-tenant `rateLimit`/
    * `circuitBreaker` isolation (so one tenant hammering an upstream doesn't throttle or

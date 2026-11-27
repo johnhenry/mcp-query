@@ -5,6 +5,7 @@
 import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep } from "@johnhenry/mcp-query";
 import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
+import { mcpAppsExtensions } from "@johnhenry/mcp-query-ui";
 import { WebSocketProxyTransport, type TargetSpec } from "./transport.js";
 import { BrowserOAuthProvider } from "./oauth.js";
 
@@ -33,6 +34,7 @@ export const client = new MCPClient({
   servers: {},
   interactions: broker,
   devtools: hub,
+  extensions: mcpAppsExtensions(), // advertise io.modelcontextprotocol/ui so servers expose MCP Apps
   handlers: { roots: () => roots.get() }, // advertised + answered on demand
   clientInfo: { name: "mcp-inspector", version: "0.0.1", title: "MCP Inspector" },
 });

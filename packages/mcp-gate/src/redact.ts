@@ -2,7 +2,7 @@
 // (tool content, resource text, structured output) before it reaches the agent. This is
 // the one piece the gate adds beyond mcp-query's stock interceptors.
 
-import type { RequestInterceptor } from "@johnhenry/mcp-query";
+import { isInputRequiredResult, type RequestInterceptor } from "@johnhenry/mcp-query";
 
 export interface RedactRule {
   /** A RegExp (use the `g` flag) or a string compiled to a global RegExp. */
@@ -63,5 +63,13 @@ export function redactValue<T = unknown>(rules: RedactRule[], value: T, options?
 
 export function redact(rules: RedactRule[], options?: RedactOptions): RequestInterceptor {
   const compiled = compile(rules, options);
-  return async (op, next) => redactDeep(await next(op), compiled);
+  return async (op, next) => {
+    const result = await next(op);
+    // An MRTR `input_required` round: redact what the consumer will be shown (`inputRequests`)
+    // but never `requestState` -- it is opaque upstream state echoed byte-for-byte on retry.
+    if (isInputRequiredResult(result)) {
+      return result.inputRequests ? { ...result, inputRequests: redactDeep(result.inputRequests, compiled) } : result;
+    }
+    return redactDeep(result, compiled);
+  };
 }
