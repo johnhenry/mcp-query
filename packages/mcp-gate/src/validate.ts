@@ -129,6 +129,14 @@ function validateUrlElicitation(v: unknown): void {
   for (const key of ["allowHosts", "denyHosts"]) checkType(v, key, "an array of host glob strings", isStringArray, "urlElicitation");
 }
 
+function validateAnswerPolicy(v: unknown): void {
+  if (typeof v === "function") return;
+  if (!isRecord(v)) fail(`"answerPolicy" must be a function or an object { deny?, denyFields?, approve?, approveFields? } (got ${typeOf(v)})`);
+  const keys = ["deny", "denyFields", "approve", "approveFields"];
+  checkKeys(v, keys, "answerPolicy");
+  for (const key of keys) checkType(v, key, "an array of glob strings", isStringArray, "answerPolicy");
+}
+
 function validateRedact(redact: unknown): void {
   if (!Array.isArray(redact)) fail(`"redact" must be an array of rules (got ${typeOf(redact)})`);
   redact.forEach((rule, i) => {
@@ -156,7 +164,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation", "answerPolicy"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -170,6 +178,13 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
   if (config.redact !== undefined) validateRedact(config.redact);
   if (config.interactions !== undefined) validateInteractions(config.interactions);
   if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
+  if (config.answerPolicy !== undefined) {
+    validateAnswerPolicy(config.answerPolicy);
+    const ap = config.answerPolicy;
+    if (isRecord(ap) && ((ap.approve as unknown[] | undefined)?.length || (ap.approveFields as unknown[] | undefined)?.length) && config.approval === undefined) {
+      fail(`"answerPolicy.approve" rules need an "approval" config (a broker and/or handler) to decide them — without one, approvals could never resolve`);
+    }
+  }
   if (isRecord(config.interactions)) {
     for (const name of Object.keys((config.interactions.upstreams as Record<string, unknown>) ?? {})) {
       if (!Object.hasOwn(config.upstreams, name)) fail(`interactions.upstreams names "${name}", which is not in "upstreams" (known: ${Object.keys(config.upstreams).join(", ") || "none"})`);

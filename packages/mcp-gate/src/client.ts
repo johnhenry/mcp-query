@@ -5,7 +5,7 @@
 // `createGate` on the same `buildGateClient`, adding the gateway Server and stdio upstreams.
 
 import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry, type ConnectionConfig } from "@johnhenry/mcp-query";
-import { authorize, rateLimit, circuitBreaker, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
+import { authorize, rateLimit, circuitBreaker, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
 import { compilePolicy, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
@@ -26,6 +26,10 @@ export interface GateClientParts {
   approvals?: InteractionBroker;
   /** Drop per-server rateLimit/circuitBreaker state (used when an upstream is removed). */
   dropServer(name: string): void;
+  /** The approval hook for "approve" verdicts (undefined without `config.approval`). */
+  onApprove?: (req: AuthzRequest) => Promise<void>;
+  /** The crash-safe audit sink the client uses (for entries that never reach the client, e.g. a refused answer). */
+  audit: (entry: CallAuditEntry) => void;
 }
 
 /** Assemble and connect the governed client. `resolve` turns each upstream into a ConnectionConfig. */
@@ -85,6 +89,8 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   return {
     client,
     approvals: approval?.broker,
+    onApprove: approval?.onApprove,
+    audit: onCall,
     dropServer: (name) => {
       rl?.dropServer(name);
       cb?.dropServer(name);

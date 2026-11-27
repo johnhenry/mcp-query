@@ -4,21 +4,22 @@
 
 import type { InteractionBroker } from "@johnhenry/mcp-query";
 import { createGateway } from "@johnhenry/mcp-query/server";
+import { forwardsAnything, createAnswerGuard } from "./interaction.js";
 import { policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { buildGateClient } from "./client.js";
 import { resolveUpstream } from "./upstream.js";
 import { validateGateUpstream } from "./validate.js";
 import type { MCPClient } from "@johnhenry/mcp-query";
 
-export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
+export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, AnswerPolicy, AnswerPolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec } from "./config.js";
 export type { RedactRule, RedactOptions } from "./redact.js";
-export { redact, redactValue } from "./redact.js";
+export { redact, redactValue, redactTracked } from "./redact.js";
 export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
 export { validateGateConfig } from "./validate.js";
-export { urlElicitationPolicy, compileUrlPolicy, type UrlElicitationPolicy } from "./interaction.js";
+export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 
 export interface Gate {
@@ -45,6 +46,19 @@ export async function createGate(config: GateConfig): Promise<Gate> {
   const server = createGateway(client, {
     namespace: config.namespace ?? true,
     interactions: config.interactions,
+    // The consumer's answers to forwarded input requests: answerPolicy, then `redact` (#100).
+    guardAnswers: forwardsAnything(config.interactions)
+      ? createAnswerGuard({
+          redact: config.redact,
+          policy: config.answerPolicy,
+          onApprove: parts.onApprove,
+          audit: parts.audit,
+          toolHints: (s, t) => {
+            const def = client.listTools(s).find((x) => x.name === t);
+            return { destructive: def?.annotations?.destructiveHint === true, readOnly: def?.annotations?.readOnlyHint === true };
+          },
+        })
+      : undefined,
     // Hide name-denied tools/prompts from discovery (call-time policy still enforces all rules).
     filter: config.policy ? policyListFilter(config.policy, config.approval?.discovery) : undefined,
     // approval.discovery "annotated": flag approve-gated items with _meta.requiresApproval.
