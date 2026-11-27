@@ -1,8 +1,8 @@
 // EXPERIMENTAL, MAY CHANGE. Test fixtures for the files extension (`io.modelcontextprotocol/files`):
 // a local HTTP sink/source standing in for object storage, and the spec the MockMCPServer uses to
-// issue `upload_required`. Node-only (node:http), like the rest of `@johnhenry/mcp-query/testing`.
+// issue `upload_required`. The sink itself is Node-only (it loads node:http when started); importing this module is browser-safe.
 
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FileInput, UploadTarget } from "../core/filesExt.js";
 
@@ -32,6 +32,10 @@ export class MockUploadSink {
 
   static async start(): Promise<MockUploadSink> {
     const sink = new MockUploadSink();
+    // Loaded lazily through a variable specifier: `@johnhenry/mcp-query/testing` is also bundled for
+    // browsers (MockMCPServer runs there), and a static `node:http` import would break those bundles.
+    const nodeHttp = "node:http";
+    const { createServer } = (await import(/* @vite-ignore */ /* webpackIgnore: true */ nodeHttp)) as typeof import("node:http");
     sink.server = createServer((req, res) => void sink.handle(req, res));
     await new Promise<void>((r) => sink.server.listen(0, "127.0.0.1", r));
     sink.port = (sink.server.address() as AddressInfo).port;
