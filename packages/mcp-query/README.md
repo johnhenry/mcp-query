@@ -471,7 +471,8 @@ elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + ty
 ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
 log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
 per-request timeouts · Skills over MCP (`listSkills` / `getSkill` / `readSkillFile`, SDK-verified,
-cached, `useSkills` / `useSkill`; needs SDK >= 2.4.0, see [docs/api.md](./docs/api.md#skills-over-mcp-iomodelcontextprotocolskills-sep-2640)).
+cached, `useSkills` / `useSkill`; needs SDK >= 2.4.0, see [docs/api.md](./docs/api.md#skills-over-mcp-iomodelcontextprotocolskills-sep-2640)) ·
+Events extension, Beta, poll delivery (`listEvents` / `events(...)` with cursor resume, `nextPollMs`, `eventId` dedupe, explicit `truncated` gaps, `useEventTypes` / `useEvents`, webhook receiver verifier in `/server`; runs on SDK 2.0.0, see [docs/api.md](./docs/api.md#events-iomodelcontextprotocolevents-sep-3415)).
 Full vitest suite green — run `npm test` for the current count.
 
 ## File map

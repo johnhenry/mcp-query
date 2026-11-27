@@ -47,8 +47,8 @@ Not wrapped (they still bypass the chain): `complete`, `ping`, `setLogLevel`, re
 subscribe/unsubscribe, task polling/cancel (`getTask`, `listTasks`, `getTaskResult`, `cancelTask`),
 and `notifyRootsChanged`.
 
-`OperationKind` is `"read" | "call" | "query" | "list" | "prompt" | "skill"` (the last three were added
-in #90). An interceptor that handles only the original kinds keeps working: it passes the others to
+`OperationKind` is `"read" | "call" | "query" | "list" | "prompt" | "skill" | "event"` (the last four were
+added after the original three: #90, then the Events extension). An interceptor that handles only the original kinds keeps working: it passes the others to
 `next(op)`. `op.method` names the MCP method where the kind alone is ambiguous.
 
 ### Lists: the chain runs where the catalog is fetched
