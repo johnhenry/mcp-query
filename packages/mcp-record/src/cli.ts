@@ -5,8 +5,8 @@
 //   mcp-record record  --command npx --args "-y server-everything" --out tape.json \
 //                      --call 'echo(message: "hi")' --call get-sum:'{"a":1,"b":2}'
 //   mcp-record record  --url https://host/mcp --out tape.json   # hosted (Streamable HTTP)
-//   mcp-record record  --url https://host/mcp --era auto --out tape.json   # 2026-07-28 server (server/discover, no initialize)
-//   mcp-record replay  --cassette tape.json          # serve the cassette over stdio (classic handshake)
+//   mcp-record record  --url https://host/mcp --out tape.json   # --era auto is the default: server/discover first, initialize as the fallback
+//   mcp-record replay  --cassette tape.json          # serve the cassette over stdio (a 2026-07-28 cassette to a modern client, a 2025 one with initialize)
 //   mcp-record inspect tape.json                     # summarize a cassette
 //
 // `record` reaches a live server over stdio (--command), Streamable HTTP (--url, with
@@ -26,29 +26,30 @@ import { realpathSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "@johnhenry/mcp-contract";
+import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, parseEra, versionNegotiationFor, runRounds, parseAnswers, InputRequiredError, DEFAULT_ERA, type ConnectOptions, type Era } from "@johnhenry/mcp-contract";
 import { createCassette, loadCassette, sealCassette, type Cassette } from "./cassette.js";
 import { recordTransport, redactPaths } from "./record.js";
-import { replayServer } from "./replay.js";
+import { replayOverStdio } from "./replayStdio.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette", "redact", "era"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette", "redact", "era", "answer"] as const;
 
-function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[]; redact: string[] } {
+function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[]; redact: string[]; answers: string[] } {
   const _: string[] = [];
   const flags: Record<string, string> = {};
   const headers: string[] = [];
   const calls: string[] = [];
   const redact: string[] = [];
+  const answers: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--call") calls.push(argv[++i] ?? "");
+    else if (a === "--answer") answers.push(argv[++i] ?? "");
     else if (a === "--header") headers.push(argv[++i] ?? "");
     else if (a === "--redact") redact.push(argv[++i] ?? "");
     else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
     else _.push(a);
   }
-  return { _, flags, headers, calls, redact };
+  return { _, flags, headers, calls, redact, answers };
 }
 
 function required(flags: Record<string, string>, name: string): string {
@@ -61,28 +62,71 @@ function required(flags: Record<string, string>, name: string): string {
  * Connect (stdio or Streamable HTTP), capture the surface + any --call results, close.
  * `redactPathList` is an opt-in list of dot-paths (e.g. "params.apiKey") masked in the
  * cassette before each interaction is recorded — see `redactPaths` in record.ts.
+ *
+ * `era` `auto` (the default) probes `server/discover` first. The probe runs on the recording transport
+ * itself (so it is captured), which means a legacy server that dies on the unrecognised probe cannot be
+ * retried in place; a failed `auto` connect is therefore retried once, from scratch, as `legacy`.
+ *
+ * `answers` are `--answer key=value` tokens for an `input_required` round during a --call (2026-07-28
+ * connections). A round with a question nobody answered aborts the recording with the question printed.
  */
-export async function recordSession(opts: ConnectOptions, calls: string[], redactPathList: string[] = [], era: "legacy" | "auto" = "legacy"): Promise<Cassette> {
+export async function recordSession(opts: ConnectOptions, calls: string[], redactPathList: string[] = [], era: Era = DEFAULT_ERA, answers: string[] = []): Promise<Cassette> {
   const parsedCalls = calls.map((spec) => parseCallSpec(spec)); // fail fast, before connecting
+  parseAnswers(answers); // fail fast on a malformed --answer, before connecting
+  if (answers.length && era === "legacy") throw new Error("--answer needs a 2026-07-28 connection (the multi round-trip pattern); drop --era legacy");
+  if (era === "legacy") return recordOnce(opts, parsedCalls, redactPathList, "legacy", answers);
+  try {
+    return await recordOnce(opts, parsedCalls, redactPathList, "auto", answers);
+  } catch (e) {
+    if (e instanceof InputRequiredError || (e as { recordPhase?: string } | null)?.recordPhase !== "connect") throw e;
+    console.error(`[mcp-record] could not negotiate with server/discover (${e instanceof Error ? e.message : e}); recording again as legacy (initialize)`);
+    return recordOnce(opts, parsedCalls, redactPathList, "legacy", answers);
+  }
+}
+
+async function recordOnce(opts: ConnectOptions, parsedCalls: Array<{ name: string; args: Record<string, unknown> }>, redactPathList: string[], era: Era, answers: string[]): Promise<Cassette> {
   const cassette = createCassette();
   const inner = buildTransport(opts);
-  const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: {}, ...(era === "auto" ? { versionNegotiation: { mode: "auto" as const } } : {}) });
+  // Declare elicitation only when we can actually answer it (from --answer).
+  const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: answers.length ? { elicitation: { form: {}, url: {} } } : {}, ...versionNegotiationFor(era) });
   const recordOpts = redactPathList.length ? { redact: redactPaths(redactPathList) } : {};
-  await client.connect(recordTransport(inner, cassette, recordOpts)); // initialize (or server/discover with --era auto) captured here
-
-  const caps = client.getServerCapabilities() ?? {};
-  if (caps.tools) await client.listTools().catch(() => {});
-  if (caps.resources) {
-    await client.listResources().catch(() => {});
-    await client.listResourceTemplates().catch(() => {});
-  }
-  if (caps.prompts) await client.listPrompts().catch(() => {});
-
-  for (const { name, args } of parsedCalls) {
-    await client.callTool({ name, arguments: args }).catch((e) => console.error(`  call ${name} failed: ${e instanceof Error ? e.message : e}`));
+  try {
+    await client.connect(recordTransport(inner, cassette, recordOpts)); // initialize (or server/discover with --era auto) captured here
+  } catch (e) {
+    await client.close().catch(() => {});
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { recordPhase: "connect" });
   }
 
-  await client.close();
+  try {
+    const caps = client.getServerCapabilities() ?? {};
+    if (caps.tools) await client.listTools().catch(() => {});
+    if (caps.resources) {
+      await client.listResources().catch(() => {});
+      await client.listResourceTemplates().catch(() => {});
+    }
+    if (caps.prompts) await client.listPrompts().catch(() => {});
+
+    const rounds = answers.length > 0 || client.getProtocolEra?.() === "modern";
+    for (const { name, args } of parsedCalls) {
+      try {
+        if (rounds) {
+          // Manual round loop: every round (the `input_required` result and each retry) is recorded as its own interaction.
+          await runRounds((retry) => client.callTool({ name, arguments: args, ...retry } as never, { allowInputRequired: true } as never) as Promise<unknown>, answers);
+        } else {
+          await client.callTool({ name, arguments: args });
+        }
+      } catch (e) {
+        if (e instanceof InputRequiredError) throw e; // not recordable without an answer: fail clearly instead of sealing a half cassette
+        if (!answers.length && ((e as { code?: unknown } | null)?.code === -32021 || /required capability/i.test(e instanceof Error ? e.message : ""))) {
+          // A server that needs to ask the user something refuses a client that did not declare elicitation.
+          throw new Error(`call ${name} needs a capability this recording client did not declare (${e instanceof Error ? e.message : e}); if it asks the user questions, re-run with --answer key=value for each`);
+        }
+        console.error(`  call ${name} failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+  } finally {
+    await client.close().catch(() => {});
+  }
   return cassette;
 }
 
@@ -106,12 +150,17 @@ const HELP = `mcp-record: record a live MCP server's traffic to a cassette, repl
 
 usage:
   mcp-record record  (--command CMD [--args "A B"] | --url URL [--bearer T] [--header "K: V"] | --server NAME)
-                     [--out tape.json] [--call 'tool(arg: 1)']... [--redact path]... [--era legacy|auto]
+                     [--out tape.json] [--call 'tool(arg: 1)']... [--redact path]... [--era auto|legacy]
+                     [--answer key=value]...
   mcp-record replay  --cassette tape.json     serve the cassette over stdio as a mock MCP server
+                                              (a 2026-07-28 cassette is served to a modern client, a 2025 one with initialize)
   mcp-record inspect tape.json                summarize a cassette and verify its integrity hash
   mcp-record --help
 
-Cassettes are sealed with a SHA-256 integrity hash; edit with care. Captured traffic is verbatim: use
+--era auto (default) probes server/discover first, bounded by a timeout, and falls back to initialize; a stdio
+server is started again for the probe. --era legacy skips the probe (a registry entry's \`era\` applies when unset).
+--answer key=value (repeatable) answers an input_required round during a --call; without it such a round fails
+the recording. Cassettes are sealed with a SHA-256 integrity hash; edit with care. Captured traffic is verbatim: use
 --redact to mask fields before writing. Docs: https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-record`;
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -119,15 +168,14 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     console.log(HELP);
     return;
   }
-  const { _, flags, headers, calls, redact } = parseArgs(argv);
+  const { _, flags, headers, calls, redact, answers } = parseArgs(argv);
   rejectUnknownFlags("mcp-record", flags, KNOWN_FLAGS);
   switch (_[0]) {
     case "record": {
       const opts: ConnectOptions = { ...resolveConnect(flags, headers), clientName: "mcp-record" };
       if (opts.url) console.error("⚠  recording a hosted server sends real traffic — mind rate limits & ToS.\n");
-      const era = flags.era ?? "legacy";
-      if (era !== "legacy" && era !== "auto") throw new Error('--era must be "legacy" (default, initialize handshake) or "auto" (try server/discover first)');
-      const cassette = sealCassette(await recordSession(opts, calls, redact, era));
+      const era = parseEra(flags.era) ?? (answers.length ? "auto" : opts.era) ?? DEFAULT_ERA;
+      const cassette = sealCassette(await recordSession(opts, calls, redact, era, answers));
       const json = JSON.stringify(cassette, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");
@@ -139,10 +187,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     }
     case "replay": {
       const cassette = loadCassette(await readFile(required(flags, "cassette"), "utf8"));
-      const server = replayServer(cassette);
-      await server.connect(new StdioServerTransport());
-      console.error(`[mcp-record] replaying ${cassette.interactions.length} interactions on stdio`);
-      for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => void Promise.resolve(server.close()).then(() => process.exit(0)));
+      const server = await replayOverStdio(cassette);
+      console.error(`[mcp-record] replaying ${cassette.interactions.length} interactions on stdio (${server.era === "modern" ? "2026-07-28: server/discover" : "classic: initialize"})`);
+      for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => void server.close().then(() => process.exit(0)));
       break;
     }
     case "inspect": {
