@@ -1,11 +1,11 @@
-# mcp-contract
+# @johnhenry/mcp-contract
 
 **Contract testing & breaking-change detection for MCP servers.** Pin an MCP server's
 capability surface — its tools (with input/output JSON Schemas + annotations), resources,
 templates, and prompts — to a versioned `mcp.contract.json`, then fail CI the moment a
 live server **drifts incompatibly**.
 
-It's the **dual of [mcp-query](../../README.md) codegen**: codegen turns a server into
+It's the **dual of [mcp-query](https://github.com/johnhenry/mcp-query#readme) codegen**: codegen turns a server into
 types at dev time; `mcp-contract` verifies the server still *honors* those types at every
 build. Same role `buf breaking` plays for protobuf, GraphQL schema checks for GraphQL, and
 Pact for REST.
@@ -25,28 +25,44 @@ mcp-query's codegen snapshots a server's tools *once*. But MCP servers are dynam
 read-only tool turning destructive. Nothing otherwise catches the moment the server you
 generated (and wrote policy) against no longer matches. `mcp-contract` is that safety net.
 
-## Install / use
+## Install
 
-Runs from source via `tsx` in this monorepo:
+```bash
+npm install --save-dev @johnhenry/mcp-contract
+# or run it without installing:
+npx @johnhenry/mcp-contract --help
+```
+
+Requires Node >= 26. The CLI is `mcp-contract`; the same code is importable as a library (see
+[Programmatic API](#programmatic-api)). `@johnhenry/mcp-query` and the official MCP SDK
+(`@modelcontextprotocol/client`, `@modelcontextprotocol/server`) are regular dependencies and
+install with it.
+
+## CLI
 
 ```bash
 # 1. Pin the surface (commit mcp.contract.json to your repo)
-npx tsx packages/mcp-contract/src/cli.ts snapshot \
+npx mcp-contract snapshot \
   --command npx --args "-y @modelcontextprotocol/server-everything" \
   --out mcp.contract.json
 
 # 2. In CI: fail the build if the live server drifted in a breaking way
-npx tsx packages/mcp-contract/src/cli.ts verify \
+npx mcp-contract verify \
   --contract mcp.contract.json \
   --command npx --args "-y @modelcontextprotocol/server-everything"
-#   → exits 1 on any BREAKING change, 0 otherwise
+#   -> exits 1 on any BREAKING change, 0 otherwise
 
 # 3. Human-readable diff between two pinned snapshots
-npx tsx packages/mcp-contract/src/cli.ts diff old.contract.json new.contract.json
+npx mcp-contract diff old.contract.json new.contract.json
 
 # 4. Serve the contracted surface as a mock MCP server over stdio (for consumer tests)
-npx tsx packages/mcp-contract/src/cli.ts mock --contract mcp.contract.json
+npx mcp-contract mock --contract mcp.contract.json
+
+# 5. OAuth-protected hosted server: authorize once (see below)
+npx mcp-contract auth --url https://host/mcp
 ```
+
+`mcp-contract --help` prints the full usage.
 
 ## Connecting: local or hosted
 
@@ -58,8 +74,6 @@ HTTP** (a hosted endpoint). Everywhere a command above takes `--command`, it als
 --bearer "$TOKEN"                       # → Authorization: Bearer $TOKEN
 --header "X-Tenant: acme"               # arbitrary header(s), repeatable
 ```
-
-The same `--url`/`--bearer`/`--header` flags work for `mcp-lint` and `mcp-docs`.
 
 ### OAuth-protected servers
 
@@ -78,9 +92,30 @@ mcp-contract verify --url https://host/mcp --contract api.contract.json   # just
 ```
 
 `auth` runs the full OAuth 2.1 flow itself — it never sees your password (you log in on the
-server's own page). The token is cached per-host and **auto-refreshed** by the capture tools
-(`contract`/`lint`/`docs`) on later runs; if nothing is cached they tell you to run `auth`
-first.
+server's own page). The token is cached per-host and **auto-refreshed** by the capture commands on later runs; if
+nothing is cached they tell you to run `auth` first.
+
+**Client registration: CIMD first, DCR as fallback.** If the authorization server advertises
+`client_id_metadata_document_supported`, the CLI uses a [Client ID Metadata
+Document](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration)
+as its `client_id` and registers nothing. Otherwise it falls back to Dynamic Client Registration
+(deprecated by the 2026-07-28 revision, kept for older servers). The document is checked in at
+[`oauth/client-metadata.json`](../../oauth/client-metadata.json) and its `client_id` is its own URL,
+`https://johnhenry.github.io/mcp-query/oauth/client-metadata.json` (GitHub Pages; `raw.githubusercontent.com`
+is not used because it serves `text/plain`, and the draft requires a JSON response). Its `redirect_uris`
+are the fixed loopback callbacks on port 8976, so CIMD login binds that port (and falls back to DCR with
+an ephemeral port if it is busy). Override the URL with `MCPQ_CLIENT_METADATA_URL` or
+`--client-metadata-url <https-url>`; `off` disables CIMD.
+
+| Flag | Effect |
+| --- | --- |
+| `--client-metadata-url <url\|off>` | use another CIMD, or disable CIMD (DCR only) |
+| `--expected-issuer <iss>` | pin the authorization server; any other discovered issuer is refused before registration |
+| `--dpop` | opt-in DPoP (RFC 9449): sender-constrained tokens; key stored `0600`, never logged. Needs SDK >= 2.1.0 |
+
+The `iss` authorization-response parameter is validated (RFC 9207) before the code is redeemed.
+Credentials are stored per authorization-server issuer (SEP-2352); a cache file written before that
+change is never reused for an explicit issuer, and the cache is written owner-only (`0600`).
 
 **Browser on a different machine (e.g. the tool runs on a remote box you SSH into).** The
 callback is `http://localhost:PORT/callback` on the *box*, but your logged-in browser is on
@@ -166,7 +201,7 @@ literals in it (via `usedFromSource`) — so drift on tools you never call won't
 ## Programmatic API
 
 ```ts
-import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@mcp-query/contract";
+import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@johnhenry/mcp-contract";
 
 const pinned = JSON.parse(await readFile("mcp.contract.json", "utf8"));
 const live = await captureContract(connectedSdkClient);     // drain a live server
@@ -179,6 +214,16 @@ diffSchema(prevInputSchema, nextInputSchema, "in");   // → SchemaChange[]
 // turn a contract into a runnable test double (mcp-query MockMCPServer)
 const mock = mockFromContract(pinned);
 ```
+
+## Browser entry
+
+`@johnhenry/mcp-contract` has a `browser` export condition (Vite, webpack and
+`esbuild --platform=browser` pick it up by default) that resolves to a Node-free subset: contract
+capture from an already-connected `Client`, `diffContract`, `upgradeContract`, `diffSchema`,
+`formatDiff`, `mockFromContract`, `usedFromSource` and the call-spec parser. That is enough to render
+or diff pinned contracts in a web UI. The stdio/HTTP connectors, the server registry and the OAuth
+flow need Node and are not part of the browser entry; a test bundles the entry for a browser
+platform and fails if any `node:` module sneaks in.
 
 ## How it reuses mcp-query
 
@@ -194,17 +239,48 @@ const mock = mockFromContract(pinned);
 | **mcp-query** | consume MCP (reactive client + codegen) |
 | **mcp-gate** | govern MCP at runtime (policy, DLP, audit) |
 | **mcp-contract** | guard the MCP interface in CI (drift detection) |
+| **mcp-record** | freeze real traffic as fixtures (offline replay) |
+
+## MCP SDK versions
+
+| Feature | Minimum `@modelcontextprotocol/client` |
+| --- | --- |
+| Client ID Metadata Documents (preferred) with DCR fallback, `iss` validation (RFC 9207), issuer-keyed credentials, `discoveryState` binding | 2.0.0 |
+| `--dpop` (DPoP, RFC 9449: `OAuthClientProvider.dpop()`, `DpopSession`) | 2.1.0 |
+
+The peer range stays `^2.0.0`. `--dpop` on an older SDK stops with an error naming the 2.1.0 requirement
+instead of silently sending bearer tokens. `--expected-issuer` is enforced by `FileOAuthProvider` itself
+(it checks the discovered issuer before registering or redirecting), so it works on every 2.x. The SDK's own
+`expectedIssuer` option belongs to its static-credential providers (`ClientCredentialsProvider` and friends; present
+in the 2.0.0 typings, and required by their newer overloads), not to this interactive flow, whose `iss` check
+(RFC 9207) the SDK performs from 2.0.0.
 
 ## Tests
 
 ```bash
-npx vitest run   # variance engine (in/out), capture, diff classification, scoping, mock, used-scan
+npm test -w @johnhenry/mcp-contract   # from a clone of the repo: variance engine (in/out), capture, diff classification, scoping, mock, used-scan
 ```
 
 All tests run headless against an in-memory `MockMCPServer` — no network, no subprocess.
 
 ## Status
 
-MVP (`private: true`). Roadmap: richer JSON Schema coverage (`anyOf`/`oneOf`/`$ref`,
-`additionalProperties`), `--format json` for machine consumption, a GitHub Action wrapper,
-and snapshotting over Streamable HTTP transports (today the CLI captures over stdio).
+Pre-1.0: the contract file format is versioned (see above) and read compatibly across versions, but
+the library API may still change in minor releases. Roadmap: richer JSON Schema coverage
+(`anyOf`/`oneOf`/`$ref`, `additionalProperties`), `--format json` for machine consumption, and a
+GitHub Action wrapper.
+
+## Releasing
+
+Published from `main` by `.github/workflows/release-mcp-contract.yml` (do not rename; npm trusted
+publishing is keyed to the filename). A brand-new package cannot be created by trusted publishing, so the
+**first** release is manual, from a logged-in maintainer shell, once the Changesets "Version Packages"
+PR has bumped the package to `0.1.0`:
+
+```bash
+npm run build -w @johnhenry/mcp-query -w @johnhenry/mcp-contract
+cd packages/mcp-contract && npm publish --access public
+npm trust github @johnhenry/mcp-contract --repository johnhenry/mcp-query --file release-mcp-contract.yml --allow-publish
+```
+
+After that, the Version Packages PR drives every release like the other packages.

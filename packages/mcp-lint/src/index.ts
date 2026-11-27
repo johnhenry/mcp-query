@@ -5,4 +5,4 @@
 export { RULES, type Rule, type Severity } from "./rules.js";
 export { lintContract, type Finding, type LintResult, type LintOptions } from "./lint.js";
 export { formatLint } from "./report.js";
-export { LIVE_RULES, runProbes, type LiveRule, type ProbeClient, type ProbeFinding, type ProbeViolation } from "./probes.js";
+export { LIVE_RULES, runProbes, type LiveRule, type ProbeClient, type ProbeContext, type ProbeFinding, type ProbeViolation } from "./probes.js";

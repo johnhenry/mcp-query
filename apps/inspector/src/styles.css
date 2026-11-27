@@ -140,6 +140,13 @@
   .oauth .row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
   .timeline { display: flex; flex-direction: column; gap: 0.25rem; font-family: ui-monospace, monospace; font-size: 0.82rem; border-left: 2px solid var(--accent); padding-left: 0.75rem; margin-top: 0.5rem; }
 
+  /* Apps tab: governed mode + approvals; Card tab */
+  #app-governance, mcp-card .row { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
+  #app-governance input#approve-patterns, mcp-card input#card-url { flex: 1; }
+  .approval { margin: 0.5rem 0; }
+  .approval .approve { color: var(--accent); }
+  .approval .deny, .finding.differs { color: var(--danger); }
+
   /* a form that has a focused control gets a subtle accent (modern :has()) */
   .add-server:has(:focus) { outline: 1px solid oklch(from var(--accent) l c h / 0.3); border-radius: var(--radius); }
 }

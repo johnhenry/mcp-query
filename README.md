@@ -72,12 +72,12 @@ and they stack:
 | **[@mcp-query/cli](packages/cli)** | The unified **`mcp-query`** CLI: one entry point over every tool below (`mcp-query lint`/`docs`/`bench`/…), **plus a server registry** (`mcp-query add`, honoring the `.mcp.json`/`mcpServers` standard) and **client verbs** (`mcp-query tools`/`call`/`read`) to drive any registered server. | You want **one command** for the whole toolkit and to call your MCP servers by name from the terminal. |
 | **[mcp-query](packages/mcp-query)** | The reactive, cached, embeddable MCP **client** (`npm install @johnhenry/mcp-query`): TanStack-Query-style document cache, RTK-Query tags, LSP-client lifecycle, React hooks, codegen, an interceptor chain, and optional server-side modules (gateway, metrics, OTel, sessions, Redis L2). | You're **consuming** MCP servers from an app or backend and want a real data layer, not raw SDK calls. |
 | **[@johnhenry/mcp-gate](packages/mcp-gate)** | A config-driven **security/policy proxy**. Fronts many upstreams as one governed endpoint: declarative authorization, DLP redaction, rate-limit, circuit-breaking, audit. | You're handing MCP servers to an agent and need a **runtime choke point** — allow/deny, scrub secrets, log everything. |
-| **[@mcp-query/contract](packages/mcp-contract)** | **Contract testing / drift detection.** Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
+| **[@johnhenry/mcp-contract](packages/mcp-contract)** | **Contract testing / drift detection** (`npm install @johnhenry/mcp-contract`, CLI `mcp-contract`, browser-safe subset via the `browser` export condition). Pin a server's capability surface, then fail CI when a live server changes incompatibly (with proper input/output variance). The dual of codegen. | You generated/wrote code against an MCP server and want CI to **catch breaking drift** before it ships. |
 | **[@mcp-query/lint](packages/mcp-lint)** | **Quality lint** (ESLint for MCP). Check a single surface against design rules — descriptions, annotations, typed inputs, naming — and gate CI on it. | You're **authoring** an MCP server and want a quality bar enforced in CI. |
 | **[@mcp-query/docs](packages/mcp-docs)** | **Reference docs** (Redoc for MCP). Render Markdown docs from a live server or a contract: tool arg tables, annotation badges, resources, prompts. | You want **always-current reference docs** for an MCP server, generated not hand-written. |
 | **[@mcp-query/bench](packages/mcp-bench)** | **Benchmarking.** Latency (p50/p95/p99) + throughput per tool, with perf budgets that fail CI. Local or hosted servers. | You want to **track an MCP server's performance** or gate on a latency budget. |
 | **[@johnhenry/mcp-query-ui](packages/mcp-query-ui)** | **MCP Apps host** (SEP-1865). Mounts a server's `ui://` app in a sandboxed iframe via the official `@modelcontextprotocol/ext-apps` helpers; the app's tool calls and resource reads go through the `MCPClient`, so `mcp-gate` policy/approval/audit apply. Lifecycle + messages are subscribable state; `useMcpApp()` for React. | Your host app should **render MCP Apps** and you want their traffic **governed**, not a side channel. |
-| **[@mcp-query/record](packages/mcp-record)** | **Record / replay** (VCR for MCP). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
+| **[@johnhenry/mcp-record](packages/mcp-record)** | **Record / replay** (VCR for MCP; `npm install @johnhenry/mcp-record`, CLI `mcp-record`, browser-safe entry via the `browser` export condition). Capture real server traffic to a cassette, replay it offline as a deterministic mock. | Your tests/demos need a server's **real output** but fast, offline, and frozen. |
 
 ## Apps
 
@@ -218,6 +218,19 @@ stripped of terminal escapes before it is printed. A card never contains tools o
 those still come from the live server. Browsers need the card host to send CORS headers
 (`Access-Control-Allow-Origin`), as the spec requires of hosted cards.
 
+Publishing and checking cards from the rest of the toolchain:
+
+- **Gate:** `@johnhenry/mcp-gate` builds a card for its own endpoint (`gateServerCard(config)`) and serves it at
+  `<url>/server-card` (`createGateCardHandler(config)`). It describes the gate only; upstream names appear only if you set
+  `card.listUpstreams`. See the [gate README](packages/mcp-gate/README.md#server-card-sep-2127).
+- **Connection preflight:** `cardPreflight: { cardUrl }` on a connection reads the card first and uses its supported
+  protocol versions to pick the handshake (no failed probe). Best-effort and opt-in: a missing or stale card is ignored,
+  explicit `versions` win, and the live server always has the last word.
+- **Lint:** `mcp-lint --url … --probe` runs the `server-card` rule (a card is published and agrees with the live versions).
+- **Contract:** a captured v2 contract can carry the card (`captureContract(client, { card })`); a changed endpoint or a
+  dropped protocol version is breaking drift.
+- **Inspector:** the Card tab shows a card and its disagreements with the live server.
+
 ## Develop
 
 ```bash
@@ -272,8 +285,10 @@ of the following, not just `npm init`:
 
 1. **`package.json` + `tsconfig.json`** matching an existing package's shape —
    copy `packages/mcp-lint`'s or `packages/mcp-record`'s as a starting point
-   (both are private/internal, the more common case; `packages/mcp-gate`'s if
-   the new package will actually publish under the `@johnhenry` scope).
+   (`mcp-lint` is private/internal, the more common case; use `packages/mcp-gate`'s
+   or `packages/mcp-record`'s if the new package will actually publish under
+   the `@johnhenry` scope, including its `build`/`prepack`, `exports`, `files`,
+   `publishConfig` and `tsconfig.build.json`).
 2. **No `workspaces` edit needed.** Root `package.json`'s `workspaces` field is
    the globs `packages/*` and `apps/*`, not a per-package list — a new directory
    under either is picked up automatically by `npm install`.
@@ -289,8 +304,9 @@ of the following, not just `npm init`:
    ecosystem-cohesion pass added `engines.node` only to the three packages that
    are genuinely published (`mcp-query`, `mcp-gate`, `mcp-query-tanstack`) plus
    root, deliberately leaving the private internal-tooling packages (`cli`,
-   `mcp-bench`, `mcp-contract`, `mcp-docs`, `mcp-lint`, `mcp-record`) without
-   it — don't add it to a package that isn't shipping to npm.
+   `mcp-bench`, `mcp-docs`, `mcp-lint`) without it (`mcp-query-ui`,
+   `mcp-contract` and `mcp-record` have since started publishing and carry it)
+   — don't add it to a package that isn't shipping to npm.
 6. **Root `examples`/`build:examples` scripts** — if the new package
    participates in the root [cross-package examples](#cross-package-examples),
    add its build to `build:examples` (which today builds `mcp-query`,
@@ -391,6 +407,7 @@ Releases are driven by [Changesets](https://github.com/changesets/changesets):
 add one with `npm run changeset` in any PR that changes a published package.
 Merging to `main` opens/updates a "chore: version packages" PR; merging *that*
 publishes each package whose version is new to npm (`release.yml`,
-`release-gate.yml`, `release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml`) and creates its tag and GitHub
+`release-gate.yml`, `release-mcp-query-tanstack.yml`, `release-mcp-query-ui.yml`, `release-mcp-record.yml`,
+`release-mcp-contract.yml`) and creates its tag and GitHub
 Release as by-products. Packages version
 independently. See [CONTRIBUTING.md](./CONTRIBUTING.md#releasing).

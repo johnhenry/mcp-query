@@ -3,7 +3,7 @@
 **ESLint for MCP servers.** Quality-lint a server's capability surface against a set of
 design rules — descriptions, annotations, typed inputs, naming — and gate CI on the result.
 
-It's the complement to [`@mcp-query/contract`](../mcp-contract): contract checks *drift*
+It's the complement to [`@johnhenry/mcp-contract`](../mcp-contract): contract checks *drift*
 between two versions (*"did it change incompatibly?"*); lint checks *quality* of one
 version (*"is this surface well-designed?"*). Both run on the same captured surface.
 
@@ -85,6 +85,7 @@ Findings are tagged `probe` in the output. All `warn`; `--off` / `--error` apply
 | `stateless-ready` | the server answers `server/discover` (the connection negotiated the 2026-07-28 era, no `initialize`), lists `supportedVersions`, and serves `tools/list` (SEP-2575) |
 | `deterministic-list-order` | two consecutive `tools/list` calls (all pages, client cache bypassed) return the same tools in the same order (2026-07-28 changelog: servers SHOULD) |
 | `resource-not-found-code` | reading a made-up URI fails with `-32602`, not the legacy `-32002` (SEP-2164); needs the `resources` capability |
+| `server-card` | an HTTP server (`--url`) publishes a Server Card at `<url>/server-card` (warns on 404 or an unusable card) and the card agrees with the live connection: connected URL, server name/version, negotiated and supported protocol versions (SEP-2127; the live values win). Silent for stdio servers |
 
 ```bash
 npx tsx packages/mcp-lint/src/cli.ts --url https://host/mcp --probe
@@ -102,7 +103,7 @@ you can silence per-rule when a name is a false positive.
 
 ```ts
 import { lintContract, formatLint, RULES } from "@mcp-query/lint";
-import { captureContract } from "@mcp-query/contract";
+import { captureContract } from "@johnhenry/mcp-contract";
 
 const contract = await captureContract(connectedSdkClient);
 const result = lintContract(contract, { rules: { "naming-consistency": "off" } });

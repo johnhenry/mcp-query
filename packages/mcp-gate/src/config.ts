@@ -20,6 +20,7 @@ import type { RedactRule } from "./redact.js";
 import type { GatewayInteractions, GatewayExtensions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
 import type { GateFilesPolicy } from "./files.js";
+import type { GateCardConfig } from "./card.js";
 
 /**
  * Policy for the ANSWER hop of a forwarded round (`interactions: "forward"`): the consumer's
@@ -142,10 +143,65 @@ export interface StdioUpstreamSpec {
   env?: Record<string, string>;
 }
 
+/** A secret held elsewhere: an environment variable NAME or a callback. Never the value itself. */
+export type SecretRef = { env: string } | { get: () => string | undefined | Promise<string | undefined> };
+
+/** Fields shared by the OAuth upstream auth types. */
+interface UpstreamAuthBase {
+  /**
+   * The authorization server's `issuer` identifier these credentials belong to (SEP-2352). Required:
+   * the gate refuses to send credentials to any other authorization server. With no `tokenEndpoint`,
+   * the token endpoint is discovered from the upstream (RFC 9728 -> RFC 8414) and its `issuer` must equal this.
+   */
+  issuer: string;
+  /** Skip discovery and use this token endpoint (https, or loopback for development). */
+  tokenEndpoint?: string;
+  scope?: string;
+  /** RFC 8707 resource indicator; defaults to the upstream `url`. */
+  resource?: string;
+  /** `fetch` for token/discovery requests (tests, proxies). Default: global fetch. */
+  fetch?: typeof fetch;
+}
+
+/**
+ * `io.modelcontextprotocol/oauth-client-credentials`: the gate authenticates as itself
+ * (client_secret_basic). The secret is a reference, never inline.
+ */
+export interface ClientCredentialsAuth extends UpstreamAuthBase {
+  type: "client_credentials";
+  clientId: string;
+  clientSecret: SecretRef;
+}
+
+/**
+ * `io.modelcontextprotocol/enterprise-managed-authorization`: exchange a user's identity assertion
+ * at the enterprise IdP for an ID-JAG (RFC 8693), then trade it for an access token at the MCP
+ * authorization server (RFC 7523 jwt-bearer). EXPERIMENTAL: only tested against a mock IdP.
+ */
+export interface EnterpriseAuth extends UpstreamAuthBase {
+  type: "enterprise";
+  /** The identity assertion (OIDC ID token) from the user's SSO login, by reference. */
+  idToken: SecretRef;
+  /** The enterprise IdP the ID-JAG is requested from. */
+  idp: { tokenEndpoint: string; clientId: string; clientSecret?: SecretRef };
+  /** The client registered at the MCP authorization server. */
+  clientId: string;
+  clientSecret?: SecretRef;
+}
+
+export type UpstreamAuth = ClientCredentialsAuth | EnterpriseAuth;
+
 /** Declarative Streamable HTTP upstream (the `.mcp.json` shape). */
 export interface HttpUpstreamSpec {
   url: string;
   headers?: Record<string, string>;
+  /**
+   * OAuth for this upstream: a machine identity (`client_credentials`) or enterprise-managed
+   * authorization (`enterprise`). Secrets by reference only. Mutually exclusive with `getToken`
+   * and with an `Authorization` header. Tokens are cached until just before expiry and are never
+   * written to audit entries.
+   */
+  auth?: UpstreamAuth;
   /**
    * Resolve a bearer token fresh before every request to this upstream. Maps directly onto
    * the SDK's own `AuthProvider.token()` — called by the transport itself, per request, with
@@ -238,6 +294,15 @@ export interface GateConfig {
    * on a raw `tools/call` (the gateway already forwards `_meta` through), or a library-mode
    * embedder sets it directly via `gate.client.scope({ partition, meta })`.
    */
+  /**
+   * Map the host-verified bearer token into each call's context. Front the gate's HTTP endpoint
+   * with the SDK's `requireBearerAuth` / `verifyBearerToken` (`@modelcontextprotocol/server`), pass the
+   * verified `AuthInfo` to the transport (`handleRequest(req, { authInfo })`), and set this: the
+   * verified principal lands in `_meta.principal` (plus `authScopes`, `authClientId`) where
+   * `policy` and `partitionFrom` read it. Caller-supplied values for those keys are dropped.
+   * `{ required: true }` rejects calls with no verified token.
+   */
+  inboundAuth?: boolean | import("@johnhenry/mcp-query/server").InboundAuthOptions;
   partitionFrom?: (meta: Record<string, unknown> | undefined) => string | undefined;
   /**
    * MCP extensions the gate offers consumers and passes through (tasks, skills, MCP Apps, and an opt-in
@@ -258,6 +323,13 @@ export interface GateConfig {
    * on by default even without this key; everything else applies only when it is set. See `GateFilesPolicy`.
    */
   experimental?: { files?: GateFilesPolicy };
+
+  /**
+   * Server Card (SEP-2127) for the gate's own endpoint, used by `gateServerCard` /
+   * `createGateCardHandler`. The card describes only the gate; upstream names appear only with
+   * `card.listUpstreams: true`.
+   */
+  card?: GateCardConfig;
 }
 
 function escapeRe(s: string): string {

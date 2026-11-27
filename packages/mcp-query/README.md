@@ -125,17 +125,17 @@ Sizes (regenerate with `npm run size-table -w @johnhenry/mcp-query -- --write`):
 <!-- size-table:start -->
 | File | Raw | gzip | brotli |
 | --- | ---: | ---: | ---: |
-| `mcp-query.browser.js` (minified, one file) | 520.9 KiB | 139.9 KiB | 96.4 KiB |
+| `mcp-query.browser.js` (minified, one file) | 556.9 KiB | 152.1 KiB | 105.9 KiB |
 
 Where the raw bytes come from:
 
 | Inlined package | Raw (minified) |
 | --- | ---: |
-| `@modelcontextprotocol/client` | 190.9 KiB |
+| `@modelcontextprotocol/client` | 192.8 KiB |
 | `@modelcontextprotocol/server` | 129.2 KiB |
+| `@johnhenry/mcp-query (core)` | 88.2 KiB |
 | `zod` | 84.6 KiB |
-| `@johnhenry/mcp-query (core)` | 64.9 KiB |
-| `@johnhenry/mcp-gate (browser parts)` | 16.2 KiB |
+| `@johnhenry/mcp-gate (browser parts)` | 26.7 KiB |
 | `@modelcontextprotocol/core` | 16.0 KiB |
 | `@johnhenry/agent-query-core` | 7.8 KiB |
 | `eventsource` | 5.2 KiB |
@@ -266,6 +266,24 @@ a legacy revision). Task status on the modern era is **poll-only**:
 `notifications/tasks` needs a `taskIds` filter on `subscriptions/listen`, which the SDK
 client does not expose, so handles poll `tasks/get` at the server's `pollIntervalMs`.
 `notifications/tasks` pushes are still consumed on legacy connections.
+
+### Auth debugging and SDK versions
+
+`instrumentAuthProvider(provider)` (the "auth debug" wrapper) records each step of the SDK's OAuth
+handshake with secrets redacted. It now also shows which registration mechanism produced the client
+(`registration: "cimd" | "dcr"`), what discovery offered (`cimdSupported`, `dcrAvailable`,
+`issParameterSupported`, `dpopAlgs`), an `issuerCheck` step when the code-exchange leg starts (the SDK has
+validated `iss` by then), and, for providers implementing `dpop()`, the key **thumbprint only**. Hosts can add
+their own steps with `wrapped.authNote(member, detail)`.
+
+| Feature | Minimum `@modelcontextprotocol/client` |
+| --- | --- |
+| CIMD vs DCR, issuer-keyed credentials, `iss` validation steps | 2.0.0 |
+| DPoP steps (`dpop()`; `withDpop`) | 2.1.0 (the step is simply absent on 2.0.0) |
+
+On the gateway side, `createGateway({ inboundAuth })` maps a host-verified bearer token into call `_meta`
+(`principal`, `authScopes`, `authClientId`); see [mcp-gate](../mcp-gate/README.md#inbound-authentication).
+It needs `@modelcontextprotocol/server` >= 2.0.0 (`requireBearerAuth` / `verifyBearerToken`).
 
 ## Develop
 
