@@ -34,6 +34,13 @@ export const MCP_NAME_SOURCE: Readonly<Record<string, "name" | "uri" | "taskId">
   "events/unsubscribe": "name",
 };
 
+/**
+ * Methods whose `Mcp-Name` is mirrored when sent but not demanded: SDK clients >= 2.3 only emit it for the
+ * core methods and `tasks/*` and treat per-request `mcp-name` as reserved, so an `events/*` request from
+ * them has no way to carry it. A mismatch is still rejected.
+ */
+const NAME_OPTIONAL: ReadonlySet<string> = new Set(["events/poll", "events/stream", "events/subscribe", "events/unsubscribe"]);
+
 /** The `events/*` methods that carry subscription `arguments` (and so `Mcp-Param-*` headers). */
 export const EVENT_ARGUMENT_METHODS: ReadonlySet<string> = new Set(["events/poll", "events/stream", "events/subscribe", "events/unsubscribe"]);
 
@@ -220,7 +227,7 @@ export function checkRoutingHeaders(input: HeaderCheckInput): string | undefined
     const decoded = decodeHeaderValue(nameHeader);
     if (decoded === undefined) return "the Mcp-Name header carries an invalid Base64 sentinel value";
     if (decoded !== expected) return `the body carries params.${sourceField}="${expected}" but the Mcp-Name header names "${decoded}"`;
-  } else if (nameHeader === null && modern && expected !== undefined) {
+  } else if (nameHeader === null && modern && expected !== undefined && !NAME_OPTIONAL.has(body.method)) {
     return `the body carries params.${sourceField}="${expected}" but the required Mcp-Name header is absent`;
   }
 

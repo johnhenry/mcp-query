@@ -673,7 +673,7 @@ createGate({
 ```
 
 Going upstream, the gate's client sends the right `Mcp-Method` / `Mcp-Name` on every request and `Mcp-Param-*` for tools
-whose schema uses `x-mcp-header` (and for `events/*` it passes through, from the event type's `inputSchema`).
+whose schema uses `x-mcp-header` (and for `events/*` it passes through, from the event type's `inputSchema`). `Mcp-Name` on `events/*` is only sent by SDK 2.0.0 (newer SDKs reserve the header and do not table events), so the gate tolerates its absence there but refuses a wrong one.
 
 **Per-request `_meta`.** The consumer's `io.modelcontextprotocol/clientInfo`, `.../logLevel` and the trace keys
 `traceparent`, `tracestate`, `baggage` (SEP-414) go to a 2026-07-28 upstream with `tools/call`, `prompts/get`,

@@ -114,7 +114,10 @@ describe("checkRoutingHeaders", () => {
   });
   it("covers the tasks and events Mcp-Name sources", () => {
     expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "tasks/get", "mcp-name": "t1" }), body: { method: "tasks/get", params: { taskId: "t2" } }, modern: true })).toMatch(/taskId/);
-    expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "events/poll" }), body: { method: "events/poll", params: { name: "e" } }, modern: true })).toMatch(/Mcp-Name header is absent/);
+    // events/*: a wrong Mcp-Name is refused; an absent one is tolerated (SDK clients cannot send it, see NAME_OPTIONAL)
+    expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "events/poll", "mcp-name": "x" }), body: { method: "events/poll", params: { name: "e" } }, modern: true })).toMatch(/Mcp-Name/);
+    expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "events/poll" }), body: { method: "events/poll", params: { name: "e" } }, modern: true })).toBeUndefined();
+    expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "tasks/get" }), body: { method: "tasks/get", params: { taskId: "t" } }, modern: true })).toMatch(/Mcp-Name header is absent/);
     expect(checkRoutingHeaders({ headers: hdrs({ "mcp-method": "events/list" }), body: { method: "events/list", params: {} }, modern: true })).toBeUndefined();
   });
 });

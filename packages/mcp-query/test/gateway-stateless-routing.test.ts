@@ -271,7 +271,9 @@ describe("item 7: the gateway rejects headers that disagree with the body (Heade
     const { h } = await rig({ a: {} });
     const t = await rpc(h, "tasks/get", { taskId: "gw-1" }, { headers: { "mcp-name": "gw-2" } });
     expect([t.status, t.body.error.code]).toEqual([400, -32020]);
-    const missing = await rpc(h, "events/poll", { name: "incident.created" }, { headers: { "mcp-name": null } });
+    const wrong = await rpc(h, "events/poll", { name: "incident.created" }, { headers: { "mcp-name": "other" } });
+    expect([wrong.status, wrong.body.error.code]).toEqual([400, -32020]);
+    const missing = await rpc(h, "tasks/get", { taskId: "gw-1" }, { headers: { "mcp-name": null } });
     expect([missing.status, missing.body.error.code]).toEqual([400, -32020]);
     const ok = await rpc(h, "events/list"); // no params.name, no Mcp-Name
     expect(ok.body.error?.code).not.toBe(-32020);
