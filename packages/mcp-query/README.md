@@ -125,7 +125,7 @@ Sizes (regenerate with `npm run size-table -w @johnhenry/mcp-query -- --write`):
 <!-- size-table:start -->
 | File | Raw | gzip | brotli |
 | --- | ---: | ---: | ---: |
-| `mcp-query.browser.js` (minified, one file) | 556.9 KiB | 152.1 KiB | 105.9 KiB |
+| `mcp-query.browser.js` (minified, one file) | 559.7 KiB | 153.1 KiB | 106.5 KiB |
 
 Where the raw bytes come from:
 
@@ -133,9 +133,9 @@ Where the raw bytes come from:
 | --- | ---: |
 | `@modelcontextprotocol/client` | 192.8 KiB |
 | `@modelcontextprotocol/server` | 129.2 KiB |
-| `@johnhenry/mcp-query (core)` | 88.2 KiB |
+| `@johnhenry/mcp-query (core)` | 90.9 KiB |
 | `zod` | 84.6 KiB |
-| `@johnhenry/mcp-gate (browser parts)` | 26.7 KiB |
+| `@johnhenry/mcp-gate (browser parts)` | 26.8 KiB |
 | `@modelcontextprotocol/core` | 16.0 KiB |
 | `@johnhenry/agent-query-core` | 7.8 KiB |
 | `eventsource` | 5.2 KiB |

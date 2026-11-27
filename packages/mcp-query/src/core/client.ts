@@ -74,6 +74,7 @@ import {
   type Task,
 } from "./tasksExt.js";
 import { sdkSupportsModernTasks } from "./tasksProbe.js";
+import { paramHeadersFor, type RoutingInfo } from "./routingHeaders.js";
 import { EventsController, type EventSubscription, type EventsOpts, type ListEventsOpts, type ServerEventType } from "./events.js";
 import {
   MCPError,
@@ -195,6 +196,8 @@ export interface CallAuditEntry {
   target: string;
   /** `context.meta.principal`, if the caller set one. */
   principal?: unknown;
+  /** Verified routing facts (method, name, `x-mcp-header` values) of the request, when a gateway recorded them; see {@link CallContext.routing}. */
+  routing?: RoutingInfo;
   outcome: "ok" | "denied" | "error";
   error?: string;
   /** Set when this call was one hop of a multi-round-trip (MRTR) exchange: it returned `input_required` ("request") or carried the consumer's answers ("response"). */
@@ -221,6 +224,13 @@ export interface RequestTimeoutOpts {
 export interface CallContext {
   partition?: string;
   meta?: Record<string, unknown>;
+  /**
+   * The request's routing facts (SEP-2243): the JSON-RPC method, the `Mcp-Name` value and the values
+   * of `x-mcp-header`-annotated arguments, so a policy, rate limit or audit sink can decide without
+   * re-reading the body. Set by a gateway from the BODY of the request it served (never copied from a
+   * header, and never read from a caller's `_meta`); it is not sent upstream.
+   */
+  routing?: RoutingInfo;
   /**
    * Modern-era per-request log delivery (2026-07-28): attaches the
    * `io.modelcontextprotocol/logLevel` `_meta` key so the server emits
@@ -261,6 +271,13 @@ export interface QueryToolOpts {
   signal?: AbortSignal;
 }
 
+/** Request options carrying the `Mcp-Param-*` headers (SEP-2243) for `arguments` under `inputSchema`; nothing when there are none. */
+function routingOptions(inputSchema: unknown, args: unknown): { headers?: Record<string, string> } {
+  if (inputSchema === undefined) return {};
+  const headers = paramHeadersFor(inputSchema, args);
+  return Object.keys(headers).length ? { headers } : {};
+}
+
 /** Options for {@link MCPClient.forward}. */
 export interface ForwardOpts {
   /** What the interceptor chain treats the request as. Default `"extension"`. */
@@ -272,6 +289,11 @@ export interface ForwardOpts {
   context?: CallContext;
   /** MRTR answers this request carries, for the audit entry (`describeInteraction`); not sent. */
   interaction?: ToolInteraction;
+  /**
+   * The `inputSchema` the request's `arguments` follow (a tool's, or an event type's for `events/*`).
+   * When it has `x-mcp-header` annotations, the matching `Mcp-Param-{Name}` headers are sent (SEP-2243).
+   */
+  inputSchema?: unknown;
   signal?: AbortSignal;
 }
 
@@ -586,7 +608,7 @@ export class MCPClient {
   private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string, result?: unknown): void {
     if (!this.onCall) return;
     const interaction = describeInteraction(result, op.interaction);
-    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error, ...(interaction ? { interaction } : {}), ...(op.state.files ? { files: op.state.files as AuditFiles } : {}) };
+    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, ...(op.context?.routing ? { routing: op.context.routing } : {}), outcome, error, ...(interaction ? { interaction } : {}), ...(op.state.files ? { files: op.state.files as AuditFiles } : {}) };
     try {
       const r = this.onCall(entry);
       if (r && typeof (r as PromiseLike<unknown>).then === "function") {
@@ -927,7 +949,7 @@ export class MCPClient {
         return await conn.sdk.request(
           { method, params: { ...params, ...(meta ? { _meta: meta } : {}) } },
           UpdateTaskResultSchema,
-          { signal: opts.signal, ...this.defaultRequestOptions },
+          { signal: opts.signal, ...this.defaultRequestOptions, ...routingOptions(opts.inputSchema, params.arguments) },
         );
       } catch (err) {
         throw this.toError(err, server, "protocol");
@@ -1272,7 +1294,8 @@ export class MCPClient {
         params: { name: def.name, arguments: args, _meta: this.tasksMeta(this.withMeta(conn, opts.context)) },
       },
       CallToolOrTaskResultSchema,
-      { signal: opts.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) },
+      // Raw request(): the SDK mirrors `x-mcp-header` arguments only inside callTool, so do it here.
+      { signal: opts.signal, ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}), ...routingOptions(def.inputSchema, args) },
     );
 
     if (!isTaskShaped(res)) {

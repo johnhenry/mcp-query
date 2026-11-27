@@ -9,6 +9,8 @@
 //                          instances, with subscriptions/listen fan-out via ServerNotifier.
 
 import { createMcpHandler, inputRequired, Server, SdkError, SdkErrorCode, CLIENT_CAPABILITIES_META_KEY, type CreateMcpHandlerOptions, type McpHttpHandler } from "@modelcontextprotocol/server";
+import { withRoutingGuard } from "./routingGuard.js";
+import { routingFromBody } from "../core/routingHeaders.js";
 import { MissingRequiredClientCapabilityError } from "@modelcontextprotocol/client";
 import type { MCPClient, CallAuditEntry, CallContext } from "../core/client.js";
 import { MCPError } from "../core/types.js";
@@ -25,6 +27,7 @@ import {
   advertisedExtensions,
   declaredExtensions,
   finishToolCall,
+  consumerEnvelopeMeta,
   installExtensionHandlers,
   readSkillFileFor,
   skillCallContext,
@@ -176,6 +179,8 @@ interface MrtrCtx {
 }
 
 const SEP = ".";
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The wire code of MissingRequiredClientCapability (-32021). */
 const MISSING_CAPABILITY = -32021;
@@ -352,30 +357,53 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     const ttlMs = Math.max(0, Math.round(e.staleTime - (Date.now() - e.updatedAt)));
     return { ttlMs, ...(e.scope ? { cacheScope: e.scope } : {}) };
   };
-  /** Combine per-server hints for an aggregated list: the minimum remaining ttl (the
-   * soonest any contributing entry goes stale), private if any contributor is private. */
-  const listHint = (ss: string[], what: "tools" | "resources" | "prompts") => {
-    const hints = ss.map((s) => hint(listKeyFor(s, what)));
-    const known = hints.filter((h) => h.ttlMs !== undefined);
-    if (!known.length) return {};
-    const ttlMs = Math.min(...known.map((h) => h.ttlMs!));
-    const cacheScope = hints.some((h) => h.cacheScope === "private") ? ("private" as const) : undefined;
-    return { ttlMs, ...(cacheScope ? { cacheScope } : {}) };
+  // A list the gateway filters or annotates may differ between callers (a `filter` closure can read
+  // anything), so it is never `public`. Same when MCP Apps metadata is present: it is stripped per
+  // consumer declaration, and a shared cache would hand one consumer another's view.
+  const narrowed = Boolean(opts.filter || opts.annotate || opts.skillFilter);
+  /**
+   * The cache hints for an aggregated list, safe for the aggregate: the minimum remaining ttl of the
+   * contributing upstreams (an upstream with no entry yet counts as 0), and `public` only when EVERY
+   * contributor said `public` and nothing caller-specific happened here; anything else is `private`.
+   */
+  const aggregateHint = (ss: string[], key: (s: string) => CacheKey, callerSpecific = false) => {
+    const hints = ss.map((s) => hint(key(s)));
+    if (!hints.length) return {};
+    const ttlMs = hints.some((h) => h.ttlMs === undefined) ? 0 : Math.min(...hints.map((h) => h.ttlMs!));
+    const pub = !narrowed && !callerSpecific && hints.every((h) => h.cacheScope === "public");
+    return { ttlMs, cacheScope: pub ? ("public" as const) : ("private" as const) };
+  };
+  const listHint = (ss: string[], what: "tools" | "resources" | "prompts", callerSpecific = false) => aggregateHint(ss, (s) => listKeyFor(s, what), callerSpecific);
+  const hasUi = (items: Array<{ _meta?: unknown; uri?: string }>) => items.some((i) => (typeof i.uri === "string" && i.uri.startsWith("ui://")) || (isRecord(i._meta) && (isRecord(i._meta.ui) || "ui/resourceUri" in i._meta)));
+  // Deterministic order (the spec says servers SHOULD return tools/list in a stable order): by upstream
+  // name, then item name, in plain code-unit order, whatever order upstreams connected or listed in.
+  const byKey = <T>(items: T[], key: (item: T) => string): T[] => [...items].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  const sortedServers = () => byKey(servers(), (s) => s);
+  const routing = (method: string, params: unknown, inputSchema?: unknown) => routingFromBody(method, params, inputSchema);
+  /**
+   * The consumer's per-request `clientInfo` / `logLevel` (lifted out of `_meta` by the SDK into the
+   * envelope) put back on the request's `_meta` so they traverse the gate with the trace context.
+   * They are the only envelope fields added: capabilities are the gateway's to declare, and the
+   * verifier-owned keys (principal, partition, authScopes, authClientId) never come from here.
+   */
+  const withEnvelope = <R extends { params: { _meta?: unknown } }>(req: R, ctx: MrtrCtx): R => {
+    const env = consumerEnvelopeMeta(ctx);
+    if (!Object.keys(env).length) return req;
+    return { ...req, params: { ...req.params, _meta: { ...((req.params._meta as Record<string, unknown> | undefined) ?? {}), ...env } } };
   };
   const findResourceServer = (uri: string): string | undefined =>
     servers().find((s) => client.listResources(s).some((r) => r.uri === uri));
 
   // ── tools ──
   server.setRequestHandler("tools/list", (req, ctx) => {
-    const ss = servers();
+    const ss = sortedServers();
     // MCP Apps metadata is offered only to a consumer that declared the UI extension.
     const ui = Object.hasOwn(declaredExtensions(opts.extensions, server, ctx as never, req.params?._meta as Record<string, unknown> | undefined), UI_EXT);
-    return {
-      tools: ss.flatMap((s) => client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...withMeta(ui ? t : stripUiMeta(t), s, "tool", t.name), name: qualify(s, t.name) }))),
-      ...listHint(ss, "tools"),
-    };
+    const tools = ss.flatMap((s) => byKey(client.listTools(s), (t) => t.name).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...withMeta(ui ? t : stripUiMeta(t), s, "tool", t.name), name: qualify(s, t.name) })));
+    return { tools, ...listHint(ss, "tools", hasUi(tools)) };
   });
-  server.setRequestHandler("tools/call", async (req, ctx) => {
+  server.setRequestHandler("tools/call", async (rawReq, ctx) => {
+    const req = withEnvelope(rawReq, ctx);
     const [s, tool] = split(req.params.name, servers(), namespace);
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
     // the gate — without this, multi-tenant _meta dies at the gate.
@@ -385,15 +413,17 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     const m = await mrtr(s, req, ctx, "tool", tool, declared);
     const meta = m ? m.meta : upstreamMeta(callerMeta, client.connection(s), declared);
     const args = (req.params.arguments as Record<string, unknown>) ?? {};
+    // What the policy / rate limit / audit may read about this request: from the BODY, never a header.
+    const route = routing("tools/call", req.params, client.listTools(s).find((t) => t.name === tool)?.inputSchema);
     const res = m
-      ? await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { meta: m.meta }, interaction: m.interaction }), interactionModeFor(opts.interactions, s) === "forward")
-      : await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, meta ? { context: { meta } } : {}));
+      ? await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { meta: m.meta, routing: route }, interaction: m.interaction }), interactionModeFor(opts.interactions, s) === "forward")
+      : await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { ...(meta ? { meta } : {}), routing: route } }));
     // An upstream task handle: namespaced and handed on to a consumer that declared the tasks
     // extension; resolved here (old behaviour: the final result) for one that did not.
     const partition = partitionOf(callerMeta);
     const task = await finishToolCall({ client, ids, ext: opts.extensions }, res, {
       server: s, tool, meta: callerMeta, partition, declared, consumerTasks: Object.hasOwn(declared, TASKS_EXT),
-      context: { ...(partition !== undefined ? { partition } : {}), ...(meta ? { meta } : {}) },
+      context: { ...(partition !== undefined ? { partition } : {}), ...(meta ? { meta } : {}), routing: route },
     });
     if (task !== undefined) return task as never;
     return (m ? m.settle(res) : res) as never;
@@ -401,17 +431,20 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
 
   // ── resources (URIs are global; route reads back through the client's resolver) ──
   server.setRequestHandler("resources/list", (req, ctx) => {
-    const ss = servers();
+    const ss = sortedServers();
     const ui = Object.hasOwn(declaredExtensions(opts.extensions, server, ctx as never, req.params?._meta as Record<string, unknown> | undefined), UI_EXT);
+    const all = ss.flatMap((s) => byKey(client.listResources(s), (r) => r.uri).filter((r) => keep(s, "resource", r.uri) && (ui || !r.uri.startsWith("ui://"))).map((r) => withMeta(ui ? r : stripUiMeta(r), s, "resource", r.uri)));
+    return { resources: all, ...listHint(ss, "resources", hasUi(client.connections().flatMap((c) => [...c.resources.values()]))) };
+  });
+  server.setRequestHandler("resources/templates/list", () => {
+    const ss = sortedServers();
     return {
-      resources: ss.flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri) && (ui || !r.uri.startsWith("ui://"))).map((r) => withMeta(ui ? r : stripUiMeta(r), s, "resource", r.uri))),
-      ...listHint(ss, "resources"),
+      resourceTemplates: ss.flatMap((s) => byKey(client.listResourceTemplates(s), (t) => t.uriTemplate)),
+      ...aggregateHint(ss, (s) => ({ kind: "templateList", server: s })),
     };
   });
-  server.setRequestHandler("resources/templates/list", () => ({
-    resourceTemplates: servers().flatMap((s) => client.listResourceTemplates(s)),
-  }));
-  server.setRequestHandler("resources/read", async (req, ctx) => {
+  server.setRequestHandler("resources/read", async (rawReq, ctx) => {
+    const req = withEnvelope(rawReq, ctx);
     const callerMeta = req.params._meta as Record<string, unknown> | undefined;
     const declared = declaredExtensions(opts.extensions, server, ctx as never, callerMeta);
     // Skill files: the upstream's verified bytes, untouched, from the upstream the (namespaced) URI names.
@@ -422,33 +455,39 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     const s = findResourceServer(req.params.uri);
     // The consumer's declaration (MCP Apps mime types, ...) reaches the upstream that serves the read.
     const meta = s ? upstreamMeta(callerMeta, client.connection(s), declared) : undefined;
+    const partition = partitionOf(callerMeta);
+    const route = routing("resources/read", req.params);
     const result = (await (s
-      ? viaUpstream(s, () => client.readResource(req.params.uri, meta ? { context: { meta } } : {}))
+      ? viaUpstream(s, () => client.readResource(req.params.uri, { context: { ...(partition !== undefined ? { partition } : {}), ...(meta ? { meta } : {}), routing: route } }))
       : client.readResource(req.params.uri))) as Record<string, unknown>;
-    return { ...result, ...(s ? hint({ kind: "resource", server: s, uri: req.params.uri }) : {}) } as never;
+    // The upstream's own hints, unchanged: no entry, or no scope from the upstream, leaves the SDK's
+    // safe default (`private`, ttl 0). A `private` upstream scope is never rewritten to `public`.
+    return { ...result, ...(s ? hint({ kind: "resource", server: s, uri: req.params.uri, ...(partition !== undefined ? { partition } : {}) }) : {}) } as never;
   });
 
   // ── prompts ──
   server.setRequestHandler("prompts/list", () => {
-    const ss = servers();
+    const ss = sortedServers();
     return {
-      prompts: ss.flatMap((s) => client.listPrompts(s).filter((p) => keep(s, "prompt", p.name)).map((p) => ({ ...withMeta(p, s, "prompt", p.name), name: qualify(s, p.name) }))),
+      prompts: ss.flatMap((s) => byKey(client.listPrompts(s), (p) => p.name).filter((p) => keep(s, "prompt", p.name)).map((p) => ({ ...withMeta(p, s, "prompt", p.name), name: qualify(s, p.name) }))),
       ...listHint(ss, "prompts"),
     };
   });
-  server.setRequestHandler("prompts/get", async (req, ctx) => {
+  server.setRequestHandler("prompts/get", async (rawReq, ctx) => {
+    const req = withEnvelope(rawReq, ctx);
     const [s, name] = split(req.params.name, servers(), namespace);
     const meta = req.params._meta as Record<string, unknown> | undefined;
     const m = await mrtr(s, req, ctx, "prompt", name);
+    const route = routing("prompts/get", req.params);
     if (m) {
       const res = await viaUpstream(s, () =>
-        client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { meta: m.meta }, interaction: m.interaction }),
+        client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { meta: m.meta, routing: route }, interaction: m.interaction }),
         interactionModeFor(opts.interactions, s) === "forward",
       );
       return m.settle(res) as never;
     }
     return (await viaUpstream(s, () =>
-      client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, meta ? { context: { meta } } : {}),
+      client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { ...(meta ? { meta } : {}), routing: route } }),
     )) as never;
   });
 
@@ -509,7 +548,15 @@ export function createGatewayHandler(client: MCPClient, opts: GatewayHandlerOpti
     else if (kind === "resources") handler.notify.resourcesChanged();
     else handler.notify.promptsChanged();
   });
-  return { ...handler, close: async () => { unsubscribe(); await handler.close(); } };
+  // SEP-2243: a request whose Mcp-Method / Mcp-Name / Mcp-Param-* headers disagree with its body is
+  // answered 400 + HeaderMismatch (-32020) before anything is dispatched.
+  const namespace = opts.namespace ?? true;
+  const toolSchema = (name: string): unknown => {
+    const [server, tool] = split(name, client.connections().map((c) => c.name), namespace);
+    return server ? client.listTools(server).find((t) => t.name === tool)?.inputSchema : undefined;
+  };
+  const guarded = withRoutingGuard(handler.fetch.bind(handler) as McpHttpHandler["fetch"], { toolSchema });
+  return { ...handler, fetch: guarded, close: async () => { unsubscribe(); await handler.close(); } };
 }
 
 /** Resolve a (possibly namespaced) name back to [server, bareName]. */

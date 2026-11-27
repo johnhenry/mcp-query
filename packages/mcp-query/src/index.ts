@@ -73,6 +73,7 @@ export { runInterceptors } from "./core/interceptors.js";
 export { isInputRequiredResult, urlHost } from "./core/interaction.js";
 export type { ToolInteraction, InputRequiredShape, AuditInteraction } from "./core/interaction.js";
 export type { RequestInterceptor, Operation, OperationKind, CatalogName, Next } from "./core/interceptors.js";
+export type { RoutingInfo } from "./core/routingHeaders.js";
 export { InteractionBroker } from "./core/interactions.js";
 export type {
   Interaction,

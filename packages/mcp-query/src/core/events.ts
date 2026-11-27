@@ -33,6 +33,7 @@ import type { Operation } from "./interceptors.js";
 import type { CacheKey } from "./keys.js";
 import { serverTag, type Tag } from "./tags.js";
 import { MCPError } from "./types.js";
+import { HEADER_MISMATCH, paramHeadersFor } from "./routingHeaders.js";
 
 export { EVENTS_EXT };
 export type { EventOccurrence, EventType };
@@ -176,6 +177,13 @@ type Cacheable = { ttlMs?: number; cacheScope?: "public" | "private" };
 
 const MAX_LIST_PAGES = 100;
 
+/** `AbortSignal` plus the `Mcp-Param-*` headers an `events/*` request owes its server (SEP-3415). */
+function requestOptions(signal: AbortSignal | undefined, inputSchema: unknown, args: unknown): { signal?: AbortSignal; headers?: Record<string, string> } | undefined {
+  const headers = inputSchema === undefined ? {} : paramHeadersFor(inputSchema, args);
+  const out = { ...(signal ? { signal } : {}), ...(Object.keys(headers).length ? { headers } : {}) };
+  return Object.keys(out).length ? out : undefined;
+}
+
 export class EventsController {
   private readonly active = new Set<EventSubscription>();
 
@@ -302,6 +310,8 @@ export class EventsController {
     schema: S,
     context?: CallContext,
     signal?: AbortSignal,
+    /** The event type's `inputSchema`: its `x-mcp-header` annotations become `Mcp-Param-*` request headers (SEP-3415 / SEP-2243). */
+    inputSchema?: unknown,
   ): Promise<ReturnType<S["parse"]>> {
     const meta = {
       ...(this.host.meta(conn, context) ?? {}),
@@ -309,7 +319,7 @@ export class EventsController {
       [CLIENT_CAPABILITIES_META_KEY]: conn.clientCapabilitiesWith(EVENTS_EXT),
     };
     return conn.sdk
-      .request({ method, params: { ...params, _meta: meta } } as never, schema as never, signal ? { signal } : undefined)
+      .request({ method, params: { ...params, _meta: meta } } as never, schema as never, requestOptions(signal, inputSchema, params.arguments))
       .catch((err: unknown) => {
         throw this.host.toError(err, conn.name);
       }) as Promise<ReturnType<S["parse"]>>;
@@ -423,10 +433,18 @@ class PollSubscription implements EventSubscription {
         try {
           waitMs = await this.pollOnce();
           this.failures = 0;
+          this.relisted = false;
         } catch (err) {
           if (this.ended) break;
           const e = err instanceof MCPError ? err : this.host.toError(err, this.server);
           if (e.kind === "cancelled" && this.ac.signal.aborted) break;
+          // Spec (SEP-3415): on HeaderMismatch re-read events/list, then retry with the headers the current inputSchema calls for.
+          if (e.code === HEADER_MISMATCH && !this.relisted) {
+            this.relisted = true;
+            const fresh = (await this.host.listTypes(this.server, { context: this.opts.context, force: true }).catch(() => [] as ServerEventType[])).find((t) => t.name === this.name);
+            if (fresh) this.inputSchema = fresh.inputSchema;
+            continue;
+          }
           if (this.isTerminal(e)) {
             this.end("error", e);
             break;
@@ -443,6 +461,11 @@ class PollSubscription implements EventSubscription {
     }
   }
 
+  /** The event type's `inputSchema` as last listed, for `Mcp-Param-*` headers. */
+  private inputSchema: unknown;
+  /** One re-list per failure streak after a HeaderMismatch. */
+  private relisted = false;
+
   /** Check the extension is usable and the event type is offered with poll delivery. */
   private async preflight(): Promise<void> {
     await this.controller.ready(this.server);
@@ -457,6 +480,7 @@ class PollSubscription implements EventSubscription {
         kind: "event",
       });
     }
+    this.inputSchema = type.inputSchema;
     if (type.delivery.length > 0 && !type.delivery.includes("poll")) {
       throw new MCPError(
         "protocol",
@@ -496,6 +520,7 @@ class PollSubscription implements EventSubscription {
         PollEventsResultSchema,
         o.context,
         this.ac.signal,
+        this.inputSchema,
       ),
     )) as PollEventsResult;
     if (this.ended) return 0;
