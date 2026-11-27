@@ -84,6 +84,7 @@ Findings are tagged `probe` in the output. All `warn`; `--off` / `--error` apply
 | `stateless-ready` | the server answers `server/discover` (the connection negotiated the 2026-07-28 era, no `initialize`), lists `supportedVersions`, and serves `tools/list` (SEP-2575) |
 | `deterministic-list-order` | two consecutive `tools/list` calls (all pages, client cache bypassed) return the same tools in the same order (2026-07-28 changelog: servers SHOULD) |
 | `resource-not-found-code` | reading a made-up URI fails with `-32602`, not the legacy `-32002` (SEP-2164); needs the `resources` capability |
+| `server-card` | an HTTP server (`--url`) publishes a Server Card at `<url>/server-card` (warns on 404 or an unusable card) and the card agrees with the live connection: connected URL, server name/version, negotiated and supported protocol versions (SEP-2127; the live values win). Silent for stdio servers |
 
 ```bash
 npx tsx packages/mcp-lint/src/cli.ts --url https://host/mcp --probe

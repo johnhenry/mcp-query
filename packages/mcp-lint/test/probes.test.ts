@@ -24,7 +24,7 @@ const findings = async (c: ProbeClient, rule: string) => (await runProbes(c)).fi
 describe("live probe rules", () => {
   it("are separate from contract rules: lintContract never reports them", () => {
     const ids = new Set(LIVE_RULES.map((r) => r.id));
-    expect(ids).toEqual(new Set(["stateless-ready", "deterministic-list-order", "resource-not-found-code"]));
+    expect(ids).toEqual(new Set(["stateless-ready", "deterministic-list-order", "resource-not-found-code", "server-card"]));
     const result = lintContract({ version: 2, tools: [], resources: [], templates: [], prompts: [] });
     expect(result.findings.some((f) => ids.has(f.rule))).toBe(false);
     for (const r of LIVE_RULES) {
@@ -106,5 +106,60 @@ describe("live probe rules", () => {
 describe("mcp-lint --probe CLI", () => {
   it("refuses --probe with a pinned --contract file", async () => {
     await expect(run(["--probe", "--contract", "x.json"])).rejects.toThrow(/cannot run against a pinned --contract/);
+  });
+});
+
+describe("server-card probe rule (#85)", () => {
+  const URL_ = "https://srv.example/mcp";
+  const card = (over: Record<string, unknown> = {}) => ({
+    $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+    name: "com.example/srv",
+    version: "1.0.0",
+    description: "d",
+    remotes: [{ type: "streamable-http", url: URL_, supportedProtocolVersions: ["2026-07-28"] }],
+    ...over,
+  });
+  const cardFetch = (doc: unknown, status = 200) =>
+    (async () => new Response(typeof doc === "string" ? doc : JSON.stringify(doc), { status, headers: { "content-type": "application/mcp-server-card+json" } })) as unknown as typeof fetch;
+  const live = (over: Partial<ProbeClient> = {}) => fake({ getServerVersion: () => ({ name: "srv", version: "1.0.0" }), getNegotiatedProtocolVersion: () => "2026-07-28", ...over });
+  const run = (c: ProbeClient, f: typeof fetch, url: string | undefined = URL_) => runProbes(c, { url, fetch: f }).then((r) => r.filter((x) => x.rule === "server-card"));
+
+  it("is silent for a server without an HTTP URL (stdio)", async () => {
+    expect(await run(live(), cardFetch(card()), undefined)).toEqual([]);
+  });
+
+  it("passes when the card agrees with the live connection", async () => {
+    expect(await run(live(), cardFetch(card()))).toEqual([]);
+  });
+
+  it("warns when no card is published (404) and when the card is unusable", async () => {
+    const missing = await run(live(), cardFetch("nope", 404));
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toMatchObject({ severity: "warn", probe: true, target: "https://srv.example/mcp/server-card" });
+    expect(missing[0]!.message).toContain("no Server Card");
+    const broken = await run(live(), cardFetch({ not: "a card" }));
+    expect(broken[0]!.message).toContain("could not be used");
+  });
+
+  it("flags a card that disagrees with the live negotiated and supported versions", async () => {
+    const stale = card({ remotes: [{ type: "streamable-http", url: URL_, supportedProtocolVersions: ["2025-11-25"] }] });
+    const f = await run(live(), cardFetch(stale));
+    expect(f.map((x) => x.message).join("\n")).toMatch(/negotiated 2026-07-28, which the card does not list/);
+    expect(f.map((x) => x.message).join("\n")).toMatch(/live offers 2026-07-28/);
+  });
+
+  it("flags a card whose endpoint is not the one that was linted, and a different server version", async () => {
+    const other = card({ version: "9.9.9", remotes: [{ type: "streamable-http", url: "https://elsewhere.example/mcp", supportedProtocolVersions: ["2026-07-28"] }] });
+    const msgs = (await run(live(), cardFetch(other))).map((x) => x.message).join("\n");
+    expect(msgs).toContain("does not match any remote");
+    expect(msgs).toContain("card version 9.9.9 vs live 1.0.0");
+  });
+
+  it("can be turned off, and strips terminal escapes from card text", async () => {
+    expect(await runProbes(live(), { url: URL_, fetch: cardFetch("nope", 404), rules: { "server-card": "off" } })).toEqual([]);
+    const evil = card({ name: "com.example/\u001b[31mred" });
+    // an invalid name fails schema validation; the failure message must not carry the raw escape
+    const f = await run(live(), cardFetch(evil));
+    expect(f.map((x) => x.message).join("")).not.toContain("\u001b");
   });
 });
