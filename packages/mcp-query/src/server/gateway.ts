@@ -16,6 +16,7 @@ import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
 import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
 import { AuthorizationError } from "./authorize.js";
+import { applyInboundAuth, type InboundAuthOptions } from "./inboundAuth.js";
 import { TASKS_EXT } from "../core/tasksExt.js";
 import { SKILLS_EXT } from "../core/skillsExt.js";
 import {
@@ -77,6 +78,13 @@ export interface GatewayOptions {
    * Default `"answer"`. Give an object for per-upstream overrides.
    */
   interactions?: GatewayInteractions;
+  /**
+   * Map the host-verified bearer token (`AuthInfo` from the SDK's `requireBearerAuth` /
+   * `verifyBearerToken`, delivered as `handler.fetch(req, { authInfo })`) into each call's
+   * `_meta` (`principal`, `authScopes`, `authClientId`) so policy, `partitionFrom` and audit can
+   * use it. Verifier-owned keys supplied by the caller are always dropped. `true` uses defaults.
+   */
+  inboundAuth?: boolean | InboundAuthOptions;
   /**
    * Called on the answer hop of a forwarded round (`interactions: "forward"`): the consumer's
    * retry carries `inputResponses`, and this hook may rewrite them (redact, decline) or refuse
@@ -159,6 +167,7 @@ export class GatewayUpstreamCapabilityError extends Error {
 
 /** The slice of the SDK's handler context the MRTR pass-through reads. */
 interface MrtrCtx {
+  http?: { authInfo?: import("./inboundAuth.js").InboundAuthInfo };
   mcpReq: {
     envelope?: Record<string, unknown>;
     inputResponses?: unknown;
@@ -217,6 +226,45 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     { name: opts.name ?? "mcp-query-gateway", version: opts.version ?? "0.1.0" },
     { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } },
   );
+  // ── inbound auth: ONE choke point ──
+  // With `inboundAuth`, every request handler (tools/prompts/resources, task, skill and extension
+  // handlers installed below) sees `params._meta` rebuilt from the host-verified token: the
+  // verifier-owned keys (principal, partition, authScopes, authClientId) are replaced, never
+  // trusted from the consumer. Installed before any handler is registered, so none can bypass it.
+  if (opts.inboundAuth) {
+    type Ctx = MrtrCtx;
+    const register = server.setRequestHandler.bind(server) as (...a: unknown[]) => void;
+    const remap = (params: Record<string, unknown> | undefined, ctx: Ctx): Record<string, unknown> | undefined => {
+      const meta = applyInboundAuth(params?._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
+      if (meta === undefined && params === undefined) return params;
+      const out = { ...(params ?? {}) };
+      if (meta !== undefined) out._meta = meta;
+      else delete out._meta;
+      return out;
+    };
+    // Handlers also read the raw per-request meta off `ctx.mcpReq._meta` (the extension handlers
+    // prefer it over params), so that is replaced too, on a proxy: the SDK's own context is untouched.
+    const ctxFor = (ctx: Ctx): Ctx => {
+      const mcpReq = ctx.mcpReq as unknown as Record<string, unknown>;
+      const raw = mcpReq._meta as Record<string, unknown> | undefined;
+      if (raw === undefined) return ctx;
+      const mapped = applyInboundAuth(raw, ctx.http?.authInfo, opts.inboundAuth);
+      const reqProxy = new Proxy(mcpReq, {
+        get: (t, k) => (k === "_meta" ? mapped : typeof t[k as string] === "function" ? (t[k as string] as (...a: unknown[]) => unknown).bind(t) : Reflect.get(t, k, t)),
+      });
+      return new Proxy(ctx as object, { get: (t, k) => (k === "mcpReq" ? reqProxy : Reflect.get(t, k, t)) }) as Ctx;
+    };
+    // Two registration shapes exist: (method, handler(request, ctx)) and
+    // (method, { params: schema }, handler(params, ctx)) (the extension methods).
+    (server as unknown as { setRequestHandler: (...a: unknown[]) => void }).setRequestHandler = (...a: unknown[]) => {
+      const handler = a[a.length - 1] as (x: never, ctx: Ctx) => unknown;
+      const wrapped =
+        a.length >= 3
+          ? (params: Record<string, unknown> | undefined, ctx: Ctx) => handler(remap(params, ctx) as never, ctxFor(ctx))
+          : (req: { params?: Record<string, unknown> }, ctx: Ctx) => handler({ ...req, params: remap(req.params, ctx) } as never, ctxFor(ctx));
+      register(...a.slice(0, -1), wrapped);
+    };
+  }
   const partitionOf = opts.partitionFrom ?? ((meta: Record<string, unknown> | undefined) => (typeof meta?.partition === "string" ? meta.partition : undefined));
 
   // ── extension negotiation (#82) ──

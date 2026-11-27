@@ -6,7 +6,7 @@
 import type { GateConfig } from "./config.js";
 
 const UPSTREAM_SHAPES =
-  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs?, versions?, versionNegotiation? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers?, getToken? }';
+  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs?, versions?, versionNegotiation? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers?, getToken?, auth? }';
 
 function fail(msg: string): never {
   throw new Error(`invalid gate config: ${msg}`);
@@ -41,6 +41,55 @@ const aBoolean = (v: unknown) => typeof v === "boolean";
 const aString = (v: unknown) => typeof v === "string";
 const aFunction = (v: unknown) => typeof v === "function";
 
+const aSecretRef = (v: unknown): boolean => {
+  if (!isRecord(v)) return false;
+  const ks = presentKeys(v);
+  return (ks.length === 1 && ks[0] === "env" && typeof v.env === "string" && v.env.length > 0) || (ks.length === 1 && ks[0] === "get" && typeof v.get === "function");
+};
+
+/** A secret must be a reference. A bare string is the mistake this exists to catch. */
+function checkSecret(obj: Record<string, unknown>, key: string, where: string, required: boolean): void {
+  const v = obj[key];
+  if (v === undefined) {
+    if (required) fail(`"${key}" is required in ${where} — a secret reference { env: "NAME" } or { get: () => ... }`);
+    return;
+  }
+  if (typeof v === "string") {
+    fail(`"${key}" in ${where} is an inline secret string — secrets are referenced, never written into config. Use { env: "NAME" } (an environment variable) or { get: () => ... }`);
+  }
+  if (!aSecretRef(v)) fail(`"${key}" in ${where} must be a secret reference { env: "NAME" } or { get: () => ... } (got ${typeOf(v)})`);
+}
+
+function validateUpstreamAuth(auth: unknown, where: string): void {
+  if (!isRecord(auth)) fail(`${where} must be an object { type: "client_credentials" | "enterprise", ... } (got ${typeOf(auth)})`);
+  const common = ["type", "issuer", "tokenEndpoint", "scope", "resource", "fetch"];
+  if (auth.type === "client_credentials") {
+    checkKeys(auth, [...common, "clientId", "clientSecret"], where);
+    checkType(auth, "clientId", "a string", aString, where);
+    if (typeof auth.clientId !== "string" || !auth.clientId) fail(`"clientId" is required in ${where}`);
+    checkSecret(auth, "clientSecret", where, true);
+  } else if (auth.type === "enterprise") {
+    checkKeys(auth, [...common, "idToken", "idp", "clientId", "clientSecret"], where);
+    if (typeof auth.clientId !== "string" || !auth.clientId) fail(`"clientId" is required in ${where}`);
+    checkSecret(auth, "idToken", where, true);
+    checkSecret(auth, "clientSecret", where, false);
+    if (!isRecord(auth.idp)) fail(`"idp" in ${where} must be an object { tokenEndpoint, clientId, clientSecret? }`);
+    checkKeys(auth.idp, ["tokenEndpoint", "clientId", "clientSecret"], `${where}.idp`);
+    if (typeof auth.idp.tokenEndpoint !== "string") fail(`"tokenEndpoint" is required in ${where}.idp`);
+    if (typeof auth.idp.clientId !== "string") fail(`"clientId" is required in ${where}.idp`);
+    checkSecret(auth.idp, "clientSecret", `${where}.idp`, false);
+  } else {
+    fail(`"type" in ${where} must be "client_credentials" or "enterprise" (got ${typeOf(auth.type)}${typeof auth.type === "string" ? ` "${auth.type}"` : ""})`);
+  }
+  if (typeof auth.issuer !== "string" || !auth.issuer) {
+    fail(`"issuer" is required in ${where} — the authorization server's issuer identifier the credentials belong to`);
+  }
+  checkType(auth, "tokenEndpoint", "a string", aString, where);
+  checkType(auth, "scope", "a string", aString, where);
+  checkType(auth, "resource", "a string", aString, where);
+  checkType(auth, "fetch", "a function", aFunction, where);
+}
+
 /** Validate a single upstream spec by name. Exported so `Gate.addUpstream`/`.updateUpstream` (a
  * live config change, not the whole `GateConfig`) can reuse the exact same shape checks. */
 export function validateGateUpstream(name: string, up: unknown): void {
@@ -65,12 +114,19 @@ export function validateGateUpstream(name: string, up: unknown): void {
     checkType(up, "args", "an array of strings", isStringArray, where);
     checkType(up, "env", "a Record<string, string>", isStringRecord, where);
   } else if (has("url")) {
-    checkKeys(up, ["url", "headers", "getToken"], `${where} (http)`);
+    checkKeys(up, ["url", "headers", "getToken", "auth"], `${where} (http)`);
     checkType(up, "url", "a string", aString, where);
     checkType(up, "headers", "a Record<string, string>", isStringRecord, where);
     checkType(up, "getToken", "a function", aFunction, where);
     if (has("getToken") && isRecord(up.headers) && up.headers.Authorization !== undefined) {
       fail(`${where} has both "headers.Authorization" and "getToken" — pick one (getToken is called fresh per request; a static header never refreshes)`);
+    }
+    if (has("auth")) {
+      if (has("getToken")) fail(`${where} has both "auth" and "getToken" — pick one`);
+      if (isRecord(up.headers) && Object.keys(up.headers).some((h) => h.toLowerCase() === "authorization")) {
+        fail(`${where} has both "headers.Authorization" and "auth" — pick one`);
+      }
+      validateUpstreamAuth(up.auth, `${where} auth`);
     }
     try {
       new URL(up.url as string);
@@ -186,7 +242,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation", "answerPolicy", "extensions"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy", "extensions"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -228,6 +284,7 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
   checkType(config, "namespace", "a boolean", aBoolean, "GateConfig");
   checkType(config, "audit", "a function", aFunction, "GateConfig");
   checkType(config, "partitionFrom", "a function", aFunction, "GateConfig");
+  checkType(config, "inboundAuth", "a boolean or { required?, principal? }", (v) => typeof v === "boolean" || isRecord(v), "GateConfig");
   if (config.clientInfo !== undefined) {
     if (!isRecord(config.clientInfo)) fail(`"clientInfo" must be an object (got ${typeOf(config.clientInfo)})`);
     checkType(config.clientInfo, "name", "a string", aString, "clientInfo");

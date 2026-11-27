@@ -50,6 +50,8 @@ export {
   type ServerListing,
   type Scope,
 } from "./registry.js";
+export { DEFAULT_CLIENT_METADATA_URL, CLIENT_METADATA_URL_ENV, resolveClientMetadataUrl } from "./clientMetadata.js";
+export { dpopSupported, DPOP_MIN_SDK } from "./dpop.js";
 export { authenticate, FileOAuthProvider, captureProvider, tokenCachePath, hasCachedAuth, type AuthenticateOptions } from "./oauth.js";
 export { parseCallSpec, parseCallExpr, looksLikeCallExpr, splitKeyValue, parseLiteral, type ParsedCall } from "./callspec.js";
 export { rejectUnknownFlags } from "./flags.js";
