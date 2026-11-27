@@ -1,5 +1,27 @@
 # @johnhenry/mcp-gate
 
+## 0.8.0
+
+### Minor Changes
+
+- 1a9f81b: EXPERIMENTAL, may change: policy for the MCP files extension (`io.modelcontextprotocol/files`, a draft with no SEP). Uploads bypass the gate by design (the client sends bytes straight to a URL the server names), so the gate denies them: an `upload_required` round is refused (`-32003`, audited, hosts named, never the URL) unless every upload host matches `experimental.files.allowUploadHosts`; an allowed upload performed by the gate's own client is audited with file name, size, digest and host, never content. Download URLs in results follow `allowDownloadHosts` (non-allowlisted entries are stripped, or the call refused with `downloads: "refuse"`), and `maxFileSize` / `accept` limit `x-mcp-file` arguments. The upload refusal is always on; the rest applies only when `experimental.files` is set, and the gate declares nothing to upstreams unless `upload` / `download` is set. `validateGateConfig` checks the new keys. Exports `filesGuard`, `hostAllowed` and `GateFilesPolicy`.
+- a1dfc17: Gate: extensions (#82 items 3, 4, 5). New `extensions` config (allow / deny / opt-in `passthrough` of unknown extension methods / `tasksSecret`). Tasks: `redact` scrubs a completed task's inlined `result`, `inputRequests`, `error` and `statusMessage` but never ids; URL-mode elicitations inside a task obey `urlElicitation` (now always enforced); `tasks/update` answers go through `answerPolicy` and `redact`; polls, answers and cancels are policy-checked and audited as `kind: "task"`. Skills: new `policy.skills` allow / deny / approve rules for whole skills (and `policySkillFilter`). **Behaviour change:** `redact` no longer scrubs skill file text (it used to, marking the file `verified: false`); a skill's digest covers its bytes, so the gate never rewrites a skill. MCP Apps: the gate declares the UI extension to upstreams unless `extensions.deny` lists it, and hands UI metadata only to consumers that declared it.
+- fc9a255: Routing headers (SEP-2243) at the gate: `gate.handler()` answers HeaderMismatch (-32020) for headers that disagree with the body, and policy, rate limit and audit read the body-verified `context.routing` (method, name, `x-mcp-header` values; `entry.routing` on audit entries). New `rateLimit.keyFn` replaces the default per-(upstream, tenant) bucket key. Cache hints and per-request `_meta` forwarding follow the gateway changes in `@johnhenry/mcp-query`; see the README section "Routing headers and cache hints".
+- e3f8f5c: The gate can publish a Server Card (SEP-2127) for its own endpoint: `GateConfig.card` (`url`, `name`, `version`, optional `description`/`title`/`websiteUrl`/`supportedProtocolVersions`/`listUpstreams`), `gateServerCard(config)` for the card object, and `createGateCardHandler(config)`, a web-standard `(req: Request) => Response | undefined` that serves it at `<endpoint>/server-card` (the SEP's reserved location, with the card media type, CORS and cache headers) and falls through for every other path so it composes in front of your MCP handler. The card describes only the gate (identity, its transport endpoint, supported protocol versions) and says nothing about upstreams unless `card.listUpstreams: true`, which publishes upstream names only (never URLs, commands or headers). The gate has no HTTP server of its own, so mounting is documented in the README.
+- 3363512: HTTP upstreams accept `auth: { type: "client_credentials", ... }` and `auth: { type: "enterprise", ... }` next to `getToken`, with secrets by reference only (`{ env }` or `{ get }`; `validateGateConfig` rejects inline secret strings), a required `issuer` that credentials are bound to, and an expiry-aware, single-flight token cache that never reaches audit entries. Enterprise-managed authorization is built against a mock identity provider and is untested against a real one. New `inboundAuth` config and `gate.handler()` let you front the gate with the SDK's `requireBearerAuth` / `verifyBearerToken` and use the verified principal in `policy` and `partitionFrom`.
+
+### Patch Changes
+
+- Updated dependencies [3363512]
+- Updated dependencies [e3f8f5c]
+- Updated dependencies [3cc0f6e]
+- Updated dependencies [7f4791b]
+- Updated dependencies [1a9f81b]
+- Updated dependencies [a1dfc17]
+- Updated dependencies [fc9a255]
+- Updated dependencies [d1839fe]
+  - @johnhenry/mcp-query@0.7.0
+
 ## 0.7.0
 
 ### Minor Changes

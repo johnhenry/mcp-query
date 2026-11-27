@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcp-record",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Record real MCP server traffic (stdio or Streamable HTTP) to a cassette and replay it offline as a deterministic mock — VCR/Polly/nock for MCP. Built on mcp-query's transport seam.",
   "repository": {
     "type": "git",
@@ -53,8 +53,8 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@johnhenry/mcp-contract": "^0.0.0",
-    "@johnhenry/mcp-query": "^0.6.0",
+    "@johnhenry/mcp-contract": "^0.1.0",
+    "@johnhenry/mcp-query": "^0.7.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.2.0"
