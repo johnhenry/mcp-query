@@ -51,8 +51,8 @@
     }
   },
   "devDependencies": {
-    "@johnhenry/mcp-gate": "^0.7.0",
-    "@johnhenry/mcp-query": "^0.6.0",
+    "@johnhenry/mcp-gate": "^0.8.0",
+    "@johnhenry/mcp-query": "^0.7.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@testing-library/dom": "^10.4.1",

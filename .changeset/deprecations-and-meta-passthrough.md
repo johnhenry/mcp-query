@@ -1,5 +1,0 @@
----
-"@johnhenry/mcp-query": minor
----
-
-Deprecation notes for the features MCP 2026-07-28 deprecates. `@deprecated` JSDoc now points at SEP-2577 and the twelve-month minimum window (SEP-2596) on the sampling and roots handler options and on the logging options (`defaultLogLevel`, `CallContext.logLevel`, `setLogLevel`), and on the `SSEClientTransport` re-export from `@johnhenry/mcp-query/transports` (HTTP+SSE is reclassified Deprecated by SEP-2596). In development, a modern-era server that asks for sampling or roots now triggers a one-time `console.warn`; silence it with `silenceDeprecationWarnings()` or `MCP_QUERY_SILENCE_DEPRECATIONS=1`. It never fires in production or under test runners. The optional `_meta` the draft revision restores on sampling, elicitation and roots types now passes through the handlers and the `InteractionBroker` in both directions: a `roots` handler receives the request's `_meta` and may return `{ roots, _meta }` (a plain array still works), and an elicitation `InteractionDecision` can carry `_meta` onto the result.

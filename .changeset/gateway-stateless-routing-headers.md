@@ -1,5 +1,0 @@
----
-"@johnhenry/mcp-query": minor
----
-
-Gateway stateless-era details and routing headers (#82 items 6 and 7). `createGatewayHandler` rejects a request whose `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*` headers disagree with the body with HTTP 400 and `HeaderMismatch` (-32020), including the `Mcp-Param-*` check the SDK's low-level server does not do and the `tasks/*` and `events/*` names. `CallContext.routing` / `CallAuditEntry.routing` carry the body-verified method, name and `x-mcp-header` values for policy, rate limits and audit. The consumer's `clientInfo`, `logLevel` and `traceparent` / `tracestate` / `baggage` now traverse the gate; aggregated lists carry the minimum upstream `ttlMs` and `cacheScope: "public"` only when every upstream said so and the list was not filtered (including `resources/templates/list`, which had no hint); lists are returned in a deterministic order. The client sends `Mcp-Param-*` headers on the task-augmented `tools/call`, on `events/*` (re-listing and retrying once on HeaderMismatch) and on `forward()` with an `inputSchema`, and records each upstream list's `cacheScope` in its cache entry.
