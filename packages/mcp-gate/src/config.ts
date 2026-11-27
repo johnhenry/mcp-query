@@ -15,7 +15,7 @@
 // condition, which points `.` at an entry that never reaches ./upstream.ts at all.
 
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
-import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, CallContext } from "@johnhenry/mcp-query";
+import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, CallContext, Operation } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
 import type { GatewayInteractions, GatewayExtensions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
@@ -235,7 +235,13 @@ export interface GateConfig {
    */
   approval?: ApprovalConfig;
   redact?: RedactRule[];
-  rateLimit?: { concurrency?: number };
+  /**
+   * Concurrency cap per bucket. Buckets are per upstream and tenant (`partitionFrom`) unless `keyFn`
+   * says otherwise. `keyFn` sees the operation, including `op.context.routing` (method, name and
+   * `x-mcp-header` values taken from the verified request body), so a deployment can bucket by
+   * tool or by a header-mirrored argument without parsing anything itself.
+   */
+  rateLimit?: { concurrency?: number; keyFn?: (op: Operation) => string };
   circuitBreaker?: { threshold?: number; cooldownMs?: number };
   /** Namespace re-exposed tools/prompts as `server.tool`. Default true. */
   namespace?: boolean;

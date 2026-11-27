@@ -106,7 +106,7 @@ export default config;
 | `policy` | `GatePolicyRules \| (req) => "allow"\|"deny"\|"approve"` | none (allow all) | Declarative rules (`allow`/`deny`/`approve`/`denyDestructive`) or a custom function. |
 | `approval` | `{ broker?, handler?, timeoutMs?, onTimeout?, discovery? }` | none | Decides `"approve"` verdicts — see [Human-in-the-loop approval](#human-in-the-loop-approval). Required with `policy.approve`. |
 | `redact` | `RedactRule[]` | none | `{ pattern: RegExp\|string, replacement?: string }`. |
-| `rateLimit` | `{ concurrency?: number }` | none | Concurrency cap per `(upstream, tenant)` pair — see `partitionFrom`. |
+| `rateLimit` | `{ concurrency?: number; keyFn?: (op) => string }` | none | Concurrency cap per `(upstream, tenant)` pair — see `partitionFrom`. `keyFn` replaces the bucket key and can read `op.context.routing` ([Routing headers](#routing-headers-and-cache-hints)). |
 | `circuitBreaker` | `{ threshold?, cooldownMs? }` | none | Open/half-open breaker per `(upstream, tenant)` pair. |
 | `partitionFrom` | `(meta) => string \| undefined` | `meta?.partition` | Derives the tenant key `rateLimit`/`circuitBreaker` isolate by. See [Multi-tenancy](#multi-tenancy). |
 | `namespace` | `boolean` | `true` | Prefix re-exposed names with `server.`. |
@@ -614,6 +614,48 @@ The verified principal (`extra.sub`, else `clientId`) lands in the call's `_meta
 four keys belong to the verifier, on every handler the gateway registers (tools, prompts, resources, tasks, skills, extension pass-through): whatever a caller puts under them in its own `_meta` is dropped, so a client
 cannot claim someone else's identity. Without `inboundAuth` nothing is mapped. The access token itself is never copied
 into the context.
+
+## Routing headers and cache hints
+
+**Routing headers (SEP-2243).** On the 2026-07-28 Streamable HTTP transport a request carries `Mcp-Method`, `Mcp-Name`
+(`tools/call`, `prompts/get`, `resources/read`; also `tasks/*` per SEP-2663 and `events/*` per SEP-3415) and one
+`Mcp-Param-{Name}` per tool argument (or event argument) its schema marks with `x-mcp-header`, so a load balancer can
+route without parsing the body. The gate's HTTP handler (`gate.handler()`) enforces them:
+
+- A request whose headers disagree with its JSON-RPC body (wrong method, name or parameter value, a missing
+  required header, a bad Base64 sentinel, or a header for an argument the body does not carry) is answered
+  `400` with `HeaderMismatch` (`-32020`) before policy, redaction or any upstream sees it. A 2025-era request is only
+  compared when it sends such headers; nothing is demanded of it. (The SDK already checks `Mcp-Method` and
+  `Mcp-Name` for the three core methods on a 2026 request; the gate adds `Mcp-Param-*`, the `tasks/*` and `events/*`
+  names, and the 2025-era comparison.)
+- Policy, `rateLimit` and `audit` read **`context.routing`** (`{ method, name, params }`): the method, the name the body
+  names and the values of the `x-mcp-header` arguments. It is derived from the *body* after the check, never copied from
+  a header or from a caller's `_meta`, so a decision made on it cannot be steered by an unverified header.
+  `AuthzRequest.context.routing` is there for a function policy, `rateLimit.keyFn(op)` reads `op.context.routing`, and
+  every audit entry for a gateway request carries `entry.routing`.
+
+```ts
+createGate({
+  upstreams,
+  // one concurrency bucket per upstream and tool, without touching the body
+  rateLimit: { concurrency: 4, keyFn: (op) => `${op.peer}:${op.context?.routing?.name ?? ""}` },
+  audit: (e) => log({ principal: e.principal, method: e.routing?.method, name: e.routing?.name, outcome: e.outcome }),
+});
+```
+
+Going upstream, the gate's client sends the right `Mcp-Method` / `Mcp-Name` on every request and `Mcp-Param-*` for tools
+whose schema uses `x-mcp-header` (and for `events/*` it passes through, from the event type's `inputSchema`).
+
+**Per-request `_meta`.** The consumer's `io.modelcontextprotocol/clientInfo`, `.../logLevel` and the trace keys
+`traceparent`, `tracestate`, `baggage` (SEP-414) go to a 2026-07-28 upstream with `tools/call`, `prompts/get`,
+`resources/read` and the task and pass-through calls. Malformed values are dropped, a 2025-era upstream gets only the
+trace keys, and the verifier-owned `principal`, `partition`, `authScopes` and `authClientId` never come from the consumer.
+
+**Cache hints (SEP-2549).** Aggregated lists (`tools/list`, `resources/list`, `prompts/list`,
+`resources/templates/list`) carry the *minimum* upstream `ttlMs` and are `cacheScope: "public"` only when every
+upstream said `public` and the gate did not filter or annotate the list (`policy`-derived discovery filtering makes it
+caller-specific): otherwise `private`. `resources/read` passes its upstream's hints through unchanged. Lists come back
+in a deterministic order (upstream name, then item name).
 
 ## MCP SDK versions
 

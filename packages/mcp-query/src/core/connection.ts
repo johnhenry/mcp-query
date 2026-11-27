@@ -466,21 +466,25 @@ export class ServerConnection {
     // tools index warm without ever serving us its cached copy (mcp-query's
     // MCPCache is the caching layer here).
     let ttlMs: number | undefined;
+    let scope: "public" | "private" | undefined;
     if (kind === "tools" && this.capabilities.tools) {
       const res = await this.client.listTools(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return; // superseded by a newer list_changed
       this.tools = indexBy(res.tools, "name");
       ttlMs = cacheTtl(res);
+      scope = cacheScope(res);
     } else if (kind === "resources" && this.capabilities.resources) {
       const res = await this.client.listResources(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return;
       this.resources = indexBy(res.resources, "uri");
       ttlMs = cacheTtl(res);
+      scope = cacheScope(res);
     } else if (kind === "prompts" && this.capabilities.prompts) {
       const res = await this.client.listPrompts(undefined, { cacheMode: "refresh" });
       if (gen !== this.relistGen[kind]) return;
       this.prompts = indexBy(res.prompts, "name");
       ttlMs = cacheTtl(res);
+      scope = cacheScope(res);
     }
     await this.deps.onCatalogFetched?.(this.name, kind);
     // Write the catalog into the cache (tagged) so list-observing hooks re-render and
@@ -492,7 +496,7 @@ export class ServerConnection {
         : kind === "resources"
           ? [...this.resources.values()]
           : [...this.prompts.values()];
-    this.cache.write(listKeyFor(this.name, kind), list, { tags: [capsTag(this.name, kind)], staleTime: ttlMs });
+    this.cache.write(listKeyFor(this.name, kind), list, { tags: [capsTag(this.name, kind)], staleTime: ttlMs, scope });
     this.deps.onCapabilitiesChanged?.(this.name, kind);
   }
 
@@ -512,6 +516,7 @@ export class ServerConnection {
       this.cache.write({ kind: "templateList", server: this.name }, this.templates, {
         tags: [capsTag(this.name, "resources")],
         staleTime: cacheTtl(res),
+        scope: cacheScope(res),
       });
     }
   }

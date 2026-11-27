@@ -65,7 +65,7 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   interceptors.push(urlElicitationPolicy(config.urlElicitation));
   const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
-  const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;
+  const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: config.rateLimit.keyFn ?? tenantKey }) : undefined;
   if (rl) interceptors.push(rl.interceptor);
   if (config.redact?.length) interceptors.push(redact(config.redact));
 

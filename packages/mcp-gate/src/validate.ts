@@ -272,8 +272,9 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
 
   if (config.rateLimit !== undefined) {
     if (!isRecord(config.rateLimit)) fail(`"rateLimit" must be an object (got ${typeOf(config.rateLimit)})`);
-    checkKeys(config.rateLimit, ["concurrency"], "rateLimit");
+    checkKeys(config.rateLimit, ["concurrency", "keyFn"], "rateLimit");
     checkType(config.rateLimit, "concurrency", "a number", aNumber, "rateLimit");
+    checkType(config.rateLimit, "keyFn", "a function", aFunction, "rateLimit");
   }
   if (config.circuitBreaker !== undefined) {
     if (!isRecord(config.circuitBreaker)) fail(`"circuitBreaker" must be an object (got ${typeOf(config.circuitBreaker)})`);

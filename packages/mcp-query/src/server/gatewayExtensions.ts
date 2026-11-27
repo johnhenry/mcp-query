@@ -14,13 +14,15 @@
 //  - Skill files are NEVER rewritten: a manifest digest covers the bytes, so the gate may allow,
 //    deny or hold a whole skill for approval, but it forwards the verified bytes untouched.
 
-import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND, CLIENT_CAPABILITIES_META_KEY, ProtocolError, type Server } from "@modelcontextprotocol/server";
+import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, ProtocolError, type Server } from "@modelcontextprotocol/server";
+import { routingFromBody, checkRoutingHeaders, HEADER_MISMATCH, EVENT_ARGUMENT_METHODS } from "../core/routingHeaders.js";
 import * as z from "zod";
 import type { MCPClient, CallAuditEntry, CallContext } from "../core/client.js";
 import type { ServerConnection } from "../core/connection.js";
 import { SKILLS_EXT } from "../core/skillsExt.js";
 import { TASKS_EXT, isTaskShaped } from "../core/tasksExt.js";
 import type { Skill, SkillEntry } from "../core/skills.js";
+import type { RoutingInfo } from "../core/routingHeaders.js";
 import type { CacheKey } from "../core/keys.js";
 
 /** MCP Apps extension id. */
@@ -126,13 +128,56 @@ export function advertisedExtensions(client: MCPClient, ext: GatewayExtensions |
  *    is sent, as the per-request key (what the tasks extension specifies).
  * `override` replaces the base capabilities (the MRTR forward/deny modes).
  */
+const LOG_LEVELS = new Set(["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]);
+const TRACE_KEYS = ["traceparent", "tracestate", "baggage"] as const;
+const MAX_TRACE = 8192;
+
+/**
+ * The per-request fields the SDK lifts out of the consumer's `_meta` into the validated envelope
+ * (`io.modelcontextprotocol/clientInfo`, `.../logLevel`), validated, so they can traverse the gate:
+ * a handler's `params._meta` no longer carries them. Anything malformed is dropped. Never includes
+ * the consumer's capability claims (see {@link upstreamMeta}) or any verifier-owned key.
+ */
+export function consumerEnvelopeMeta(ctx: { mcpReq?: { envelope?: Record<string, unknown> } }): Record<string, unknown> {
+  const env = ctx.mcpReq?.envelope;
+  return env ? pickEnvelopeMeta(env) : {};
+}
+
+function pickEnvelopeMeta(src: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const info = src[CLIENT_INFO_META_KEY];
+  if (isObject(info) && typeof info.name === "string" && typeof info.version === "string") {
+    out[CLIENT_INFO_META_KEY] = { name: info.name, version: info.version, ...(typeof info.title === "string" ? { title: info.title } : {}) };
+  }
+  const level = src[LOG_LEVEL_META_KEY];
+  if (typeof level === "string" && LOG_LEVELS.has(level)) out[LOG_LEVEL_META_KEY] = level;
+  return out;
+}
+
+/** `_meta` with the keys that are only meaningful on a 2026-07-28 hop removed for an older upstream, and trace context held to strings. */
+function hopMeta(meta: Record<string, unknown>, conn: ServerConnection | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...meta };
+  for (const k of TRACE_KEYS) if (k in out && !(typeof out[k] === "string" && (out[k] as string).length <= MAX_TRACE)) delete out[k];
+  if (conn?.era !== "modern") {
+    delete out[CLIENT_INFO_META_KEY];
+    delete out[LOG_LEVEL_META_KEY];
+  } else {
+    const ok = pickEnvelopeMeta(out);
+    delete out[CLIENT_INFO_META_KEY];
+    delete out[LOG_LEVEL_META_KEY];
+    Object.assign(out, ok);
+  }
+  return out;
+}
+
 export function upstreamMeta(
   callerMeta: Record<string, unknown> | undefined,
   conn: ServerConnection | undefined,
   declared: Declared,
   override?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
-  const { [CLIENT_CAPABILITIES_META_KEY]: _claimed, ...rest } = callerMeta ?? {};
+  const { [CLIENT_CAPABILITIES_META_KEY]: _claimed, ...passed } = callerMeta ?? {};
+  const rest = hopMeta(passed, conn);
   const has = Object.keys(declared).length > 0;
   let caps: Record<string, unknown> | undefined;
   if (override) caps = { ...override, ...(has ? { extensions: declared } : {}) };
@@ -153,8 +198,9 @@ export function skillCallContext(meta: Record<string, unknown> | undefined, part
 
 /** Strip the consumer's own capability claims before `_meta` goes anywhere upstream. */
 export function cleanMeta(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!meta || !Object.hasOwn(meta, CLIENT_CAPABILITIES_META_KEY)) return meta;
-  const { [CLIENT_CAPABILITIES_META_KEY]: _c, ...rest } = meta;
+  if (!meta || !(Object.hasOwn(meta, CLIENT_CAPABILITIES_META_KEY) || Object.hasOwn(meta, CLIENT_INFO_META_KEY) || Object.hasOwn(meta, LOG_LEVEL_META_KEY))) return meta;
+  // Skill operations carry no per-request client identity or log level of the consumer's.
+  const { [CLIENT_CAPABILITIES_META_KEY]: _c, [CLIENT_INFO_META_KEY]: _i, [LOG_LEVEL_META_KEY]: _l, ...rest } = meta;
   return Object.keys(rest).length ? rest : undefined;
 }
 
@@ -296,14 +342,18 @@ const looseParams = z.looseObject({ _meta: z.record(z.string(), z.unknown()).opt
 /** Register the extension request handlers a gateway serves (tasks, skills, allowlisted pass-through). */
 export function installExtensionHandlers(h: ExtensionHost): void {
   const { client, server, ext } = h;
-  const metaOf = (ctx: HandlerCtx, params: { _meta?: Record<string, unknown> }) => (ctx.mcpReq._meta ?? params._meta) as Record<string, unknown> | undefined;
+  const metaOf = (ctx: HandlerCtx, params: { _meta?: Record<string, unknown> }) => {
+    const base = (ctx.mcpReq._meta ?? params._meta) as Record<string, unknown> | undefined;
+    const env = consumerEnvelopeMeta(ctx);
+    return Object.keys(env).length ? { ...(base ?? {}), ...env } : base;
+  };
   const who = (meta: Record<string, unknown> | undefined) => ({ partition: h.partitionOf(meta), principal: meta?.principal });
-  const contextOf = (meta: Record<string, unknown> | undefined, declared: Declared, conn: ServerConnection | undefined): CallContext => {
+  const contextOf = (meta: Record<string, unknown> | undefined, declared: Declared, conn: ServerConnection | undefined, routing?: RoutingInfo): CallContext => {
     const partition = h.partitionOf(meta);
-    return { ...(partition !== undefined ? { partition } : {}), meta: upstreamMeta(meta, conn, declared) ?? {} };
+    return { ...(partition !== undefined ? { partition } : {}), meta: upstreamMeta(meta, conn, declared) ?? {}, ...(routing ? { routing } : {}) };
   };
   /** Skill operations never go upstream with a capability declaration of their own: partition + the caller's meta, for policy and audit. */
-  const skillContext = (meta: Record<string, unknown> | undefined): CallContext => skillCallContext(meta, h.partitionOf(meta));
+  const skillContext = (meta: Record<string, unknown> | undefined, method: string, params?: unknown): CallContext => ({ ...skillCallContext(meta, h.partitionOf(meta)), routing: routingFromBody(method, params) });
   /** The consumer must have declared the extension (and policy allow it), or the method does not exist for it. */
   const require = (id: string, ctx: HandlerCtx, params: { _meta?: Record<string, unknown> }, method: string): { meta: Record<string, unknown> | undefined; declared: Declared } => {
     const meta = metaOf(ctx, params);
@@ -353,7 +403,7 @@ export function installExtensionHandlers(h: ExtensionHost): void {
       kind: "task",
       target: ref.tool,
       args: { taskId: ref.taskId },
-      context: contextOf(meta, declared, conn),
+      context: contextOf(meta, declared, conn, routingFromBody(method, params)),
       ...(interaction ? { interaction } : {}),
     });
     // The consumer only ever sees the namespaced id.
@@ -371,7 +421,7 @@ export function installExtensionHandlers(h: ExtensionHost): void {
   const skillServers = () => client.connections().filter((c) => c.supports("skills")).map((c) => c.name);
   server.setRequestHandler("skills/list" as never, { params: looseParams } as never, (async (p: never, c: never) => {
     const { meta } = require(SKILLS_EXT, c, p, "skills/list");
-    const context = skillContext(meta);
+    const context = skillContext(meta, "skills/list");
     const skills = await client.listSkills(undefined, { context });
     const partition = context.partition;
     const ttls = skillServers().map((s) => hintOf({ kind: "skillList", server: s, partition }).ttlMs).filter((t): t is number => t !== undefined);
@@ -384,7 +434,7 @@ export function installExtensionHandlers(h: ExtensionHost): void {
   }) as never);
   server.setRequestHandler("skills/get" as never, { params: looseParams.extend({ uri: z.string() }) } as never, (async (p: { uri: string; _meta?: Record<string, unknown> }, c: never) => {
     const { meta } = require(SKILLS_EXT, c, p, "skills/get");
-    const context = skillContext(meta);
+    const context = skillContext(meta, "skills/get", p);
     const at = await locateSkillFile(client, h.namespace, p.uri, context);
     if (!at || !(h.skillFilter?.(at.server, at.upstreamUri) ?? true)) throw new ProtocolError(INVALID_PARAMS, `unknown skill ${p.uri}`, { uri: p.uri });
     const skill = await client.getSkill(at.upstreamUri, at.server, { context });
@@ -402,7 +452,25 @@ export function installExtensionHandlers(h: ExtensionHost): void {
         const target = typeof named === "string" ? (ups.includes(named) ? named : undefined) : ups.length === 1 ? ups[0] : undefined;
         if (!target) throw new ProtocolError(INVALID_PARAMS, `${method}: ${ups.length > 1 || typeof named === "string" ? `name one upstream of ${ups.join(", ")} in _meta["${SERVER_META_KEY}"]` : "no upstream advertises this extension"}`);
         const { _meta: _m, ...wire } = p as Record<string, unknown>;
-        return (await client.forward(target, method, wire, { kind: "extension", target: method, context: contextOf(meta, declared, client.connection(target)) })) as never;
+        // `events/*`: the event type's inputSchema says which arguments are mirrored into `Mcp-Param-*` headers.
+        // Read through the chain with the consumer's own context, so the principal's policy applies to the listing too.
+        let inputSchema: unknown;
+        if (EVENT_ARGUMENT_METHODS.has(method) && typeof wire.name === "string") {
+          const types = await client.listEvents(target, { context: contextOf(meta, declared, client.connection(target)) }).catch(() => []);
+          inputSchema = types.find((t) => t.name === wire.name)?.inputSchema;
+        }
+        // Verify the consumer's routing headers against the body here too (the HTTP guard has no event schema before this point).
+        const headers = (c as unknown as { http?: { req?: Request } }).http?.req?.headers;
+        if (headers && inputSchema !== undefined) {
+          const bad = checkRoutingHeaders({ headers, body: { method, params: wire }, inputSchema, modern: Boolean((c as unknown as HandlerCtx).mcpReq.envelope) });
+          if (bad) throw new ProtocolError(HEADER_MISMATCH, `Bad Request: the request headers and body disagree: ${bad}`);
+        }
+        return (await client.forward(target, method, wire, {
+          kind: "extension",
+          target: method,
+          ...(inputSchema !== undefined ? { inputSchema } : {}),
+          context: contextOf(meta, declared, client.connection(target), routingFromBody(method, wire, inputSchema)),
+        })) as never;
       }) as never);
     }
   }
