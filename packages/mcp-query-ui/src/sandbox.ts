@@ -28,10 +28,10 @@ export interface SandboxOptions {
   unsafeLoosen?: boolean;
 }
 
-function tokens(v: string | readonly string[]): string[] {
+function tokens(v: string | readonly string[], name = "sandbox"): string[] {
   const list = (typeof v === "string" ? v.split(/\s+/) : [...v]).map((t) => t.trim()).filter(Boolean);
   for (const t of list) {
-    if (!KNOWN_SANDBOX_TOKENS.includes(t)) throw new Error(`unknown sandbox token ${JSON.stringify(t)}`);
+    if (!KNOWN_SANDBOX_TOKENS.includes(t)) throw new Error(`unknown sandbox token ${JSON.stringify(t)} in ${name}`);
   }
   return [...new Set(list)];
 }
@@ -41,24 +41,34 @@ export interface ResolvedSandbox {
   inner: string;
 }
 
-/** Resolve the outer/inner `sandbox` attribute values. `legacyInner` is the older `innerSandbox` string (passed through as before). */
+/**
+ * Resolve the outer/inner `sandbox` attribute values. `legacyInner` is the deprecated `innerSandbox` string; it is
+ * validated exactly like `sandbox.inner` (the option name appears in the error). Passing both is an error.
+ */
 export function resolveSandbox(opts: SandboxOptions | undefined, legacyInner: string | undefined): ResolvedSandbox {
+  if (legacyInner !== undefined && opts?.inner !== undefined) {
+    throw new Error("pass either `innerSandbox` (deprecated) or `sandbox.inner`, not both: use `sandbox.inner`");
+  }
   let outer = [...BASE_OUTER_SANDBOX];
-  let inner: string | string[] = legacyInner ?? BASE_INNER_SANDBOX.join(" ");
+  let inner: string[] = [...BASE_INNER_SANDBOX];
   if (opts?.extraOuter?.length) {
     if (!opts.unsafeLoosen) throw new Error("sandbox.extraOuter loosens the proxy frame beyond the spec's `allow-scripts allow-same-origin`; set sandbox.unsafeLoosen: true to opt in");
     outer = [...new Set([...outer, ...tokens(opts.extraOuter)])];
   }
-  if (opts?.inner !== undefined) {
-    const t = tokens(opts.inner);
+  const name = legacyInner !== undefined ? "innerSandbox" : "sandbox.inner";
+  const requested = legacyInner !== undefined ? legacyInner : opts?.inner;
+  if (requested !== undefined) {
+    const t = tokens(requested, name);
     if (t.includes("allow-same-origin")) {
-      throw new Error("sandbox.inner may not include allow-same-origin: the app frame must keep an opaque origin (it would otherwise share the proxy's origin and could lift its own sandbox)");
+      throw new Error(
+        `${name} may not include allow-same-origin: the app frame must keep an opaque origin (it would otherwise share the proxy's origin and could lift its own sandbox). No option permits it`,
+      );
     }
     const extra = t.filter((x) => !BASE_INNER_SANDBOX.includes(x));
-    if (extra.length && !opts.unsafeLoosen) {
-      throw new Error(`sandbox.inner ${JSON.stringify(extra.join(" "))} loosens the app frame beyond \`allow-scripts\`; set sandbox.unsafeLoosen: true to opt in`);
+    if (extra.length && !opts?.unsafeLoosen) {
+      throw new Error(`${name} ${JSON.stringify(extra.join(" "))} loosens the app frame beyond \`allow-scripts\`; set sandbox.unsafeLoosen: true to opt in`);
     }
     inner = t;
   }
-  return { outer: outer.join(" "), inner: Array.isArray(inner) ? inner.join(" ") : inner };
+  return { outer: outer.join(" "), inner: inner.join(" ") };
 }

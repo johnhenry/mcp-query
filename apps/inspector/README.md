@@ -89,23 +89,25 @@ postMessage target to the inspector origin passed as `?host=`. It is a local cop
 press is an app-initiated `next_count` call listed under *Calls*. Override ports with `SANDBOX_PORT` (server)
 and `?sandboxPort=` (inspector URL) if 5174 is taken.
 
-### Governed mode (gate approvals beside the app)
+### Governed mode (approvals beside the app)
 
-By default the app's `tools/call` goes straight through the inspector's client. Tick **governed (mcp-gate
-approvals)** before **open app** and the app is opened through a second client built with
-[`@johnhenry/mcp-gate`](../../packages/mcp-gate)'s browser entry (`createGateClient`: the full policy / approval /
-redaction stack, no gateway server): the **approve patterns** box holds `server.tool` globs (default `*`) and an
-app-initiated tool call matching one waits as a **Gate approvals** card next to the app, showing who asked
+By default the app's `tools/call` goes straight through the inspector's client. Tick **governed (approvals)**
+before **open app**: the **approve patterns** box holds `server.tool` globs (default `*`) and that app's
+tool call matching one waits as an **approval** card next to the app, showing who asked
 (`mcp-app:<ui uri>`), the tool and its arguments, with **Approve** / **Deny**. The app's call resolves (or fails with
 a "denied" error) accordingly; closing the app denies what it still has waiting. Loading the app (a resource read)
 and unmatched calls are never held. Off by default; nothing else about the inspector changes.
 
 ![Governed Apps tab](screenshots/apps-governed.png)
 
-Notes: the governed client is a **second connection** to the same server (same transport, so a stdio server is
-spawned a second time and keeps its own state, e.g. the demo counter starts again from 0); the inspector's Tools tab
-and Messages log keep using the first. Approval text (tool name, arguments, principal) comes from the app and is
-rendered as text. Still local-only: the sandbox proxy stays a local second origin; there is no hosted sandbox.
+Notes: governed mode uses the inspector's **single connection**, so a stdio server is spawned once and the app, the
+Tools tab and the Messages log all talk to the same process (the demo counter is shared). The inspector's client is
+built with one request interceptor (`src/lib/governed.ts`): the same `authorize()` + approval-broker pair
+[`@johnhenry/mcp-gate`](../../packages/mcp-gate)'s `createGateClient` installs, but it only acts on app-initiated
+calls (principal `mcp-app:<uri>`, set by the app host) of an app opened with the box ticked; every other operation
+passes through untouched. Approval text (tool name, arguments, principal) comes from the app and is rendered as
+text. Policy is just the approve patterns (no redaction, rate limit or audit sink here). Still local-only: the
+sandbox proxy stays a local second origin; there is no hosted sandbox.
 
 ### Server Cards (the Card tab)
 

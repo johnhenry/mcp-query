@@ -3,6 +3,7 @@
 import { createAppHost, type AppHost } from "@johnhenry/mcp-query-ui";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { MCPClient } from "@johnhenry/mcp-query";
+import { governance } from "./governed.js";
 
 export interface AppTool {
   name: string;
@@ -34,13 +35,13 @@ export function listAppTools(client: Pick<MCPClient, "listTools">, server: strin
 const hosts = new WeakMap<MCPClient, Map<string, AppHost>>();
 /**
  * One AppHost per (client, inspected server): the host resolves tools/resources against that server only.
- * Keyed by client too, because governed mode opens the same server through a second, gated client.
+ * Its `context` tags each app request as governed or not (see lib/governed.ts); the client's interceptor does the rest.
  */
 export function hostFor(client: MCPClient, server: string): AppHost {
   let byServer = hosts.get(client);
   if (!byServer) hosts.set(client, (byServer = new Map()));
   let h = byServer.get(server);
-  if (!h) byServer.set(server, (h = createAppHost({ client, server, hostInfo: { name: "mcp-inspector", version: "0.0.1" } })));
+  if (!h) byServer.set(server, (h = createAppHost({ client, server, hostInfo: { name: "mcp-inspector", version: "0.0.1" }, context: governance.context })));
   return h;
 }
 

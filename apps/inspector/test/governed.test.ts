@@ -1,8 +1,9 @@
 // #58: governed mode — an app-initiated tool call that policy marks `approve` waits for a person.
 import { describe, expect, it } from "vitest";
+import { MCPClient } from "@johnhenry/mcp-query";
+import { createAppHost } from "@johnhenry/mcp-query-ui";
 import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { Governance, approvePolicy, globMatches, parsePatterns } from "../src/lib/governed.js";
-import { hostFor } from "../src/lib/apps.js";
 
 const URI = "ui://demo/app";
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
@@ -44,92 +45,110 @@ describe("approve policy", () => {
   });
 });
 
-describe("Governance (governed mode)", () => {
-  it("parks an app call as a pending approval and resolves it on Approve", async () => {
-    const m = mock();
-    const g = new Governance();
-    g.setPatterns(["demo.next_count"]);
-    const client = await g.clientFor("demo", new Map([["demo", { transport: m.transport }]]));
-    const session = await hostFor(client, "demo").open({ tool: "show" }); // load: a resource read, never held
-    expect(g.pending()).toEqual([]);
+/** The inspector's wiring in miniature: ONE client, the governance interceptor on it, an app host with the governance context. */
+async function setup(patterns: string[]) {
+  const m = mock();
+  const g = new Governance();
+  g.setPatterns(patterns);
+  const client = new MCPClient({ servers: { demo: { transport: m.transport } }, interceptors: [g.interceptor] });
+  await client.connect();
+  const host = createAppHost({ client, server: "demo", context: g.context });
+  const appCall = (tool: string, uri = URI) => client.callTool(tool, {}, { server: "demo", context: { meta: { principal: `mcp-app:${uri}`, governed: g.isGoverned(uri) } } });
+  return { m, g, client, host, appCall, done: async () => { await host.closeAll(); await client.close(); await m.close(); } };
+}
+const text = (r: unknown) => (r as { content: Array<{ text: string }> }).content[0]!.text;
 
-    // The app's tools/call goes through the host bridge to client.callTool with the app's principal.
-    const call = client.callTool("next_count", {}, { server: "demo", context: { meta: { principal: `mcp-app:${URI}` } } });
+describe("Governance (governed mode, single connection)", () => {
+  it("parks a governed app call as a pending approval and resolves it on Approve; the server was connected once", async () => {
+    const { g, client, appCall, done } = await setup(["demo.next_count"]);
+    g.setGoverned(URI, true);
+    expect(client.connections().map((c) => c.name)).toEqual(["demo"]);
+    const call = appCall("next_count");
     const pending = await until(() => g.pending()[0]);
     expect(pending).toMatchObject({ server: "demo", kind: "call", target: "next_count", principal: `mcp-app:${URI}` });
     let settled = false;
     void call.then(() => (settled = true), () => (settled = true));
-    await tick(30);
-    expect(settled).toBe(false); // held until a person decides
-
+    expect(settled).toBe(false); // parked in the broker until a person decides
     g.decide(pending.key, "approve");
-    const res = (await call) as { content: Array<{ text: string }> };
-    expect(res.content[0]!.text).toBe("1");
+    expect(text(await call)).toBe("1");
     expect(g.pending()).toEqual([]);
-    await session.close();
-    await g.close("demo");
-    await m.close();
+    await done();
   });
 
-  it("Deny refuses the call (the app sees an error) and the tool never ran", async () => {
-    const m = mock();
-    const g = new Governance();
-    g.setPatterns(["*"]);
-    const client = await g.clientFor("demo", new Map([["demo", { transport: m.transport }]]));
-    const call = client.callTool("next_count", {}, { server: "demo", context: { meta: { principal: `mcp-app:${URI}` } } });
-    const settled = call.then(() => "ok", (e: Error) => e.message);
+  it("the app host's own calls are governed through the context callback; reading the app resource is never held", async () => {
+    const { g, host, done } = await setup(["*"]);
+    g.setGoverned(URI, true);
+    const session = await host.open({ tool: "show" }); // resources/read (+ lists): not held
+    expect(g.pending()).toEqual([]);
+    const bridge = session.bridge as unknown as { oncalltool: (p: { name: string; arguments?: object }) => Promise<unknown> };
+    const call = bridge.oncalltool({ name: "next_count", arguments: {} }); // what the app's tools/call lands on
+    const pending = await until(() => g.pending()[0]);
+    expect(pending.principal).toBe(`mcp-app:${URI}`);
+    g.decide(pending.key, "deny");
+    await expect(call).rejects.toThrow(/denied/);
+    expect(session.getState().calls.at(-1)).toMatchObject({ kind: "tool", target: "next_count", outcome: "denied" });
+    await done();
+  });
+
+  it("Deny refuses the call and the tool never ran", async () => {
+    const { g, client, appCall, done } = await setup(["*"]);
+    g.setGoverned(URI, true);
+    const settled = appCall("next_count").then(() => "ok", (e: Error) => e.message);
     g.decide((await until(() => g.pending()[0])).key, "deny");
     expect(await settled).toMatch(/denied/);
-    // a later approved call proves the counter was not bumped by the denied one
-    const next = client.callTool("next_count", {}, { server: "demo" });
-    g.decide((await until(() => g.pending()[0])).key, "approve");
-    expect(((await next) as { content: Array<{ text: string }> }).content[0]!.text).toBe("1");
-    await g.close("demo");
-    await m.close();
+    g.setGoverned(URI, false);
+    expect(text(await appCall("next_count"))).toBe("1"); // the denied call did not bump the counter
+    expect(client.connections()).toHaveLength(1);
+    await done();
   });
 
-  it("an unmatched call is not held, denyFor refuses a closed app's waiting calls, and close() refuses the rest", async () => {
-    const m = mock();
-    const g = new Governance();
+  it("only governed app calls are held: the rest of the inspector, ungoverned apps and unmatched tools pass untouched", async () => {
+    const { g, client, appCall, done } = await setup(["*"]);
+    // no principal at all (Tools tab): not held even though the pattern is `*`
+    expect(text(await client.callTool("show", {}, { server: "demo" }))).toBe("shown");
+    // an app principal, but the app was opened ungoverned
+    expect(text(await appCall("show", "ui://other"))).toBe("shown");
+    // a governed principal on a call the patterns do not match
     g.setPatterns(["demo.next_count"]);
-    const client = await g.clientFor("demo", new Map([["demo", { transport: m.transport }]]));
-    expect(((await client.callTool("show", {}, { server: "demo" })) as { content: Array<{ text: string }> }).content[0]!.text).toBe("shown");
+    g.setGoverned(URI, true);
+    expect(text(await appCall("show"))).toBe("shown");
+    // a governed app's resource read and catalog views are not calls
+    await client.readResource(URI, { server: "demo", context: { meta: { principal: `mcp-app:${URI}`, governed: true } } });
+    await client.discover("resources", "demo", { context: { meta: { principal: `mcp-app:${URI}`, governed: true } } });
+    expect(client.listTools("demo").map((t) => t.name).sort()).toEqual(["next_count", "show"]); // catalog view intact
     expect(g.pending()).toEqual([]);
+    await done();
+  });
 
-    const ctx = { server: "demo", context: { meta: { principal: "mcp-app:ui://a" } } };
-    const a = client.callTool("next_count", {}, ctx).then(() => "ok", () => "refused");
+  it("denyFor refuses a closed app's waiting calls, closeServer refuses the rest", async () => {
+    const { g, appCall, done } = await setup(["demo.next_count"]);
+    g.setGoverned("ui://a", true);
+    const a = appCall("next_count", "ui://a").then(() => "ok", () => "refused");
     await until(() => g.pending()[0]);
     g.denyFor("demo", "mcp-app:ui://other"); // a different app: untouched
     expect(g.pending()).toHaveLength(1);
     g.denyFor("demo", "mcp-app:ui://a");
     expect(await a).toBe("refused");
 
-    const b = client.callTool("next_count", {}, ctx).then(() => "ok", () => "refused");
+    const b = appCall("next_count", "ui://a").then(() => "ok", () => "refused");
     await until(() => g.pending()[0]);
-    await g.close("demo");
+    g.closeServer("other"); // another server: untouched
+    expect(g.pending()).toHaveLength(1);
+    g.closeServer("demo");
     expect(await b).toBe("refused");
     expect(g.pending()).toEqual([]);
-    await m.close();
-  });
-
-  it("is lazy: nothing connects until clientFor is called, and an unknown server is an error", async () => {
-    const g = new Governance();
-    expect(g.pending()).toEqual([]);
-    await expect(g.clientFor("nope", new Map())).rejects.toThrow(/no saved connection/);
+    await done();
   });
 
   it("notifies subscribers when an approval appears and is decided", async () => {
-    const m = mock();
-    const g = new Governance();
+    const { g, appCall, done } = await setup(["demo.next_count"]);
+    g.setGoverned(URI, true);
     let n = 0;
     g.subscribe(() => n++);
-    const client = await g.clientFor("demo", new Map([["demo", { transport: m.transport }]]));
-    const before = n;
-    const call = client.callTool("next_count", {}, { server: "demo" });
+    const call = appCall("next_count");
     g.decide((await until(() => g.pending()[0])).key, "approve");
     await call;
-    expect(n).toBeGreaterThan(before);
-    await g.close("demo");
-    await m.close();
+    expect(n).toBeGreaterThan(0);
+    await done();
   });
 });
