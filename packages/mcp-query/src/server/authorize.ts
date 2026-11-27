@@ -21,7 +21,7 @@ export interface AuthzRequest {
    */
   kind: OperationKind | "answer";
   server: string;
-  /** Resource URI (read), tool/prompt name (call/query/prompt), catalog name (list: `tools`, `resources`, ...) or skill/file URI (skill). */
+  /** Resource URI (read), tool/prompt name (call/query/prompt), catalog name (list: `tools`, `resources`, ...), skill/file URI (skill), or `events` / the event name (event: `events/list` / `events/poll`). */
   target: string;
   /** The MCP method or client operation where `kind` alone is ambiguous (`tasks/get`, `skills/read`, ...); see `Operation.method`. */
   method?: string;

@@ -18,7 +18,7 @@ import type { Client, McpSubscription, SubscriptionFilter } from "@modelcontextp
 
 export interface ListenManagerOptions {
   /** Which list_changed families to request (from the server's advertised caps). */
-  listFilters: () => { tools: boolean; prompts: boolean; resources: boolean };
+  listFilters: () => { tools: boolean; prompts: boolean; resources: boolean; /** Events extension: `eventsListChanged`. */ events?: boolean };
   /** Backoff for re-listen after an unexpected stream loss (reuses the connection's). */
   retryDelay?: (attempt: number) => number;
   onError?: (err: unknown) => void;
@@ -80,6 +80,8 @@ export class ListenManager {
     if (f.tools) filter.toolsListChanged = true;
     if (f.prompts) filter.promptsListChanged = true;
     if (f.resources) filter.resourcesListChanged = true;
+    // Extension field (SEP-3415): not in the SDK's typed filter, passed through as-is.
+    if (f.events) (filter as Record<string, unknown>).eventsListChanged = true;
     if (this.observed.size) filter.resourceSubscriptions = [...this.observed];
     return Object.keys(filter).length ? filter : undefined;
   }

@@ -21,6 +21,7 @@ import type { SessionStore } from "./sessionStore.js";
 import { capsTag, serverTag } from "./tags.js";
 import { SKILLS_EXT } from "./skillsExt.js";
 import { TASKS_EXT, TaskNotificationParamsSchema } from "./tasksExt.js";
+import { EVENTS_EXT, EVENTS_LIST_CHANGED, EventsListChangedParamsSchema } from "./eventsExt.js";
 import type {
   ClientInfo,
   HostHandlers,
@@ -114,6 +115,8 @@ export interface ConnectionDeps {
    * `onCapabilitiesChanged`): the client runs the interceptor chain over it here (#90).
    */
   onCatalogFetched?: (server: string, kind: "tools" | "resources" | "resourceTemplates" | "prompts") => void | Promise<void>;
+  /** The server sent `notifications/events/list_changed` (Events extension): its cached event-type listing is stale. */
+  onEventsListChanged?: (server: string) => void;
   /** Server-emitted log messages (notifications/message). */
   onLog?: (server: string, entry: { level: string; logger?: string; data: unknown }) => void;
   /** Every JSON-RPC message in/out (for the devtools message log). */
@@ -158,6 +161,7 @@ export class ServerConnection {
         tools: !!this.capabilities.tools?.listChanged,
         prompts: !!this.capabilities.prompts?.listChanged,
         resources: !!this.capabilities.resources?.listChanged,
+        events: !!(this.capabilities.extensions?.[EVENTS_EXT] as { listChanged?: boolean } | undefined)?.listChanged,
       }),
       retryDelay: this.cfg.retryDelay,
       onError: () => {
@@ -439,6 +443,11 @@ export class ServerConnection {
     this.client.setNotificationHandler("notifications/message", (n) => {
       this.deps.onLog?.(this.name, { level: n.params.level, logger: n.params.logger, data: n.params.data });
     });
+    // Events extension (SEP-3415): the event-type listing changed. Delivered on the modern-era listen
+    // stream (filter `eventsListChanged`); the SDK dispatches it to this registration like the core ones.
+    this.client.setNotificationHandler(EVENTS_LIST_CHANGED, { params: EventsListChangedParamsSchema }, () => {
+      this.deps.onEventsListChanged?.(this.name);
+    });
     // Tasks extension (SEP-2663): unsolicited task snapshots. Custom method —
     // registered with an explicit schema; params ARE a DetailedTask.
     this.client.setNotificationHandler("notifications/tasks", { params: TaskNotificationParamsSchema }, (params) => {
@@ -538,11 +547,21 @@ export class ServerConnection {
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
-  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks" | "skills"): boolean {
+  supports(feature: "tools" | "resources" | "prompts" | "resources.subscribe" | "tasks" | "skills" | "events"): boolean {
     if (feature === "resources.subscribe") return !!this.capabilities.resources?.subscribe;
     if (feature === "tasks") return !!this.capabilities.extensions?.[TASKS_EXT];
     if (feature === "skills") return !!this.capabilities.resources && !!this.capabilities.extensions?.[SKILLS_EXT];
+    if (feature === "events") return !!this.capabilities.extensions?.[EVENTS_EXT];
     return !!this.capabilities[feature];
+  }
+
+  /**
+   * The capabilities this client advertises, plus `extension` (declared per request: a request's
+   * `_meta` capabilities replace the connection-level envelope as a whole, so carry the rest along).
+   */
+  clientCapabilitiesWith(extension: string): ClientCapabilities {
+    const base = clientCapabilities(this.deps.handlers, this.deps.extensions);
+    return { ...base, extensions: { ...(base.extensions ?? {}), [extension]: {} } } as ClientCapabilities;
   }
 
   private get cache(): MCPCache {
