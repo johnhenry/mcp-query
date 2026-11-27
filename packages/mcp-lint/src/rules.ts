@@ -223,6 +223,19 @@ export const RULES: Rule[] = [
       }),
   },
   {
+    id: "destructive-needs-confirmation",
+    description:
+      "ADVISORY heuristic: a tool with destructiveHint: true gives no sign of a confirmation step (no confirm/dry-run style input, and a description that mentions neither confirmation, approval nor a preview). The spec asks for a human in the loop on sensitive operations (2026-07-28 server/tools, security considerations), which a server can meet by eliciting inside the call; that cannot be seen from a contract, so expect false positives and silence it per rule.",
+    defaultSeverity: "warn",
+    check: (c) =>
+      c.tools
+        .filter((t) => t.annotations?.destructiveHint === true && !showsConfirmation(t))
+        .map((t) => ({
+          target: t.name,
+          message: "destructiveHint is set but neither the description nor the input schema shows a confirmation step (advisory; the server may elicit confirmation at call time, which a contract cannot show)",
+        })),
+  },
+  {
     id: "x-mcp-file",
     description:
       "EXPERIMENTAL (io.modelcontextprotocol/files draft; no SEP): an x-mcp-file argument declares accept (a list of media types) and maxSize (a positive byte count), so a client can pick and bound the file before sending it.",
@@ -350,4 +363,15 @@ function xMcpFileProblems(tool: ContractTool): string[] {
   };
   visit(tool.inputSchema, "", 0);
   return out;
+}
+
+// ── destructive-needs-confirmation heuristic ────────────────────────────────
+
+const CONFIRM_PROP = /^(confirm\w*|dry_?run|dryRun|preview|yes|approve\w*|acknowledge\w*|i_?understand|are_?you_?sure)$/i;
+const CONFIRM_TEXT = /\b(confirm\w*|approv\w+|are you sure|dry[- ]?run|preview|ask(s|ing)? (the )?(user|you)|prompt(s|ing)? (the )?(user|for)|elicit\w*|requires? (explicit )?(consent|permission|acknowledg\w+))\b/i;
+
+function showsConfirmation(t: ContractTool): boolean {
+  const props = Object.keys((t.inputSchema?.properties ?? {}) as Record<string, unknown>);
+  if (props.some((p) => CONFIRM_PROP.test(p))) return true;
+  return CONFIRM_TEXT.test(`${t.description ?? ""} ${t.title ?? ""}`);
 }

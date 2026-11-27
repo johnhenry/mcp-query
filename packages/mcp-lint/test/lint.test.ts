@@ -281,3 +281,31 @@ describe("x-mcp-file (experimental files extension)", () => {
     expect(msgs(c, "x-mcp-file")).toEqual([]);
   });
 });
+
+describe("destructive-needs-confirmation (advisory)", () => {
+  const destructive = (over: Partial<Contract["tools"][number]> = {}) => tool({ name: "delete-repo", title: "Delete repo", description: "Deletes a repository.", annotations: { destructiveHint: true }, ...over });
+  it("is a warn-level rule that says it is advisory and cites the spec", () => {
+    const r = RULES.find((x) => x.id === "destructive-needs-confirmation")!;
+    expect(r.defaultSeverity).toBe("warn");
+    expect(r.description).toMatch(/ADVISORY/);
+    expect(r.description).toMatch(/2026-07-28/);
+  });
+  it("flags a destructive tool with no sign of confirmation", () => {
+    const f = find(withTools(destructive()), "destructive-needs-confirmation");
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ severity: "warn", target: "delete-repo" });
+  });
+  it("passes when the description mentions confirmation or a preview", () => {
+    expect(find(withTools(destructive({ description: "Deletes a repository after asking the user to confirm." })), "destructive-needs-confirmation")).toEqual([]);
+    expect(find(withTools(destructive({ description: "Deletes a repository. Use dry-run first." })), "destructive-needs-confirmation")).toEqual([]);
+  });
+  it("passes when the input schema has a confirm / dryRun style property", () => {
+    const schema = { type: "object", properties: { repo: { type: "string" }, confirm: { type: "boolean" } } };
+    expect(find(withTools(destructive({ inputSchema: schema })), "destructive-needs-confirmation")).toEqual([]);
+    expect(find(withTools(destructive({ inputSchema: { type: "object", properties: { dryRun: { type: "boolean" } } } })), "destructive-needs-confirmation")).toEqual([]);
+  });
+  it("ignores tools that are not marked destructive, and can be turned off", () => {
+    expect(find(withTools(tool({ annotations: { destructiveHint: false } })), "destructive-needs-confirmation")).toEqual([]);
+    expect(find(withTools(destructive()), "destructive-needs-confirmation", { rules: { "destructive-needs-confirmation": "off" } })).toEqual([]);
+  });
+});

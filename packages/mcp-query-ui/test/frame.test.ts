@@ -91,7 +91,17 @@ describe("frame.permissions (allow list)", () => {
 describe("resolveSandbox (unit)", () => {
   it("defaults are the spec's: outer `allow-scripts allow-same-origin`, inner `allow-scripts`", () => {
     expect(resolveSandbox(undefined, undefined)).toEqual({ outer: "allow-scripts allow-same-origin", inner: "allow-scripts" });
-    expect(resolveSandbox(undefined, "allow-scripts allow-forms")).toEqual({ outer: "allow-scripts allow-same-origin", inner: "allow-scripts allow-forms" }); // legacy innerSandbox passes through
+  });
+  it("the deprecated innerSandbox string is validated exactly like sandbox.inner", () => {
+    expect(resolveSandbox(undefined, "allow-scripts").inner).toBe("allow-scripts");
+    expect(resolveSandbox(undefined, "").inner).toBe(""); // tightening to inert is free
+    expect(() => resolveSandbox(undefined, "allow-scripts allow-forms")).toThrow(/innerSandbox "allow-forms".*sandbox\.unsafeLoosen: true/);
+    expect(resolveSandbox({ unsafeLoosen: true }, "allow-scripts allow-forms").inner).toBe("allow-scripts allow-forms");
+    // the previously unvalidated pass-through: allow-same-origin is refused with or without the opt-in
+    expect(() => resolveSandbox(undefined, "allow-scripts allow-same-origin")).toThrow(/innerSandbox may not include allow-same-origin/);
+    expect(() => resolveSandbox({ unsafeLoosen: true }, "allow-scripts allow-same-origin")).toThrow(/allow-same-origin/);
+    expect(() => resolveSandbox(undefined, "allow-scrpts")).toThrow(/unknown sandbox token "allow-scrpts" in innerSandbox/);
+    expect(() => resolveSandbox({ inner: "allow-scripts" }, "allow-scripts")).toThrow(/either `innerSandbox` \(deprecated\) or `sandbox\.inner`/);
   });
   it("tightens freely, loosens only with unsafeLoosen, never grants the inner frame allow-same-origin", () => {
     expect(resolveSandbox({ inner: [] }, undefined).inner).toBe("");

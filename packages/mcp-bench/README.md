@@ -38,10 +38,10 @@ npx tsx packages/mcp-bench/src/cli.ts --url https://host/mcp --duration 10
 | `--iterations N` | calls per op (default 20) — or `--duration S` for time-boxed |
 | `--warmup N` | untimed calls before measuring (default 3) |
 | `--max-p95 MS` / `--max-error-rate R` | budgets; exit non-zero if exceeded |
-| `--discover` | benchmark `server/discover` (2026-07-28; implies `--era auto`) |
+| `--discover` | benchmark `server/discover` (2026-07-28; needs the default `--era auto`) |
 | `--task name:json` | benchmark a task-returning tool to its **terminal** state (repeatable); the time to the task handle is shown on a `[handle]` row |
 | `--poll-interval MS` / `--task-timeout S` | `tasks/get` cadence when the server suggests none (default 50) / give-up time (default 60) |
-| `--era legacy\|auto` | `legacy` (default): `initialize` handshake. `auto`: try `server/discover` first |
+| `--era auto\|legacy` | `auto` (default): try `server/discover` first (bounded probe), fall back to `initialize`; a stdio server is spawned one extra time for the probe, before measuring. `legacy`: `initialize` only. A registry entry's `era` applies when unset |
 
 By default it benchmarks `tools/list` plus any `--call` ops. **Destructive tools are never
 hammered automatically** — `--read-only` only adds tools annotated `readOnlyHint` with no
