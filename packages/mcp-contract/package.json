@@ -1,6 +1,6 @@
 {
   "name": "@johnhenry/mcp-contract",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Contract testing & breaking-change detection for MCP capability surfaces — pin a server's tools/resources/prompts, then fail CI when a live server drifts incompatibly. The dual of mcp-query codegen.",
   "repository": {
     "type": "git",
@@ -51,7 +51,7 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@johnhenry/mcp-query": "^0.7.0",
+    "@johnhenry/mcp-query": "^0.8.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0"
   },

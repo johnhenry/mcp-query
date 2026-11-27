@@ -1,5 +1,17 @@
 # @johnhenry/mcp-gate
 
+## 0.9.0
+
+### Minor Changes
+
+- fb816ff: `interactions: "forward"` covers `resources/read` and 2025-era upstreams (their elicitation is relayed to the consumer, with `redact`, `urlElicitation`, `answerPolicy` and audit applied on both hops); new `interactionTimeoutMs` and `createRequestGuard`. `subscriptions/listen` is refused without a verified token when `inboundAuth.required`, and a tool the gate hides being added upstream no longer triggers a `list_changed`. Documented in the README.
+
+### Patch Changes
+
+- Updated dependencies [9f272bb]
+- Updated dependencies [fb816ff]
+  - @johnhenry/mcp-query@0.8.0
+
 ## 0.8.0
 
 ### Minor Changes
