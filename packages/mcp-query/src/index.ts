@@ -115,3 +115,9 @@ export type {
   SamplingRequest,
   SamplingResult,
 } from "./handlers/chromeAI.js";
+
+// EXPERIMENTAL, MAY CHANGE: file uploads/downloads extension (`io.modelcontextprotocol/files`). Opt-in via
+// `new MCPClient({ experimental: { files: true } })`. See docs/files-extension.md.
+export { FILES_EXT, FILE_KEYWORD, isUploadRequiredResult, findFileParams, acceptsFile, hostMatches, checkTarget, downloadsOf, downloadTtlMs, FileTargetError } from "./core/filesExt.js";
+export type { AuditFiles, DownloadTarget, ExperimentalFilesOptions, FileDigest, FileInput, FileInputDescriptor, FileValue, FilesSettings, UploadForm, UploadRequiredShape, UploadTarget } from "./core/filesExt.js";
+export { sha256Digest, FileTransferError, buildMultipart } from "./core/filesTransfer.js";

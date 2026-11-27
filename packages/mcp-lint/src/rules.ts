@@ -222,6 +222,13 @@ export const RULES: Rule[] = [
         return out;
       }),
   },
+  {
+    id: "x-mcp-file",
+    description:
+      "EXPERIMENTAL (io.modelcontextprotocol/files draft; no SEP): an x-mcp-file argument declares accept (a list of media types) and maxSize (a positive byte count), so a client can pick and bound the file before sending it.",
+    defaultSeverity: "warn",
+    check: (c) => c.tools.flatMap((t) => xMcpFileProblems(t).map((message) => ({ target: t.name, message }))),
+  },
 ];
 
 // ── helpers for the 2026-07-28 rules ─────────────────────────────────────────
@@ -308,5 +315,39 @@ function xMcpHeaderProblems(tool: ContractTool): string[] {
     }
   };
   visit(tool.inputSchema, "", true, 0);
+  return out;
+}
+
+/** EXPERIMENTAL files extension: every `x-mcp-file` (at any depth: array items and anyOf/oneOf are allowed by the draft) should declare `accept` and `maxSize`. */
+function xMcpFileProblems(tool: ContractTool): string[] {
+  const out: string[] = [];
+  const visit = (node: unknown, path: string, depth: number): void => {
+    if (depth > 32 || typeof node !== "object" || node === null) return;
+    if (Array.isArray(node)) {
+      node.forEach((n, i) => visit(n, `${path}[${i}]`, depth + 1));
+      return;
+    }
+    const n = node as Record<string, unknown>;
+    if ("x-mcp-file" in n) {
+      const at = path || "(root)";
+      const d = n["x-mcp-file"];
+      if (typeof d !== "object" || d === null || Array.isArray(d)) {
+        out.push(`${at}: x-mcp-file should be an object { accept, maxSize }`);
+      } else {
+        const { accept, maxSize } = d as { accept?: unknown; maxSize?: unknown };
+        if (!Array.isArray(accept) || accept.length === 0 || !accept.every((a) => typeof a === "string" && a !== "")) {
+          out.push(`${at}: x-mcp-file does not declare accept (a non-empty list of media types or .extensions)`);
+        }
+        if (typeof maxSize !== "number" || !Number.isFinite(maxSize) || maxSize <= 0) out.push(`${at}: x-mcp-file does not declare maxSize (a positive number of bytes)`);
+      }
+    }
+    for (const [k, v] of Object.entries(n)) {
+      if (k === "enum" || k === "const" || k === "default" || k === "examples") continue;
+      if (k === "properties" && typeof v === "object" && v !== null && !Array.isArray(v)) {
+        for (const [name, sub] of Object.entries(v)) visit(sub, path ? `${path}.${name}` : name, depth + 1);
+      } else visit(v, path ? `${path}.${k}` : k, depth + 1);
+    }
+  };
+  visit(tool.inputSchema, "", 0);
   return out;
 }

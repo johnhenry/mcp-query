@@ -42,12 +42,16 @@ import * as z from "zod";
 
 import { TASKS_EXT, type DetailedTask } from "../core/tasksExt.js";
 import type { TransportContext } from "../core/connection.js";
+import { FILES_EXT, findFileParams, acceptsFile, type FileInput, type UploadTarget } from "../core/filesExt.js";
+import type { MockFilesSpec, MockReceivedFile } from "./mockFiles.js";
 import { buildMockSkill, SKILLS_EXT, type BuiltSkill, type MockSkill, type MockSkillsCacheHint } from "./mockSkills.js";
 
 import { EVENTS_EXT, MockEventSource, type MockEventsSpec } from "./mockEvents.js";
 
 export type { MockSkill, MockSkillTamper, MockSkillsCacheHint } from "./mockSkills.js";
 export { MockEventSource } from "./mockEvents.js";
+export { MockUploadSink } from "./mockFiles.js";
+export type { MockFilesSpec, MockReceivedFile, SinkRequest } from "./mockFiles.js";
 export type { MockEventType, MockEventsSpec, MockPollRecord } from "./mockEvents.js";
 
 /** Context a tool handler can use to call back into the client (sampling/elicitation/roots). */
@@ -64,6 +68,8 @@ export interface MockToolContext {
   meta?: Record<string, unknown>;
   /** Aborts when the client cancels this request (notifications/cancelled). */
   signal?: AbortSignal;
+  /** Files extension (`spec.files`): the files this call carried, keyed by parameter name (inline, or confirmed in the sink). */
+  files?: Record<string, MockReceivedFile>;
 }
 
 export interface MockTool {
@@ -130,6 +136,12 @@ export interface MockSpec {
    * controllable source (`server.events`: emit / truncate / fail). Advertises the extension; modern era only.
    */
   events?: MockEventsSpec;
+  /**
+   * EXPERIMENTAL files extension (io.modelcontextprotocol/files): advertises it and, for a tool whose input
+   * schema marks a param `x-mcp-file`, serves the inline and out-of-band (`upload_required`) flows against
+   * `files.sink`. Modern era only.
+   */
+  files?: MockFilesSpec;
   /** Advertise `directoryRead` and serve `resources/directory/read` for the skill directories. */
   skillsDirectoryRead?: boolean;
 }
@@ -185,6 +197,13 @@ export class MockMCPServer {
   events?: MockEventSource;
   /** The `_meta` (minus protocol envelope keys) seen on skills traffic: `{ method, meta }` per request. */
   skillMetaLog: Array<{ method: string; meta: Record<string, unknown> | undefined }> = [];
+
+  /** Files extension: every `upload_required` result this mock issued, in order (wire shape). */
+  uploadRequests: Array<Record<string, unknown>> = [];
+  /** Files extension: the `requestState` values seen on retries. */
+  fileRetries: string[] = [];
+  private fileRound = 0;
+  private fileRounds = new Map<string, { ids: string[]; args: string }>();
 
   private readonly eraOpt: "legacy" | "modern" | "both";
   private readonly bus = new InMemoryServerEventBus();
@@ -342,6 +361,10 @@ export class MockMCPServer {
       caps.resources ??= { subscribe: true, listChanged: true };
       caps.extensions = { ...(caps.extensions ?? {}), [SKILLS_EXT]: this.spec.skillsDirectoryRead ? { directoryRead: true } : {} };
     }
+    if (this.spec.files) {
+      const f = this.spec.files;
+      caps.extensions = { ...(caps.extensions ?? {}), [FILES_EXT]: { ...(f.upload === false ? {} : { upload: {} }), ...(f.maxInlineBytes ? { maxInlineBytes: f.maxInlineBytes } : {}) } };
+    }
     if (this.spec.events) {
       caps.extensions = { ...(caps.extensions ?? {}), [EVENTS_EXT]: this.spec.events.listChanged === false ? {} : { listChanged: true } };
     }
@@ -421,8 +444,87 @@ export class MockMCPServer {
         return this.startTask(tool, (req.params.arguments as Record<string, unknown>) ?? {}) as never;
       }
 
+      if (this.spec.files) {
+        const early = this.filesRound(tool, (req.params.arguments as Record<string, unknown>) ?? {}, ctx);
+        if (early.result) return early.result as never;
+        return (await this.runWithReplay(tool, (req.params.arguments as Record<string, unknown>) ?? {}, ctx, early.files)) as never;
+      }
       return (await this.runWithReplay(tool, (req.params.arguments as Record<string, unknown>) ?? {}, ctx)) as never;
     });
+  }
+
+  /**
+   * Files extension: validate the file params of a call, and either answer early (an error result, or an
+   * `upload_required` round) or hand the received files to the tool handler.
+   */
+  private filesRound(tool: MockTool, args: Record<string, unknown>, ctx: ServerContext): { result?: Record<string, unknown>; files?: Record<string, MockReceivedFile> } {
+    const f = this.spec.files!;
+    const params = findFileParams(tool.inputSchema);
+    if (params.size === 0) return {};
+    const err = (text: string) => ({ result: { content: [{ type: "text", text }], isError: true } });
+    const envCaps = (ctx.mcpReq.envelope as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientCapabilities"];
+    const metaCaps = (ctx.mcpReq._meta as Record<string, unknown> | undefined)?.["io.modelcontextprotocol/clientCapabilities"];
+    const declared = ((envCaps ?? metaCaps) as { extensions?: Record<string, { upload?: unknown } | undefined> } | undefined)?.extensions?.[FILES_EXT];
+    const state = ctx.mcpReq.requestState<string>();
+    const files: Record<string, MockReceivedFile> = {};
+    const pending: FileInput[] = [];
+    let inlineTotal = 0;
+    for (const [param, { descriptor }] of params) {
+      const v = args[param] as FileInput | undefined;
+      if (v === undefined) continue;
+      if (descriptor.maxSize !== undefined && v.size > descriptor.maxSize) return err(`${param}: larger than maxSize`);
+      if (!acceptsFile(descriptor.accept, v.mimeType, v.name)) return err(`${param}: type not accepted`);
+      if (v.data !== undefined) {
+        const bytes = Uint8Array.from(Buffer.from(v.data, "base64"));
+        inlineTotal += bytes.byteLength;
+        if (bytes.byteLength !== v.size) return err(`${param}: size mismatch`);
+        files[param] = { id: v.id, name: v.name, mimeType: v.mimeType, size: v.size, bytes, via: "inline" };
+      } else if (v.size === 0) {
+        files[param] = { id: v.id, name: v.name, mimeType: v.mimeType, size: 0, bytes: new Uint8Array(0), via: "inline" };
+      } else pending.push(v);
+    }
+    if (inlineTotal > (f.maxInlineBytes ?? 0)) return err("inline data over maxInlineBytes");
+    if (pending.length === 0) return { files };
+    if (f.upload === false || !declared || declared.upload === undefined) return err("this call needs an out-of-band upload but the request did not declare it");
+    if (state === undefined || !this.fileRounds.has(state)) {
+      const token = `files-${++this.fileRound}`;
+      const sink = f.sink;
+      const uploads: UploadTarget[] = pending.map((p) =>
+        f.target
+          ? f.target(p.id, p)
+          : {
+              fileId: p.id,
+              url: sink!.url(`/u/${token}/${p.id}`),
+              method: "PUT" as const,
+              headers: { "Content-Type": p.mimeType },
+              credentials: "omit" as const,
+              expiresAt: new Date(Date.now() + (f.expiresInMs ?? 60_000)).toISOString(),
+            },
+      );
+      this.fileRounds.set(token, { ids: pending.map((p) => p.id), args: JSON.stringify(args) });
+      const result = { resultType: "upload_required", content: [], uploads, requestState: token };
+      this.uploadRequests.push(result);
+      return { result };
+    }
+    this.fileRetries.push(state);
+    const round = this.fileRounds.get(state)!;
+    if (round.args !== JSON.stringify(args)) return err("arguments changed since the upload request");
+    if (f.repeatUploadRequired) {
+      const result = { resultType: "upload_required", content: [], uploads: [], requestState: `${state}-again` };
+      this.uploadRequests.push(result);
+      this.fileRounds.set(`${state}-again`, round);
+      return { result };
+    }
+    for (const p of pending) {
+      const got = f.sink?.requests.find((r) => r.method !== "GET" && r.path === `/u/${state}/${p.id}`);
+      if (!got) return err(`${p.id}: bytes have not arrived`);
+      const body = new Uint8Array(got.body);
+      if (body.byteLength !== p.size) return err(`${p.id}: size mismatch`);
+      const param = [...params.keys()].find((k) => (args[k] as FileInput | undefined)?.id === p.id)!;
+      files[param] = { id: p.id, name: p.name, mimeType: p.mimeType, size: p.size, bytes: body, via: "upload" };
+    }
+    this.fileRounds.delete(state);
+    return { files };
   }
 
   private callerDeclaredTasks(ctx: ServerContext): boolean {
@@ -443,6 +545,7 @@ export class MockMCPServer {
     tool: MockTool,
     args: Record<string, unknown>,
     ctx: ServerContext,
+    files?: Record<string, MockReceivedFile>,
   ): Promise<CallToolResult | ReturnType<typeof inputRequired>> {
     const priorToken = ctx.mcpReq.requestState<string>();
     const token = priorToken ?? `replay-${++this.replaySeq}`;
@@ -489,6 +592,7 @@ export class MockMCPServer {
       },
       meta: ctx.mcpReq._meta as Record<string, unknown> | undefined,
       signal: ctx.mcpReq.signal,
+      ...(files ? { files } : {}),
     };
 
     try {

@@ -159,6 +159,29 @@ function validateAnswerPolicy(v: unknown): void {
   for (const key of keys) checkType(v, key, "an array of glob strings", isStringArray, "answerPolicy");
 }
 
+function validateExperimental(v: unknown): void {
+  if (!isRecord(v)) fail(`"experimental" must be an object { files? } (got ${typeOf(v)})`);
+  checkKeys(v, ["files"], "experimental");
+  if (v.files === undefined) return;
+  const f = v.files;
+  if (!isRecord(f)) fail(`"experimental.files" must be an object { allowUploadHosts?, allowDownloadHosts?, downloads?, maxFileSize?, accept?, upload?, download? } (got ${typeOf(f)})`);
+  checkKeys(f, ["allowUploadHosts", "allowDownloadHosts", "downloads", "maxFileSize", "accept", "upload", "download"], "experimental.files");
+  for (const key of ["allowUploadHosts", "allowDownloadHosts"]) {
+    checkType(f, key, "an array of host glob strings", isStringArray, "experimental.files");
+    for (const g of (f[key] as string[] | undefined) ?? []) {
+      if (g === "" || g.includes("/") || g.includes(":") || g === "*") fail(`"${key}" in experimental.files has an invalid host glob ${JSON.stringify(g)} (use hostnames like "files.example.com" or "*.storage.example.com"; a bare "*" would allow every host)`);
+    }
+  }
+  checkType(f, "downloads", '"strip" | "refuse"', (x) => x === "strip" || x === "refuse", "experimental.files");
+  checkType(f, "maxFileSize", "a positive number of bytes", (x) => typeof x === "number" && Number.isFinite(x) && x > 0, "experimental.files");
+  checkType(f, "accept", "an array of MIME type strings", isStringArray, "experimental.files");
+  checkType(f, "upload", "a boolean", aBoolean, "experimental.files");
+  checkType(f, "download", "a boolean", aBoolean, "experimental.files");
+  if (f.upload === true && !(f.allowUploadHosts as string[] | undefined)?.length) {
+    fail(`"upload: true" in experimental.files needs a non-empty "allowUploadHosts": the gate denies uploads to hosts that are not allowlisted`);
+  }
+}
+
 function validateRedact(redact: unknown): void {
   if (!Array.isArray(redact)) fail(`"redact" must be an array of rules (got ${typeOf(redact)})`);
   redact.forEach((rule, i) => {
@@ -186,7 +209,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation", "answerPolicy", "extensions"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation", "answerPolicy", "extensions", "experimental"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -199,6 +222,7 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
   }
   if (config.redact !== undefined) validateRedact(config.redact);
   if (config.extensions !== undefined) validateExtensions(config.extensions);
+  if (config.experimental !== undefined) validateExperimental(config.experimental);
   if (config.interactions !== undefined) validateInteractions(config.interactions);
   if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
   if (config.answerPolicy !== undefined) {

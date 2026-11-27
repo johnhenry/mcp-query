@@ -123,9 +123,27 @@ function stable(value: unknown): unknown {
   return value;
 }
 
+/**
+ * EXPERIMENTAL (MCP files extension draft). A cassette never stores file bytes: an inline file argument (an object with a
+ * string `id`, a string `mimeType`, a numeric `size` and a base64 `data`) is stored as its metadata plus a SHA-256 `digest`
+ * (the sender's own, if it sent one), with `data` dropped and `dataOmitted: true`. Idempotent. Used when recording and
+ * for replay matching, so a replayed call carrying the same bytes still matches.
+ */
+export function scrubFileBytes(value: unknown, depth = 0): unknown {
+  if (depth > 16 || typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((v) => scrubFileBytes(v, depth + 1));
+  const o = value as Record<string, unknown>;
+  if (typeof o.id === "string" && typeof o.mimeType === "string" && typeof o.size === "number" && typeof o.data === "string") {
+    const { data, ...rest } = o;
+    const digest = rest.digest ?? { algorithm: "sha-256", value: createHash("sha256").update(Buffer.from(data as string, "base64")).digest("base64url") };
+    return { ...rest, digest, dataOmitted: true };
+  }
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, scrubFileBytes(v, depth + 1)]));
+}
+
 /** A match key for an interaction: method + canonicalized params (minus volatile fields). */
 export function interactionKey(method: string, params: unknown): string {
-  return `${method} ${JSON.stringify(stable(params ?? {}))}`;
+  return `${method} ${JSON.stringify(stable(scrubFileBytes(params ?? {})))}`;
 }
 
 /** The tamper-evidence hash for a cassette's current interactions (order-sensitive; key order within each interaction is not). */

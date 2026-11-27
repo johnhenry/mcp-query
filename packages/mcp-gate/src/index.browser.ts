@@ -27,3 +27,4 @@ export { resolveHttpUpstream } from "./upstream-http.js";
 export type { ApprovalConfig, ApprovalRequest } from "./config.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 export { urlElicitationPolicy, compileUrlPolicy, createAnswerGuard, compileAnswerPolicy, type UrlElicitationPolicy, type AnswerGuardOptions } from "./interaction.js";
+export { filesGuard, hostAllowed, type GateFilesPolicy } from "./files.js";

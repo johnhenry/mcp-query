@@ -19,6 +19,7 @@ import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, C
 import type { RedactRule } from "./redact.js";
 import type { GatewayInteractions, GatewayExtensions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
+import type { GateFilesPolicy } from "./files.js";
 
 /**
  * Policy for the ANSWER hop of a forwarded round (`interactions: "forward"`): the consumer's
@@ -247,6 +248,16 @@ export interface GateConfig {
    * UI is denied here. Set `tasksSecret` when several gate instances share consumers. See the README.
    */
   extensions?: GatewayExtensions;
+  /**
+   * EXPERIMENTAL, MAY CHANGE. Opt-in policy for drafts that are not part of the MCP specification.
+   *
+   * `files`: the file uploads/downloads extension (`io.modelcontextprotocol/files`). Uploads bypass the gate
+   * (the client sends bytes straight to a URL the server names), so the gate denies an `upload_required` round
+   * unless every upload host matches `allowUploadHosts`; download URLs in results follow `allowDownloadHosts`
+   * (stripped, or the call refused); `maxFileSize` / `accept` limit `x-mcp-file` arguments. Upload refusals are
+   * on by default even without this key; everything else applies only when it is set. See `GateFilesPolicy`.
+   */
+  experimental?: { files?: GateFilesPolicy };
 }
 
 function escapeRe(s: string): string {

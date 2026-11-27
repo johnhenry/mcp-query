@@ -15,6 +15,7 @@ import type { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { MCPProvider } from "@johnhenry/mcp-query/react";
 import { WebSocketProxyTransport } from "../transport.js";
 import type { TargetSpec } from "../transport.js";
+import { fileConstraints, fileProblem } from "../schema-form.js";
 
 export type { TargetSpec } from "../transport.js";
 
@@ -116,6 +117,8 @@ export function SchemaForm({ schema, onSubmit, submitLabel = "Run" }: SchemaForm
   const props = schema?.properties ?? {};
   const required = useMemo(() => new Set(schema?.required ?? []), [schema]);
   const [raw, setRaw] = useState<Record<string, string | boolean>>({});
+  // EXPERIMENTAL x-mcp-file params: the chosen File per key (only if it satisfies accept / maxSize).
+  const [files, setFiles] = useState<Record<string, File | undefined>>({});
 
   const keys = Object.keys(props);
 
@@ -125,7 +128,9 @@ export function SchemaForm({ schema, onSubmit, submitLabel = "Run" }: SchemaForm
       const sub = props[key]!;
       const t = Array.isArray(sub.type) ? sub.type[0] : sub.type;
       const v = raw[key];
-      if (sub.enum) {
+      if (fileConstraints(sub)) {
+        if (files[key]) out[key] = files[key];
+      } else if (sub.enum) {
         if (v !== undefined && v !== "") out[key] = v;
       } else if (t === "boolean") {
         out[key] = v === true;
@@ -154,7 +159,24 @@ export function SchemaForm({ schema, onSubmit, submitLabel = "Run" }: SchemaForm
         const label = key + (required.has(key) ? " *" : "");
         const set = (val: string | boolean) => setRaw((r) => ({ ...r, [key]: val }));
         let control: ReactNode;
-        if (sub.enum) {
+        const fileC = fileConstraints(sub);
+        if (fileC) {
+          control = (
+            <input
+              type="file"
+              accept={fileC.accept?.length ? fileC.accept.join(",") : undefined}
+              title={sub.description}
+              required={required.has(key)}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                const problem = fileProblem(f, fileC);
+                e.target.setCustomValidity(problem ?? "");
+                e.target.title = problem ?? sub.description ?? "";
+                setFiles((m) => ({ ...m, [key]: problem ? undefined : f }));
+              }}
+            />
+          );
+        } else if (sub.enum) {
           control = (
             <select
               value={(raw[key] as string) ?? ""}
