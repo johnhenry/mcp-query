@@ -19,6 +19,7 @@ import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, C
 import type { RedactRule } from "./redact.js";
 import type { GatewayInteractions, GatewayExtensions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
+import type { GateCardConfig } from "./card.js";
 
 /**
  * Policy for the ANSWER hop of a forwarded round (`interactions: "forward"`): the consumer's
@@ -311,6 +312,12 @@ export interface GateConfig {
    * UI is denied here. Set `tasksSecret` when several gate instances share consumers. See the README.
    */
   extensions?: GatewayExtensions;
+  /**
+   * Server Card (SEP-2127) for the gate's own endpoint, used by `gateServerCard` /
+   * `createGateCardHandler`. The card describes only the gate; upstream names appear only with
+   * `card.listUpstreams: true`.
+   */
+  card?: GateCardConfig;
 }
 
 function escapeRe(s: string): string {

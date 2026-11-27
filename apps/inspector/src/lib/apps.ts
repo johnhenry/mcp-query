@@ -31,11 +31,16 @@ export function listAppTools(client: Pick<MCPClient, "listTools">, server: strin
   return out;
 }
 
-const hosts = new Map<string, AppHost>();
-/** One AppHost per inspected server (the host resolves tools/resources against that server only). */
+const hosts = new WeakMap<MCPClient, Map<string, AppHost>>();
+/**
+ * One AppHost per (client, inspected server): the host resolves tools/resources against that server only.
+ * Keyed by client too, because governed mode opens the same server through a second, gated client.
+ */
 export function hostFor(client: MCPClient, server: string): AppHost {
-  let h = hosts.get(server);
-  if (!h) hosts.set(server, (h = createAppHost({ client, server, hostInfo: { name: "mcp-inspector", version: "0.0.1" } })));
+  let byServer = hosts.get(client);
+  if (!byServer) hosts.set(client, (byServer = new Map()));
+  let h = byServer.get(server);
+  if (!h) byServer.set(server, (h = createAppHost({ client, server, hostInfo: { name: "mcp-inspector", version: "0.0.1" } })));
   return h;
 }
 

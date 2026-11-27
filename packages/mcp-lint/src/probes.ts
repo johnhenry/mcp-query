@@ -8,6 +8,7 @@
 
 import { Client } from "@modelcontextprotocol/client";
 import { buildTransport, type ConnectOptions } from "../../mcp-contract/src/index.js";
+import { DiscoveryError, compareCardToLive, fetchServerCard, recommendedCardUrl, sanitizeForDisplay } from "../../mcp-query/src/discovery/index.js";
 import type { Severity } from "./rules.js";
 
 /**
@@ -26,9 +27,19 @@ export interface ProbeClient {
   getServerCapabilities(): Record<string, unknown> | undefined;
   getProtocolEra?(): string | undefined;
   getDiscoverResult?(): unknown;
+  getServerVersion?(): { name?: string; version?: string } | undefined;
+  getNegotiatedProtocolVersion?(): string | undefined;
   discover?(): Promise<unknown>;
   listTools(params?: { cursor?: string }, options?: { cacheMode?: "use" | "refresh" | "bypass" }): Promise<{ tools: Array<{ name: string }>; nextCursor?: string }>;
   readResource(params: { uri: string }, options?: { cacheMode?: "use" | "refresh" | "bypass" }): Promise<unknown>;
+}
+
+/** What a probe may need beyond the connected client. */
+export interface ProbeContext {
+  /** The Streamable HTTP URL that was linted. Absent for stdio servers (the card rule then stays silent). */
+  url?: string;
+  /** Injectable fetch for the Server Card request (tests). */
+  fetch?: typeof fetch;
 }
 
 export interface ProbeViolation {
@@ -42,7 +53,7 @@ export interface LiveRule {
   defaultSeverity: Severity;
   /** The SEP / spec text the rule is written against. */
   source: string;
-  check: (client: ProbeClient) => Promise<ProbeViolation[]>;
+  check: (client: ProbeClient, ctx: ProbeContext) => Promise<ProbeViolation[]>;
 }
 
 const errorCode = (e: unknown): number | undefined => {
@@ -128,6 +139,36 @@ export const LIVE_RULES: LiveRule[] = [
       return [{ target, message: "reading a made-up URI succeeded; a missing resource should fail with -32602 (SEP-2164)" }];
     },
   },
+  {
+    id: "server-card",
+    description: "A remote HTTP server publishes a Server Card at <url>/server-card, and it agrees with the live negotiated versions (SEP-2127).",
+    defaultSeverity: "warn",
+    source: "SEP-2127: <streamable-http-url>/server-card is the recommended location; card and server/discover SHOULD stay aligned (clients prefer the live values)",
+    check: async (client, ctx) => {
+      if (!ctx.url) return []; // stdio and other transports have no card location
+      const cardUrl = recommendedCardUrl(ctx.url);
+      let fetched;
+      try {
+        // Loopback http is allowed: linting a local dev server is the common case.
+        fetched = await fetchServerCard(cardUrl, { allowInsecureLocalhost: true, ...(ctx.fetch ? { fetch: ctx.fetch } : {}) });
+      } catch (e) {
+        if (e instanceof DiscoveryError && e.code === "http_error" && /\b404\b|\b410\b/.test(e.message)) {
+          return [{ target: cardUrl, message: "no Server Card published here (404); SEP-2127 recommends one at <streamable-http-url>/server-card so clients can discover transports and protocol versions before connecting" }];
+        }
+        return [{ target: cardUrl, message: `Server Card could not be used: ${sanitizeForDisplay(errorMessage(e), 200)}` }];
+      }
+      const info = client.getServerVersion?.();
+      const supported = (client.getDiscoverResult?.() as { supportedVersions?: unknown } | undefined)?.supportedVersions;
+      const findings = compareCardToLive(fetched.card, {
+        connectedUrl: ctx.url,
+        ...(info ? { serverInfo: info } : {}),
+        ...(client.getNegotiatedProtocolVersion?.() ? { negotiatedVersion: client.getNegotiatedProtocolVersion() } : {}),
+        ...(Array.isArray(supported) ? { supportedVersions: supported.filter((v): v is string => typeof v === "string") } : {}),
+      });
+      // `note` findings mean "nothing to compare"; only real disagreements are violations.
+      return findings.filter((f) => f.kind === "differs").map((f) => ({ target: cardUrl, message: `${sanitizeForDisplay(f.message, 300)} (SEP-2127: the live server wins)` }));
+    },
+  },
 ];
 
 export interface ProbeFinding {
@@ -140,14 +181,14 @@ export interface ProbeFinding {
 }
 
 /** Run the live rules against a connected client. A probe that throws unexpectedly becomes a finding on that rule, never a crash. */
-export async function runProbes(client: ProbeClient, opts: { rules?: Record<string, Severity> } = {}): Promise<ProbeFinding[]> {
+export async function runProbes(client: ProbeClient, opts: { rules?: Record<string, Severity> } & ProbeContext = {}): Promise<ProbeFinding[]> {
   const out: ProbeFinding[] = [];
   for (const rule of LIVE_RULES) {
     const severity = opts.rules?.[rule.id] ?? rule.defaultSeverity;
     if (severity === "off") continue;
     let violations: ProbeViolation[];
     try {
-      violations = await rule.check(client);
+      violations = await rule.check(client, { ...(opts.url ? { url: opts.url } : {}), ...(opts.fetch ? { fetch: opts.fetch } : {}) });
     } catch (e) {
       violations = [{ target: rule.id, message: `probe could not run: ${errorMessage(e)}` }];
     }

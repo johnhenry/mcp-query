@@ -242,7 +242,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy", "extensions"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy", "extensions", "card"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -255,6 +255,14 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
   }
   if (config.redact !== undefined) validateRedact(config.redact);
   if (config.extensions !== undefined) validateExtensions(config.extensions);
+  if (config.card !== undefined) {
+    if (!isRecord(config.card)) fail(`"card" must be an object (got ${typeOf(config.card)})`);
+    checkKeys(config.card, ["url", "name", "version", "description", "title", "websiteUrl", "supportedProtocolVersions", "listUpstreams"], "card");
+    for (const k of ["url", "name", "version"]) if (typeof config.card[k] !== "string") fail(`"${k}" in card is required and must be a string`);
+    for (const k of ["description", "title", "websiteUrl"]) checkType(config.card, k, "a string", aString, "card");
+    checkType(config.card, "supportedProtocolVersions", "an array of protocol revision strings", isStringArray, "card");
+    checkType(config.card, "listUpstreams", "a boolean", aBoolean, "card");
+  }
   if (config.interactions !== undefined) validateInteractions(config.interactions);
   if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
   if (config.answerPolicy !== undefined) {

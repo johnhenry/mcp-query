@@ -101,6 +101,25 @@ export interface ContractEvent {
 
 export type ContractExtensionSettings = Record<string, unknown>;
 
+/** One transport endpoint a Server Card (SEP-2127) lists. */
+export interface ContractCardRemote {
+  type: string;
+  url: string;
+  supportedProtocolVersions?: string[];
+}
+
+/**
+ * The slice of a remote server's published Server Card worth pinning: identity and where/how to
+ * connect. Never tools or capabilities (a card has none). Optional and caller-supplied: capture
+ * does not fetch anything itself (see {@link cardForContract}).
+ */
+export interface ContractCard {
+  /** Where the card was read from. Informational: not compared. */
+  url?: string;
+  name: string;
+  remotes: ContractCardRemote[];
+}
+
 export interface Contract {
   /** Contract format version. v1 files are upgraded on load (see {@link upgradeContract}). */
   version: 2;
@@ -121,6 +140,8 @@ export interface Contract {
   skills?: ContractSkill[];
   /** Present only when the events extension is advertised and `events/list` answered. */
   events?: ContractEvent[];
+  /** The server's Server Card (SEP-2127), when the capture was given one (`captureContract(client, { card })`). */
+  card?: ContractCard;
 }
 
 /** The v1 on-disk shape (read-only: v1 files are upgraded, never written). */
@@ -242,7 +263,7 @@ function sortKeys<T>(o: Record<string, T>): Record<string, T> {
 }
 
 /** Capture the full capability surface of a *connected* SDK client into a contract. */
-export async function captureContract(client: Client): Promise<Contract> {
+export async function captureContract(client: Client, opts: { card?: ContractCard } = {}): Promise<Contract> {
   const caps = client.getServerCapabilities() ?? {};
   const info = client.getServerVersion();
   // Optional getters, read defensively so capture keeps working across SDK 2.x minors.
@@ -341,10 +362,27 @@ export async function captureContract(client: Client): Promise<Contract> {
     prompts: prompts.sort(byName),
     ...(skills ? { skills: skills.sort(byName) } : {}),
     ...(events ? { events: events.sort(byName) } : {}),
+    ...(opts.card ? { card: opts.card } : {}),
   };
 }
 
-export type ChangeCategory = "tool" | "resource" | "template" | "prompt" | "capability" | "extension" | "protocol" | "skill" | "event";
+/**
+ * Reduce a parsed Server Card (e.g. from `fetchServerCard` in `@johnhenry/mcp-query/discovery`) to the
+ * part a contract pins. Duck-typed on purpose so this package does not depend on the discovery module.
+ */
+export function cardForContract(card: { name: string; remotes?: Array<{ type: string; url: string; supportedProtocolVersions?: string[] }> }, url?: string): ContractCard {
+  return {
+    ...(url ? { url } : {}),
+    name: card.name,
+    remotes: (card.remotes ?? []).map((r) => ({
+      type: r.type,
+      url: r.url,
+      ...(r.supportedProtocolVersions ? { supportedProtocolVersions: [...r.supportedProtocolVersions].sort() } : {}),
+    })),
+  };
+}
+
+export type ChangeCategory = "tool" | "resource" | "template" | "prompt" | "capability" | "extension" | "protocol" | "skill" | "event" | "card";
 
 /**
  * - `breaking`: a consumer written against the pinned contract can stop working.
@@ -427,6 +465,7 @@ export function diffContract(prevIn: Contract | ContractV1, nextIn: Contract | C
   if (prev.capabilities) diffCapabilities(prev.capabilities, next.capabilities ?? {}, changes);
   if (prev.extensions) diffExtensions(prev.extensions, next.extensions ?? {}, changes);
   if (prev.protocol?.supported && next.protocol?.supported) diffProtocol(prev.protocol.supported, next.protocol.supported, changes);
+  if (prev.card && next.card) diffCard(prev.card, next.card, changes);
   if (prev.skills) diffCollection(prev.skills, next.skills ?? [], (k) => k.uri, "skill", changes, diffSkill);
   if (prev.events) diffCollection(prev.events, next.events ?? [], (e) => e.name, "event", changes, diffEvent);
 
@@ -486,6 +525,33 @@ function diffProtocol(prev: string[], next: string[], out: ContractChange[]): vo
   for (const v of prev) if (!have.has(v)) out.push({ category: "protocol", target: v, level: "breaking", detail: "protocol version no longer supported" });
   const had = new Set(prev);
   for (const v of next) if (!had.has(v)) out.push({ category: "protocol", target: v, level: "compatible", detail: "protocol version added" });
+}
+
+// A card is advisory, but a pinned one says where consumers connect and what they can speak: a removed
+// endpoint or a dropped protocol version breaks them; a changed card name is drift (identity moved).
+// Only compared when both sides captured a card.
+function diffCard(prev: ContractCard, next: ContractCard, out: ContractChange[]): void {
+  const push = (target: string, level: ChangeLevel, detail: string) => out.push({ category: "card", target, level, detail });
+  if (prev.name !== next.name) push("name", "drift", `card name ${JSON.stringify(prev.name)} → ${JSON.stringify(next.name)}`);
+  const after = new Map(next.remotes.map((r) => [r.url, r]));
+  const before = new Map(prev.remotes.map((r) => [r.url, r]));
+  for (const [url, a] of before) {
+    const b = after.get(url);
+    if (!b) {
+      push(url, "breaking", "endpoint no longer listed in the card");
+      continue;
+    }
+    if (a.type !== b.type) push(url, "breaking", `transport ${a.type} → ${b.type}`);
+    if (a.supportedProtocolVersions && b.supportedProtocolVersions) {
+      const have = new Set(b.supportedProtocolVersions);
+      for (const v of a.supportedProtocolVersions) if (!have.has(v)) push(url, "breaking", `card no longer lists protocol version ${v}`);
+      const had = new Set(a.supportedProtocolVersions);
+      for (const v of b.supportedProtocolVersions) if (!had.has(v)) push(url, "compatible", `card now lists protocol version ${v}`);
+    } else if (a.supportedProtocolVersions && !b.supportedProtocolVersions) {
+      push(url, "breaking", "card no longer lists supportedProtocolVersions");
+    }
+  }
+  for (const url of after.keys()) if (!before.has(url)) push(url, "compatible", "endpoint added to the card");
 }
 
 function diffSkill(a: ContractSkill, b: ContractSkill, push: Push): void {

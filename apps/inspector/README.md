@@ -89,6 +89,33 @@ postMessage target to the inspector origin passed as `?host=`. It is a local cop
 press is an app-initiated `next_count` call listed under *Calls*. Override ports with `SANDBOX_PORT` (server)
 and `?sandboxPort=` (inspector URL) if 5174 is taken.
 
+### Governed mode (gate approvals beside the app)
+
+By default the app's `tools/call` goes straight through the inspector's client. Tick **governed (mcp-gate
+approvals)** before **open app** and the app is opened through a second client built with
+[`@johnhenry/mcp-gate`](../../packages/mcp-gate)'s browser entry (`createGateClient`: the full policy / approval /
+redaction stack, no gateway server): the **approve patterns** box holds `server.tool` globs (default `*`) and an
+app-initiated tool call matching one waits as a **Gate approvals** card next to the app, showing who asked
+(`mcp-app:<ui uri>`), the tool and its arguments, with **Approve** / **Deny**. The app's call resolves (or fails with
+a "denied" error) accordingly; closing the app denies what it still has waiting. Loading the app (a resource read)
+and unmatched calls are never held. Off by default; nothing else about the inspector changes.
+
+![Governed Apps tab](screenshots/apps-governed.png)
+
+Notes: the governed client is a **second connection** to the same server (same transport, so a stdio server is
+spawned a second time and keeps its own state, e.g. the demo counter starts again from 0); the inspector's Tools tab
+and Messages log keep using the first. Approval text (tool name, arguments, principal) comes from the app and is
+rendered as text. Still local-only: the sandbox proxy stays a local second origin; there is no hosted sandbox.
+
+### Server Cards (the Card tab)
+
+The **Card** tab fetches the [Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (SEP-2127) for
+the active HTTP server (`<url>/server-card`; or paste any card URL) and shows its identity, remotes and protocol
+versions next to the live connection, listing every disagreement (name, version, connected URL, negotiated and
+supported protocol versions; the live server wins). The fetch runs in the browser, so the card host must send CORS
+headers. Card text is untrusted: it is rendered as text only, icons are listed but never loaded, and nothing in the card
+is clickable.
+
 ## Architecture
 
 ```

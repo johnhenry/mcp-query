@@ -34,12 +34,13 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<{ contract: Contract; probes?: Finding[] }> {
   if (flags.contract) return { contract: upgradeContract(JSON.parse(await readFile(flags.contract, "utf8"))) }; // reads v1 and v2
   const connect = "probe" in flags ? connectProbeClient : connectClient;
-  const { client, close } = await connect({ ...resolveConnect(flags, headers), clientName: "mcp-lint" });
+  const target = resolveConnect(flags, headers);
+  const { client, close } = await connect({ ...target, clientName: "mcp-lint" });
   try {
     const contract = await captureContract(client);
     if (!("probe" in flags)) return { contract };
     // Live mode: keep the connection open for the probe rules, with the same severity overrides.
-    const probes = await runProbes(client as unknown as ProbeClient, { rules: overridesFrom(flags) });
+    const probes = await runProbes(client as unknown as ProbeClient, { rules: overridesFrom(flags), ...(target.url ? { url: target.url } : {}) });
     return { contract, probes };
   } finally {
     await close();

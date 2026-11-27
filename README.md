@@ -218,6 +218,19 @@ stripped of terminal escapes before it is printed. A card never contains tools o
 those still come from the live server. Browsers need the card host to send CORS headers
 (`Access-Control-Allow-Origin`), as the spec requires of hosted cards.
 
+Publishing and checking cards from the rest of the toolchain:
+
+- **Gate:** `@johnhenry/mcp-gate` builds a card for its own endpoint (`gateServerCard(config)`) and serves it at
+  `<url>/server-card` (`createGateCardHandler(config)`). It describes the gate only; upstream names appear only if you set
+  `card.listUpstreams`. See the [gate README](packages/mcp-gate/README.md#server-card-sep-2127).
+- **Connection preflight:** `cardPreflight: { cardUrl }` on a connection reads the card first and uses its supported
+  protocol versions to pick the handshake (no failed probe). Best-effort and opt-in: a missing or stale card is ignored,
+  explicit `versions` win, and the live server always has the last word.
+- **Lint:** `mcp-lint --url … --probe` runs the `server-card` rule (a card is published and agrees with the live versions).
+- **Contract:** a captured v2 contract can carry the card (`captureContract(client, { card })`); a changed endpoint or a
+  dropped protocol version is breaking drift.
+- **Inspector:** the Card tab shows a card and its disagreements with the live server.
+
 ## Develop
 
 ```bash
