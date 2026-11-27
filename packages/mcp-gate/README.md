@@ -112,6 +112,8 @@ export default config;
 | `namespace` | `boolean` | `true` | Prefix re-exposed names with `server.`. |
 | `audit` | `(entry: CallAuditEntry) => void` | stderr line | Sink for every op — see the field's TSDoc in `src/config.ts` for the full contract (fires after settle, not awaited, wrapped for crash-safety). |
 | `clientInfo` | `ClientInfo` | `mcp-gate` | Identity sent to upstreams. |
+| `interactions` | `"answer" \| "forward" \| "deny" \| { default?, upstreams? }` | `"answer"` | What an upstream's `input_required` (MRTR) round does — see [Forwarding upstream interactions](#forwarding-upstream-interactions). |
+| `urlElicitation` | `{ allowHosts?, denyHosts? }` | none (URL mode denied) | Host globs for a forwarded URL-mode elicitation. |
 
 `HttpUpstreamSpec.getToken?: () => string | undefined | Promise<string | undefined>` resolves
 a bearer token fresh before every request (the SDK's own `AuthProvider.token()` hook — no
@@ -230,6 +232,66 @@ gate.approvals!.subscribe(() => {
 
 Browser note: approval works in `createGateClient` too (see "Browser usage"); only the gateway
 `Server` and stdio upstreams are Node-only.
+
+## Forwarding upstream interactions
+
+On the 2026-07-28 protocol a tool (or prompt) can answer with an `input_required` result
+instead of a final one: it carries `inputRequests` (typically an elicitation: "really delete
+this repo?") and an opaque `requestState`, and the caller retries with `inputResponses` and
+the same `requestState`. A plain gate answers those rounds itself (with its own host
+handlers) or fails, so the person at the far end of the gate never sees the question. That is
+the default, and it is unchanged. `interactions` makes it a choice:
+
+| `interactions` | An upstream `input_required` round... |
+|---|---|
+| `"answer"` (default) | is answered by the gate's own `MCPClient` handlers, or fails. The consumer never sees it. |
+| `"forward"` | is returned to the consumer. `inputRequests` pass through the gate's `redact` rules; `requestState` is forwarded byte-for-byte (never redacted); the consumer's retry (`inputResponses` + `requestState`) is routed back to the same upstream call. Each hop goes through `authorize`, rate-limit, circuit-breaker and `audit`. |
+| `"deny"` | is refused: the upstream is told the gate cannot ask anyone, and an `input_required` result anyway fails with `-32003`. |
+
+Set one mode for every upstream, or a default plus per-upstream overrides:
+
+```ts
+export default {
+  upstreams: { github: { url: "https://example.com/mcp" }, notes: { command: "notes-mcp" } },
+  interactions: { default: "deny", upstreams: { github: "forward" } },
+  urlElicitation: { allowHosts: ["github.com", "*.github.com"] },
+} satisfies GateConfig;
+```
+
+What forwarding does and does not do:
+
+- **Elicitation only.** A `sampling/createMessage` or `roots/list` request in a round is
+  refused (`-32003`); only `elicitation/create` is relayed.
+- **The upstream is told the truth.** Per request, the gate declares to the upstream exactly
+  the elicitation capability the consumer declared (and none when denying). A consumer that
+  declared none gets `MissingRequiredClientCapability` (`-32021`) rather than a question it
+  cannot answer.
+- **Both consumer eras.** A modern consumer receives the `input_required` result itself; a
+  2025-era consumer receives it as a server-initiated `elicitation/create` (the SDK carries
+  the round) and the answer is retried for it.
+- **Modern upstreams only.** Forwarding applies to upstreams on a 2026-07-28 connection (set
+  `versions` on the upstream's `ConnectionConfig`). A 2025-era upstream asks with a
+  server-initiated `elicitation/create` on the gate's own connection and is not relayed.
+- **Never cached.** An interim `input_required` result is not a tool result and is never
+  written to the cache, even for a `readOnlyHint` tool.
+- **`requestState` is the upstream's.** The gate neither inspects nor signs it. An upstream
+  that lets it influence authorization must protect its integrity itself, as the spec requires.
+- **Audit.** A `CallAuditEntry` for a call that was one hop of a round carries
+  `interaction: { phase: "request", methods, urlHosts? }` (the call returned `input_required`)
+  or `{ phase: "response" }` (the call carried the consumer's answers). Payloads are not logged.
+  A refused round is an ordinary `"denied"` / `"error"` entry.
+- **There is no server capability flag for MRTR** in the 2026-07-28 spec, so nothing new is
+  advertised to the consumer in `initialize`/`server/discover`; the advertisement happens in
+  the per-request client capabilities sent to the upstream, as above, and only when forwarding is on.
+
+### URL-mode elicitation
+
+A URL-mode elicitation sends the person to a URL the *upstream* chose. When forwarding, each
+one is checked against `urlElicitation` before the consumer sees it: `denyHosts` first, then
+`allowHosts`. Globs match the lowercased hostname, `*` matches any run of characters
+(`*.example.com` matches `a.example.com`, not `example.com`). **It fails closed**: forwarding
+with no `allowHosts` denies every URL-mode elicitation (form mode is unaffected). A denied
+round is `-32003` and an audit entry with `outcome: "denied"` naming the host.
 
 ## Multi-tenancy
 

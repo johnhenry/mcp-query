@@ -24,6 +24,7 @@ import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
+import { describeInteraction, isInputRequiredResult, mrtrParams, type AuditInteraction, type ToolInteraction } from "./interaction.js";
 import {
   CallToolOrTaskResultSchema,
   CancelTaskResultSchema,
@@ -130,6 +131,8 @@ export interface CallAuditEntry {
   principal?: unknown;
   outcome: "ok" | "denied" | "error";
   error?: string;
+  /** Set when this call was one hop of a multi-round-trip (MRTR) exchange: it returned `input_required` ("request") or carried the consumer's answers ("response"). */
+  interaction?: AuditInteraction;
 }
 
 /** Per-request timeout knobs (mirrors the SDK's RequestOptions), exposed like Inspector. */
@@ -226,6 +229,12 @@ export interface CallToolOpts<A, R> {
   onProgress?: (p: { progress: number; total?: number }) => void;
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
+  /**
+   * Manual MRTR (2026-07-28): hand an upstream `input_required` result back instead of
+   * answering it with the host handlers, and carry a retry's `inputResponses` /
+   * `requestState`. Used by the gateway's `interactions: "forward"`. Never cached.
+   */
+  interaction?: ToolInteraction;
 }
 
 function abortError(signal: AbortSignal): Error {
@@ -406,7 +415,7 @@ export class MCPClient {
     let base = this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
     if (this.onCall) {
       base = base.then(
-        (r) => (this.audit(op, at, "ok"), r),
+        (r) => (this.audit(op, at, "ok", undefined, r), r),
         (e) => {
           // -32003 is AuthorizationError's code (mcp-query/server); don't import across layers.
           // (Safe vs the 2026-07-28 reserved band, which starts at -32020.)
@@ -421,9 +430,10 @@ export class MCPClient {
     return base;
   }
 
-  private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string): void {
+  private audit(op: Operation, at: number, outcome: CallAuditEntry["outcome"], error?: string, result?: unknown): void {
     if (!this.onCall) return;
-    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error };
+    const interaction = describeInteraction(result, op.interaction);
+    const entry: CallAuditEntry = { at, ms: Date.now() - at, server: op.peer, kind: op.kind, target: op.target, principal: (op.context?.meta as { principal?: unknown } | undefined)?.principal, outcome, error, ...(interaction ? { interaction } : {}) };
     try {
       const r = this.onCall(entry);
       if (r && typeof (r as PromiseLike<unknown>).then === "function") {
@@ -556,7 +566,7 @@ export class MCPClient {
   ): Promise<R> {
     await this.wake(this.hint(name, opts.server));
     const { server, def } = this.router.resolveTool(name, opts.server);
-    const op: Operation = { kind: "call", peer: server, target: def.name, def, args, context: opts.context, state: {} };
+    const op: Operation = { kind: "call", peer: server, target: def.name, def, args, context: opts.context, interaction: opts.interaction, state: {} };
     return this.run(op, (o) => this.execCall<A, R>(server, def, o.args as A, { ...opts, context: o.context })) as Promise<R>;
   }
 
@@ -573,8 +583,9 @@ export class MCPClient {
     const rollback = opts.optimistic ? this.cache.patch(opts.optimistic(args)) : undefined;
     try {
       const result = (await conn.sdk.callTool(
-        { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}) },
+        { name: def.name, arguments: args, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
         {
+          ...(opts.interaction ? { allowInputRequired: true } : {}),
           signal: opts.signal,
           onprogress: opts.onProgress,
           // We already hold the routed Tool — hand it to the SDK so output-schema
@@ -588,8 +599,9 @@ export class MCPClient {
       // Tool-level error channel: surfaced as data, NOT thrown (mirrors GraphQL errors[]).
       if (result.isError) rollback?.();
 
-      // readOnly tool results may be cached by (name,args) like a query.
-      if (readOnly) {
+      // readOnly tool results may be cached by (name,args) like a query. An interim
+      // `input_required` result is not a result — never cache it.
+      if (readOnly && !isInputRequiredResult(result)) {
         this.cache.write(
           { kind: "toolResult", server, tool: def.name, argsHash: argsHash(args), partition: opts.context?.partition },
           result,
@@ -1123,7 +1135,7 @@ export class MCPClient {
     });
   }
 
-  async getPrompt(name: string, args: Record<string, unknown>, server?: string, opts: { context?: CallContext } = {}) {
+  async getPrompt(name: string, args: Record<string, unknown>, server?: string, opts: { context?: CallContext; interaction?: ToolInteraction } = {}) {
     await this.wake(server);
     // Prompts have their own registry — route by which server offers the prompt, not by tool.
     const s = server ?? this.connections().find((c) => c.prompts.has(name))?.name;
@@ -1132,7 +1144,10 @@ export class MCPClient {
     // MCP prompt arguments are string-valued; coerce so callers can pass numbers/bools.
     const stringArgs = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)]));
     const meta = this.withMeta(conn, opts.context);
-    return conn.sdk.getPrompt({ name, arguments: stringArgs, ...(meta ? { _meta: meta } : {}) });
+    return conn.sdk.getPrompt(
+      { name, arguments: stringArgs, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
+      opts.interaction ? ({ allowInputRequired: true } as never) : undefined,
+    );
   }
 
   // ── internals ──────────────────────────────────────────────────────────
