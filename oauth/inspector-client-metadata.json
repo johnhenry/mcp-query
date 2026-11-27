@@ -1,0 +1,13 @@
+{
+  "client_id": "https://johnhenry.github.io/mcp-query/oauth/inspector-client-metadata.json",
+  "client_name": "MCP Inspector (mcp-query)",
+  "client_uri": "https://github.com/johnhenry/mcp-query/tree/main/apps/inspector",
+  "redirect_uris": [
+    "http://localhost:5173/",
+    "http://127.0.0.1:5173/"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

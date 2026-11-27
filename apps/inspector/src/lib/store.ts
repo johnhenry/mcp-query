@@ -2,12 +2,14 @@
 // human-in-the-loop, a devtools hub for the message log, and small signals the panels
 // react to (active server, editable roots).
 
-import { MCPClient, InteractionBroker, instrumentAuthProvider, type AuthStep, type ConnectionConfig } from "@johnhenry/mcp-query";
+import { MCPClient, InteractionBroker, type AuthStep, type ConnectionConfig } from "@johnhenry/mcp-query";
 import { DevtoolsHub } from "@johnhenry/mcp-query/devtools";
 import { StreamableHTTPClientTransport, SSEClientTransport, type Transport, type OAuthClientProvider } from "@modelcontextprotocol/client";
 import { mcpAppsExtensions } from "@johnhenry/mcp-query-ui";
 import { WebSocketProxyTransport, type TargetSpec } from "./transport.js";
-import { BrowserOAuthProvider } from "./oauth.js";
+import { createInstrumentedProvider } from "./oauth.js";
+import { appendStep, clearSteps } from "./oauthSteps.js";
+import { completeAuth } from "./oauthResume.js";
 import { governance } from "./governed.js";
 
 const params = new URLSearchParams(location.search);
@@ -49,15 +51,19 @@ export interface SavedServer extends TargetSpec {
 }
 
 /** Instrumented OAuth providers per server, so the debugger panel can read their steps. */
-export type InstrumentedAuth = OAuthClientProvider & { authSteps: () => readonly AuthStep[] };
+export type InstrumentedAuth = OAuthClientProvider & {
+  authSteps: () => readonly AuthStep[];
+  authNote: (member: string, detail?: unknown) => void;
+  prepare?: () => Promise<unknown>;
+};
 export const authProviders = new Map<string, InstrumentedAuth>();
 const PENDING = "mcp-pending-auth";
 
 function instrumentedProvider(name: string): InstrumentedAuth {
-  const base = new BrowserOAuthProvider(name);
-  const provider = instrumentAuthProvider(base, (step) =>
-    hub.emit({ type: "auth", member: `${name}.${step.member}`, phase: step.phase, detail: step.detail }),
-  ) as InstrumentedAuth;
+  const provider = createInstrumentedProvider(name, (step) => {
+    appendStep(name, step); // survives the redirect to the authorization server
+    hub.emit({ type: "auth", member: `${name}.${step.member}`, phase: step.phase, detail: step.detail });
+  }) as unknown as InstrumentedAuth;
   authProviders.set(name, provider);
   return provider;
 }
@@ -75,7 +81,9 @@ function directTransport(spec: SavedServer, provider: OAuthClientProvider): () =
 export async function connectServer(s: SavedServer): Promise<void> {
   sessionStorage.setItem(`mcp-spec:${s.name}`, JSON.stringify(s)); // for re-auth / resume
   if (s.direct && (s.transport === "http" || s.transport === "sse")) {
-    const make = directTransport(s, instrumentedProvider(s.name));
+    const provider = instrumentedProvider(s.name);
+    await provider.prepare?.(); // decide CIMD vs DCR (and record why) before the SDK runs
+    const make = directTransport(s, provider);
     sessionStorage.setItem(PENDING, JSON.stringify(s)); // survive the auth redirect
     serverConfigs.set(s.name, { transport: make });
     await client.addServer(s.name, { transport: make }); // may navigate away to the IdP
@@ -94,10 +102,12 @@ export async function resumeIfAuthCallback(): Promise<void> {
   const pending = sessionStorage.getItem(PENDING);
   if (!code || !pending) return;
   const spec = JSON.parse(pending) as SavedServer;
-  const make = directTransport(spec, instrumentedProvider(spec.name));
+  const provider = instrumentedProvider(spec.name);
+  await provider.prepare?.(); // so the stored client is still recognised as CIMD (its id is the document URL)
+  const make = directTransport(spec, provider);
   try {
     const t = make();
-    await (t as unknown as { finishAuth(code: string): Promise<void> }).finishAuth(code); // code → tokens
+    await completeAuth(t as unknown as Parameters<typeof completeAuth>[0], provider, new URLSearchParams(location.search)); // code → tokens, iss checked
     await t.close().catch(() => {});
     sessionStorage.removeItem(PENDING);
     cleanAuthParamsFromUrl();
@@ -115,6 +125,8 @@ export async function resumeIfAuthCallback(): Promise<void> {
 export async function reauthServer(name: string): Promise<void> {
   const spec = JSON.parse(sessionStorage.getItem(`mcp-spec:${name}`) ?? "null") as SavedServer | null;
   authProviders.get(name)?.invalidateCredentials?.("tokens");
+  authProviders.get(name)?.invalidateCredentials?.("discovery"); // show a fresh discovery in the stepper
+  clearSteps(name); // a re-authorization starts a fresh step log
   await client.removeServer(name).catch(() => {});
   if (spec) await connectServer(spec);
 }
