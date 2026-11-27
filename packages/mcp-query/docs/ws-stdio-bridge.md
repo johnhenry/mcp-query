@@ -14,7 +14,7 @@ stdio servers to a browser host). Every rule below is pinned by
 *not pinned*.
 
 Keywords MUST / SHOULD / MAY are used as in RFC 2119. "Reference bridge" means `startProxy`;
-where it falls short of a MUST, the gap is listed under [Known gaps](#known-gaps-in-the-reference-bridge).
+where it falls short of a MUST, the gap is listed under [remaining gaps](#reference-bridge-defaults-and-remaining-gaps).
 
 > **Security first.** A bridge **spawns local processes on behalf of a web page**. A page the user
 > did not intend, a DNS-rebinding attacker, or another local user can turn an unprotected bridge
@@ -45,17 +45,18 @@ Admission order, all checked before any frame is processed:
 | --- | --- | --- |
 | Token | `token` is absent or not equal to the bridge's token | Socket closed with code **1008**, reason `bad token` |
 | Origin | an `Origin` header is present and not allowed | Socket closed with code **1008**, reason `bad origin` |
-| Origin (strict mode) | no `Origin` header and the bridge requires one | Socket closed with code **1008**, reason `bad origin` |
+| Origin (missing) | no `Origin` header and the bridge requires one (the reference default) | Socket closed with code **1008**, reason `bad origin` |
 
 The WebSocket handshake itself succeeds in both cases (the failure is a close frame after the
 upgrade, not an HTTP 401/403). A client sees `open` and then an immediate `close` with 1008.
 
-Default Origin policy of the reference bridge: `http://localhost[:port]` and
-`http://127.0.0.1[:port]` only (an exact scheme/host match, any port). Everything else is refused,
-including `https://localhost`, `http://localhost.evil.example`, and the opaque origin `null`.
-A bridge for a hosted page (for example `https://app.example`) MUST be configured with that exact
-origin. Reference option: `allowedOrigins: [string | RegExp]`; `requireOrigin: true` rejects sockets
-with no `Origin`.
+Defaults of the reference bridge (safe by default): a socket with **no `Origin` header is refused**,
+and only loopback origins are accepted: `http://localhost`, `http://127.0.0.1` and `http://[::1]`, any
+port (an exact scheme/host match). Everything else is refused, including `https://localhost`,
+`http://192.168.1.5:5173`, `http://localhost.evil.example`, and the opaque origin `null`. A bridge for
+a hosted page (for example `https://app.example`) MUST be configured with that exact origin.
+Reference options: `allowedOrigins: [string | RegExp]` replaces the list; `requireOrigin: false` is the
+explicit opt-out that admits sockets with no `Origin` (non-browser clients holding the token).
 
 ## 2. Framing
 
@@ -122,8 +123,14 @@ interface TargetSpec {
   skip the bridge for http/sse (so OAuth can run in the page); the reference bridge ignores it.
 - `command` is *the* dangerous field. Hosts that offer a fixed catalogue of servers SHOULD make
   the bridge resolve a **name to a command it owns** instead of accepting a raw command from the
-  page. The reference bridge accepts any command by default; its `allowTarget(spec) => boolean`
-  option refuses a spec (the client gets a `failed` frame with `error: "target not allowed"`, pinned).
+  page. The reference bridge is **deny-by-default**: unless it is given an allowlist, every
+  `connect` is refused with a `failed` frame (`error: "target not allowed"`, pinned) and nothing is
+  spawned. Allow targets with `allowTargets: TargetRule[]` (exact `command`, exact `args` with
+  optional `{ endsWith }` / `{ any: true }` items, `env` refused unless the rule sets `allowEnv`;
+  http/sse rules match `url` exactly) and/or the `allowTarget(spec) => boolean` predicate.
+  `allowAnyTarget: true` restores "run whatever the page asks": it is deliberately named as unsafe and
+  logs a warning at startup. `apps/shared/src/proxy-cli.ts` reads rules from `./proxy-allow.json`
+  in the app directory and enables the hatch only with `PROXY_ALLOW_ANY=1`.
 
 A `connect` frame MUST be sent at most once per socket. (Sending a second one on the same socket
 is undefined: the reference bridge replaces its target reference without closing the first process.)
@@ -203,21 +210,21 @@ const client = new MCPClient({
 or an error before the ack); `send()` wraps the message in `{"msg": ...}`; `close()` sends
 `{"control":{"close":true}}` and closes the socket.
 
-## Known gaps in the reference bridge
+## Reference bridge: defaults and remaining gaps
 
-These are places where `startProxy` is weaker than the MUSTs above, or where its behaviour is
-accidental. They are documented rather than silently changed; opt-in options exist for the first three.
+Defaults (a behaviour change from earlier versions of `startProxy`, which admitted a missing `Origin`
+and any `localhost` origin, and spawned any requested command): loopback bind, token required,
+`Origin` required and loopback-only, **no target allowed until configured**. The remaining weaker spots:
 
 | Gap | Today | Mitigation |
 | --- | --- | --- |
-| Origin may be absent | A socket with no `Origin` header is admitted (any non-browser process with the token can connect) | `requireOrigin: true` |
-| Origin allowlist is fixed | Only `http://localhost` / `http://127.0.0.1`, any port. A hosted or `https` dev page cannot be allowlisted | `allowedOrigins` |
-| Arbitrary command execution | A token holder can run any command with any args/env via `connect` | `allowTarget` (for example a command allowlist); better, a bridge that maps names to commands |
 | Token in the URL | The token is a query parameter, so it can land in logs, history and process listings; the comparison is not constant-time | Per-run random token (the default is a random UUID), keep the bridge short-lived |
 | No resource limits | No idle timeout, no connection cap, no rate limit, and the `ws` default maximum message size (100 MiB) | Run the bridge only while it is needed |
+| Allowed `args` are the whole surface | A rule that permits `{ any: true }` for an argument (for example a directory) trusts the page for that value | Prefer exact args; only `any` where the program is itself safe with any value |
 | Second `connect` on one socket | Leaks the first target process until the socket closes | Clients must not do this (not pinned) |
 | `port: 0` | The returned `url` echoes `0` rather than the bound port | Pass an explicit port |
-| Env default | `PROXY_PORT` / `PROXY_TOKEN` env vars are honoured (`proxy-cli.ts` prints a URL containing the token) | Do not run it in shared terminals or CI logs |
+| Token printed | `proxy-cli.ts` prints a URL containing the token; `PROXY_PORT` / `PROXY_TOKEN` env vars are honoured | Do not run it in shared terminals or CI logs |
+| Escape hatch | `allowAnyTarget` / `PROXY_ALLOW_ANY=1` lets a token holder run any command. The `composer`, `console` and `ops-cockpit` dev scripts use it because their UI lets the user type an arbitrary server command | Only for local dev tools of that kind |
 
 ## Conformance
 

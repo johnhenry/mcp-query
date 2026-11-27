@@ -1,0 +1,4 @@
+[
+  { "transport": "stdio", "command": "npx", "args": ["tsx", { "endsWith": "packages/mcp-gate/src/cli.ts" }, { "endsWith": "switchboard/gate.config.ts" }] },
+  { "transport": "http", "url": "https://mcp.context7.com/mcp" }
+]

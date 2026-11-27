@@ -240,8 +240,10 @@ child process. The wire protocol (framing, how the target command is selected, t
 checks, lifecycle, errors) is specified in [docs/ws-stdio-bridge.md](https://github.com/johnhenry/mcp-query/blob/main/packages/mcp-query/docs/ws-stdio-bridge.md); the
 reference implementation is `apps/shared`'s `startProxy` and is pinned by tests. mcp-query does not ship
 a bridge itself. Because the bridge **spawns local processes on behalf of a web page**, any
-implementation must bind to loopback, check `Origin`, and require a token; the doc lists the exact
-requirements and the reference bridge's known gaps.
+implementation must bind to loopback, check `Origin`, require a token and refuse to spawn anything it
+was not explicitly told to allow; the doc lists the exact requirements. The reference bridge is safe by
+default: `Origin` required and loopback-only, and **no target allowed until you pass `allowTargets`** (or the
+named, warning-logging `allowAnyTarget` escape hatch).
 
 ## Develop
 

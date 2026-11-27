@@ -6,7 +6,7 @@
   "description": "A chat composer where the USER drives MCP tools to assemble grounded input, with a pluggable model picker (aimatey).",
   "scripts": {
     "dev": "WEB_PORT=5178 PROXY_PORT=6285 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
-    "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
+    "dev:proxy": "PROXY_ALLOW_ANY=1 tsx ../shared/src/proxy-cli.ts",
     "dev:web": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",

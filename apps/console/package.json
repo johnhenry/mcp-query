@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "WEB_PORT=5174 PROXY_PORT=6281 concurrently -n proxy,web -c magenta,cyan \"npm:dev:proxy\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "dev:proxy": "tsx ../shared/src/proxy-cli.ts",
+    "dev:proxy": "PROXY_ALLOW_ANY=1 tsx ../shared/src/proxy-cli.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
