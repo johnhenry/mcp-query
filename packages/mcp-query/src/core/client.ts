@@ -252,6 +252,13 @@ export interface ReadResourceOpts {
   providesTags?: Tag[] | ((result: unknown) => Tag[]);
   requestOptions?: RequestTimeoutOpts;
   context?: CallContext;
+  /**
+   * Manual MRTR (2026-07-28), as for {@link CallToolOpts.interaction}: hand an upstream `input_required`
+   * result back and carry a retry's `inputResponses` / `requestState`. Used by the gateway's
+   * `interactions: "forward"`. A read that carries this bypasses the cache and request de-duplication
+   * (an answer-dependent result is not a function of the URI) and never writes either.
+   */
+  interaction?: ToolInteraction;
 }
 
 export interface QueryToolOpts {
@@ -684,8 +691,23 @@ export class MCPClient {
   async readResource(uri: string, opts: ReadResourceOpts = {}): Promise<unknown> {
     await this.wake(this.hint(uri, opts.server));
     const { server } = this.router.resolveResource(uri, opts.server);
-    const op: Operation = { kind: "read", peer: server, target: uri, context: opts.context, state: {} };
+    const op: Operation = { kind: "read", peer: server, target: uri, context: opts.context, interaction: opts.interaction, state: {} };
+    if (opts.interaction) return this.run(op, (o) => this.execInteractiveRead(o.peer, o.target, { ...opts, context: o.context }));
     return this.run(op, (o) => this.execRead(o.peer, o.target, { ...opts, context: o.context }));
+  }
+
+  /** A `resources/read` that may answer `input_required` (gateway forwarding): raw, uncached, never de-duplicated. */
+  private async execInteractiveRead(server: string, uri: string, opts: ReadResourceOpts): Promise<unknown> {
+    const conn = this.req(server);
+    const meta = this.withMeta(conn, opts.context);
+    try {
+      return await conn.sdk.readResource(
+        { uri, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
+        { allowInputRequired: true, cacheMode: "bypass", ...this.defaultRequestOptions, ...(opts.requestOptions ?? {}) } as never,
+      );
+    } catch (err) {
+      throw this.toError(err, server, "protocol");
+    }
   }
 
   private execRead(server: string, uri: string, opts: ReadResourceOpts): Promise<unknown> {

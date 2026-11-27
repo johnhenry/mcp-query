@@ -150,3 +150,5 @@ code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-si
 .result-table th, .result-table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .json-view pre { background: var(--code-bg); padding: 8px 10px; border-radius: 6px; overflow: auto; font-size: 12px; }
 .json-toggle { border: none; background: none; color: var(--muted); padding: 2px 0; }
+
+.trace-row .hop { grid-column: 2 / -1; font-size: 11px; color: var(--muted); }

@@ -113,6 +113,7 @@ export default config;
 | `audit` | `(entry: CallAuditEntry) => void` | stderr line | Sink for every op — see the field's TSDoc in `src/config.ts` for the full contract (fires after settle, not awaited, wrapped for crash-safety). |
 | `clientInfo` | `ClientInfo` | `mcp-gate` | Identity sent to upstreams. |
 | `interactions` | `"answer" \| "forward" \| "deny" \| { default?, upstreams? }` | `"answer"` | What an upstream's `input_required` (MRTR) round does — see [Forwarding upstream interactions](#forwarding-upstream-interactions). |
+| `interactionTimeoutMs` | `number` | `300000` | How long a consumer has to answer a relayed 2025-era elicitation before it is declined. |
 | `urlElicitation` | `{ allowHosts?, denyHosts? }` | none (URL mode denied) | Host globs for a forwarded URL-mode elicitation. |
 | `answerPolicy` | `AnswerPolicy` (rules or function) | none (answers allowed) | allow / deny / approve for the consumer's answers to forwarded input requests (and to task input requests) — see [Answers going upstream](#answers-going-upstream). |
 | `extensions` | `{ allow?, deny?, passthrough?, tasksSecret?, taskResolveMs? }` | tasks, skills, MCP Apps allowed; no pass-through | Which MCP extensions the gate offers and forwards — see [Extensions](#extensions). |
@@ -299,9 +300,10 @@ What forwarding does and does not do:
 - **Both consumer eras.** A modern consumer receives the `input_required` result itself; a
   2025-era consumer receives it as a server-initiated `elicitation/create` (the SDK carries
   the round) and the answer is retried for it.
-- **Modern upstreams only.** Forwarding applies to upstreams on a 2026-07-28 connection (set
-  `versions` on the upstream's `ConnectionConfig`). A 2025-era upstream asks with a
-  server-initiated `elicitation/create` on the gate's own connection and is not relayed.
+- **`tools/call`, `prompts/get` and `resources/read`.** All three forward the same way, with the
+  same redaction, `answerPolicy` (`kind: "resource"` for a read, `target` the URI), URL-host policy and
+  audit. A read that carried an answer is never cached.
+- **2025-era upstreams are relayed too** ([below](#relaying-a-2025-era-upstreams-elicitation)).
 - **Never cached.** An interim `input_required` result is not a tool result and is never
   written to the cache, even for a `readOnlyHint` tool.
 - **`requestState` is the upstream's.** The gate neither inspects nor signs it. An upstream
@@ -314,6 +316,45 @@ What forwarding does and does not do:
 - **There is no server capability flag for MRTR** in the 2026-07-28 spec, so nothing new is
   advertised to the consumer in `initialize`/`server/discover`; the advertisement happens in
   the per-request client capabilities sent to the upstream, as above, and only when forwarding is on.
+
+### Relaying a 2025-era upstream's elicitation
+
+A 2025-era upstream does not use `input_required`: it sends the gate's client a
+server-initiated `elicitation/create` while the call is still open. With `interactions: "forward"`
+the gate relays that to the consumer, in the consumer's own form, and hands the answer to the
+waiting upstream request:
+
+| Upstream | Consumer | How the question travels |
+|---|---|---|
+| 2026-07-28 | 2026-07-28 | the upstream's `input_required` round, as is |
+| 2026-07-28 | 2025-era, declared `elicitation` | the same round, carried by the SDK as a server-initiated `elicitation/create` |
+| 2025-era | 2026-07-28 | a round the gate makes (`input_required`, with a one-use `requestState` the **gate** minted); the consumer retries it |
+| 2025-era | 2025-era, declared `elicitation` | the same round, carried as a server-initiated `elicitation/create` |
+
+Not supported, and failing closed: a 2025-era consumer served over stateless HTTP
+(`createGatewayHandler`'s per-request legacy serving) cannot receive server-to-client requests, so
+for it (and for any consumer that did not declare the matching `elicitation` mode, `form` or `url`)
+the upstream's request is answered with a JSON-RPC error and the call proceeds without an answer.
+Nothing hangs.
+
+How it stays sound:
+
+- **Correlation.** A 2025-era `elicitation/create` names no call, so calls to a relayed upstream
+  run **one at a time** (other upstreams are unaffected) and an elicitation that arrives is that call's.
+  One with no call in flight is refused.
+- **Strict binding.** The consumer's retry resolves the request only with the one-use
+  `requestState`, from the same verified principal and partition (`inboundAuth`), for the same
+  upstream and tool/prompt/URI. Anything else (another tenant, a replay, a spent or expired state) gets
+  the same `Invalid or expired requestState` error and leaves the pending request untouched.
+- **Timeout.** A consumer that never answers: after `interactionTimeoutMs` (default 5 minutes) the
+  upstream's request is answered `{ action: "decline" }` and the audit trail records it.
+- **Same guards.** The request is checked against `urlElicitation` and scrubbed with `redact`;
+  the answer goes through `answerPolicy` and `redact`; both hops are audited
+  (`interaction.phase` `request` / `response`); the retry is not re-authorized (the call was, once).
+- **State lives in the gate process.** The pending call is held in memory, so a relayed upstream
+  needs the consumer's retry to reach the same gate instance (sticky routing when scaled out).
+  `createGate` installs the relay for you; with `createGateway` yourself, pass
+  `new InteractionRelay()` from `@johnhenry/mcp-query/server` as the client's `interactions`.
 
 ### Answers going upstream
 
@@ -643,6 +684,14 @@ The verified principal (`extra.sub`, else `clientId`) lands in the call's `_meta
 four keys belong to the verifier, on every handler the gateway registers (tools, prompts, resources, tasks, skills, extension pass-through): whatever a caller puts under them in its own `_meta` is dropped, so a client
 cannot claim someone else's identity. Without `inboundAuth` nothing is mapped. The access token itself is never copied
 into the context.
+
+**`subscriptions/listen`.** The SDK serves a change-notification stream itself, before any request handler runs, so
+the wrapper above never sees it. With `inboundAuth: { required: true }` the gate's handler therefore refuses a
+`subscriptions/listen` that arrives without verified `authInfo` (HTTP `401`, `-32003`), like every other method.
+Notifications carry no payload and the gate sends a `list_changed` only when the catalog a consumer can see
+(after `policy` filtering and `approval.discovery`) actually changed, so a tool the gate hides being added upstream
+tells no listener anything. The catalog filter is the same for every principal (it is not per-principal), so there is
+no per-tenant stream content to leak; change-notification fan-out is one shared broadcast of "list X changed".
 
 ## Routing headers and cache hints
 

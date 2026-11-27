@@ -2,8 +2,13 @@
 // timing, and outcome (ok / denied / error) — the seam auth, tracing, and rate limiting
 // hang on, made visible.
 import { useSyncExternalStore } from "react";
-import { traceBus } from "../trace.js";
+import { traceBus, type TraceRow } from "../trace.js";
 import { TENANTS } from "../tenants.js";
+
+const hopTitle = (r: TraceRow): string =>
+  r.hop
+    ? `${r.hop.phase === "ask" ? "hop 1: the upstream asked, and the gate handed the question to the consumer" : "hop 2: the consumer's answer, routed back to the same upstream"}${r.routing ? ` — ${r.routing.method}${r.routing.name ? ` ${r.routing.name}` : ""}` : ""}`
+    : "";
 
 export function TraceWaterfall() {
   useSyncExternalStore(traceBus.subscribe, traceBus.getVersion, traceBus.getVersion);
@@ -29,6 +34,12 @@ export function TraceWaterfall() {
               </span>
               <span className="ms">{r.ms.toFixed(0)}ms</span>
               <span className={`badge tiny outcome-${r.outcome}`}>{r.outcome}</span>
+              {r.hop && (
+                <span className="hop" title={hopTitle(r)}>
+                  {r.hop.phase === "ask" ? `forwarded: asked ${r.hop.methods.join(", ")}` : "forwarded: answered"}
+                  {r.hop.urlHosts.length > 0 && ` (${r.hop.urlHosts.join(", ")})`}
+                </span>
+              )}
             </div>
           );
         })}

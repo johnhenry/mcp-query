@@ -165,7 +165,7 @@ const host = createAppHost({ client: gate.client, server: "dash" });
 - **Handshake.** The proxy sends `ui/notifications/sandbox-proxy-ready`; the host answers with
   `ui/notifications/sandbox-resource-ready` carrying the raw HTML, the validated `csp`, the
   `permissions`, and the inner `sandbox` attribute (default `allow-scripts`, i.e. an opaque origin;
-  override with `innerSandbox`). The host sends nothing to the app before it reports `initialized`.
+  override with `sandbox.inner`). The host sends nothing to the app before it reports `initialized`.
 - **CSP from metadata, never loosened.** The server's declared `connectDomains` / `resourceDomains` /
   `frameDomains` / `baseUriDomains` are the *ceiling*. Each source must look like an `http(s)`/`ws(s)`
   origin (no whitespace, `;`, quotes, bare `*`), so hostile metadata cannot inject directives; the
@@ -194,7 +194,7 @@ const host = createAppHost({ client: gate.client, server: "dash" });
   When directives are set, `session.resource.cspHeader` is the exact final header and `hostCsp` is true;
   the sandbox page also receives it as an extra `cspHeader` field of `sandbox-resource-ready`
   (the spec's schema only carries structured `csp`, so a stock proxy ignores it -- apply it in yours).
-  The older `innerSandbox` string still works unchanged; `sandbox.inner` takes precedence when both are set.
+  The older `innerSandbox` string is deprecated: since 3.0 it is validated exactly like `sandbox.inner`, and passing both throws (see [Migrating to 3.0](#migrating-to-30)).
 - **Postmessage validation.** The transport only accepts messages whose `event.source` is the sandbox
   iframe's window.
 - **You own the proxy page.** It must apply the CSP *as an HTTP header or meta tag on the inner document*, forward
@@ -214,10 +214,10 @@ session.subscribe(cb)
 session.connect(transport)   // any MCP Transport; mountIframe() does this for a sandbox iframe
 session.whenReady(timeoutMs?) / session.sendToolResult(r) / session.addCleanup(fn) / session.close()
 
-mountIframe(session, { container, sandboxUrl, innerSandbox?, title?, sandbox?, iframe? })
+mountIframe(session, { container, sandboxUrl, sandbox?, iframe?, title?, /* deprecated: */ innerSandbox? })
 mcpAppsExtensions()          // -> pass as MCPClientConfig.extensions
 buildAppCsp(csp) / sanitizeCsp(csp, allow?) / isSafeCspSource(s)
-applyHostCspDirectives(header, directives, { unsafeLoosen? }) / resolveSandbox(sandboxOptions, legacyInner?) / KNOWN_SANDBOX_TOKENS
+applyHostCspDirectives(header, directives, { unsafeLoosen? }) / resolveSandbox(sandboxOptions, legacyInner?) /* validates both */ / KNOWN_SANDBOX_TOKENS
 
 // "@johnhenry/mcp-query-ui/react"
 useMcpApp(host, { uri | tool, toolInput?, toolResult?, sandboxUrl?, mount?, enabled? }) -> { containerRef, session, state, error }
@@ -227,6 +227,42 @@ useAppSession(session) / useAppSessions(host)
 `AppSessionState.status`: `loading | loaded | connecting | ready | closing | closed | error`.
 `state.calls[i].outcome`: `pending | ok | denied | error`; `kind`: `tool | resource | resources-list | prompts-list | sampling | model-context`. The public surface is pinned by
 `test/api.test.ts` (names + type-level shapes).
+
+## Migrating to 3.0
+
+3.0 has one breaking change: the deprecated `mountIframe({ innerSandbox })` string is no longer passed
+through unvalidated. Before, a host could set any tokens there, including `allow-same-origin` on the inner
+frame (which, with `allow-scripts`, lets the app rewrite its own sandbox from the proxy's origin) without
+any opt-in. Now `innerSandbox` goes through the same check as `sandbox.inner`:
+
+| You passed | 2.x | 3.0 |
+|---|---|---|
+| `innerSandbox: "allow-scripts"` (or `""`, a subset) | accepted | accepted |
+| `innerSandbox: "allow-scripts allow-forms"` (any extra token) | accepted | throws, naming the token; add `sandbox: { unsafeLoosen: true }` to opt in |
+| `innerSandbox: "... allow-same-origin"` | accepted | throws, always (no option permits it) |
+| a misspelled token | accepted (the browser ignores it) | throws `unknown sandbox token` |
+| `innerSandbox` and `sandbox.inner` together | `sandbox.inner` won silently | throws; pass only `sandbox.inner` |
+
+Migrate by moving the value to `sandbox.inner` and adding `unsafeLoosen` only if you genuinely need more
+than `allow-scripts`:
+
+```ts
+// before
+mountIframe(session, { container, sandboxUrl, innerSandbox: "allow-scripts allow-forms" });
+// after
+mountIframe(session, { container, sandboxUrl, sandbox: { inner: "allow-scripts allow-forms", unsafeLoosen: true } });
+```
+
+The error is thrown from `mountIframe` before anything is added to the DOM. Nothing else changes in 3.0.
+
+## Peer floor
+
+`peerDependencies` declares `@johnhenry/mcp-query >=0.5.0`. That is checked, not assumed: `test/peer-floor.test.ts` runs
+offline in CI (the host only uses `MCPClient` members that exist at 0.5.0, and the opt-in `resources/list` falls back to
+the synchronous list when `client.discover`, new in 0.6.0, is absent), and `node scripts/peer-floor-smoke.mjs [versions...]`
+(needs the npm registry; run it by hand before raising what the host calls on the client) installs each published
+`@johnhenry/mcp-query` next to a packed tarball of this package and drives a real session against a mock server. It
+passed on 0.5.0, 0.6.0 and 0.7.0.
 
 ## Releasing
 

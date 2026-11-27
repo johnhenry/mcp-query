@@ -22,7 +22,9 @@ export const LOG = join(DAEMON_DIR, "daemon.log");
  * live upstream connection.
  */
 export function serverKey(opts: ConnectOptions): string {
-  return opts.url ?? `stdio:${opts.command ?? ""} ${opts.args ?? ""}`;
+  const base = opts.url ?? `stdio:${opts.command ?? ""} ${opts.args ?? ""}`;
+  // A connection that skipped the era probe is a different upstream from one that negotiated (`auto`, the default).
+  return opts.era === "legacy" ? `${base}#legacy` : base;
 }
 
 /** A single request frame from the CLI client to the daemon. */

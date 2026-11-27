@@ -16,7 +16,8 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { MCPClient } from "@johnhenry/mcp-query";
 import { createGateway } from "@johnhenry/mcp-query/server";
-import { diffContract, upgradeContract, type Contract } from "./contract.js";
+import { fetchServerCard, recommendedCardUrl } from "@johnhenry/mcp-query/discovery";
+import { cardForContract, diffContract, upgradeContract, type Contract, type ContractCard } from "./contract.js";
 import { captureFrom } from "./connect.js";
 import { resolveConnect } from "./registry.js";
 import { authenticate, tokenCachePath } from "./oauth.js";
@@ -25,7 +26,7 @@ import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
 import { rejectUnknownFlags } from "./flags.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port", "dpop", "client-metadata-url", "expected-issuer"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port", "dpop", "client-metadata-url", "expected-issuer", "card"] as const;
 
 function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[] } {
   const _: string[] = [];
@@ -49,6 +50,7 @@ const HELP = `mcp-contract: pin, verify, diff and mock an MCP server's capabilit
 
 usage:
   mcp-contract snapshot (--command CMD [--args "A B"] | --url URL [--bearer T] [--header "K: V"] | --server NAME) [--out mcp.contract.json]
+                        [--card URL|auto]   also pin the server's Server Card (auto: <url>/server-card); on verify/diff too, to compare it
   mcp-contract verify   <same connection flags> --contract mcp.contract.json [--used "a,b"] [--used-by src/mcp.gen.ts]
   mcp-contract diff     old.contract.json new.contract.json
   mcp-contract mock     --contract mcp.contract.json     serve the contracted surface over stdio
@@ -66,7 +68,10 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   rejectUnknownFlags("mcp-contract", flags, KNOWN_FLAGS);
   const cmd = _[0];
   const isLive = !!(flags.url || flags.command || flags.server);
-  const live = () => captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-contract" });
+  const live = async () => {
+    const target = { ...resolveConnect(flags, headers), clientName: "mcp-contract" };
+    return captureFrom(target, flags.card ? { card: await fetchCard(flags.card, target.url) } : {});
+  };
   const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command/--server for a live server, or a contract file path")));
 
   switch (cmd) {
@@ -75,7 +80,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       const json = JSON.stringify(contract, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");
-        console.error(`wrote ${flags.out} (${contract.tools.length} tools, ${contract.prompts.length} prompts, ${contract.resources.length} resources)`);
+        console.error(`wrote ${flags.out} (${contract.tools.length} tools, ${contract.prompts.length} prompts, ${contract.resources.length} resources${contract.card ? `, card ${contract.card.name}` : ""})`);
       } else {
         process.stdout.write(json + "\n");
       }
@@ -128,6 +133,21 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       console.error("usage: mcp-contract <snapshot|verify|diff|mock|auth> [options]");
       process.exit(1);
   }
+}
+
+/**
+ * `--card <url|auto>`: fetch the server's Server Card (SEP-2127) so the contract pins where and how to connect.
+ * `auto` reads the recommended location, `<--url>/server-card`. Only identity and remotes are kept (see `cardForContract`).
+ * A plain-http card is accepted only on a loopback host.
+ */
+async function fetchCard(card: string, serverUrl: string | undefined): Promise<ContractCard> {
+  let cardUrl = card;
+  if (card === "auto") {
+    if (!serverUrl) throw new Error("--card auto reads <url>/server-card, so it needs --url (or a registered http server); pass --card <card url> for a stdio server");
+    cardUrl = recommendedCardUrl(serverUrl);
+  }
+  const fetched = await fetchServerCard(cardUrl, { allowInsecureLocalhost: true });
+  return cardForContract(fetched.card, fetched.url);
 }
 
 function required(flags: Record<string, string>, name: string): string {

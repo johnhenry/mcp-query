@@ -275,10 +275,17 @@ export interface GateConfig {
    * (`inputRequests` redacted and audited, `requestState` untouched) and the consumer's retry
    * is routed back to the same upstream. `"deny"`: refuse any such round. Pass an object for
    * per-upstream overrides: `{ default: "deny", upstreams: { github: "forward" } }`.
-   * Forwarding relays elicitations only, and only for upstreams on a modern (2026-07-28)
-   * connection.
+   * Forwarding relays elicitations only, for `tools/call`, `prompts/get` and `resources/read`.
+   * A modern (2026-07-28) upstream's round is handed on as it is; a 2025-era upstream's
+   * server-initiated `elicitation/create` is relayed (one call in flight at a time per such
+   * upstream; see `interactionTimeoutMs`).
    */
   interactions?: GatewayInteractions;
+  /**
+   * How long (ms) a consumer has to answer a relayed elicitation from a 2025-era upstream before
+   * the gate declines it upstream. Default 300000. Only used with `interactions: "forward"`.
+   */
+  interactionTimeoutMs?: number;
   /**
    * Which hosts a forwarded URL-mode elicitation may send the consumer to (see
    * `UrlElicitationPolicy`). Fails closed: with `interactions` forwarding but no `allowHosts`,

@@ -71,10 +71,10 @@ function withoutResponses(params: unknown): unknown {
   return rest;
 }
 
-type ReplayState = { lookup: (method: string, params: unknown) => unknown; countByMethod: Map<string, number> };
+export type ReplayState = { lookup: (method: string, params: unknown) => unknown; countByMethod: Map<string, number> };
 
 /** The per-connection replay cursor: queues of recorded results, consumed in order. */
-function createReplayState(cassette: Cassette, opts: ReplayOptions): ReplayState {
+export function createReplayState(cassette: Cassette, opts: ReplayOptions): ReplayState {
   // Index interactions into per-key queues so identical calls replay in order.
   const queues = new Map<string, Array<{ result: unknown; error?: { code?: number; message?: string } }>>();
   const loose = new Map<string, Array<{ result: unknown; error?: { code?: number; message?: string } }>>();
@@ -123,7 +123,7 @@ export function replayServer(input: Cassette | CassetteV1, opts: ReplayOptions =
   return buildReplayServer(cassette, createReplayState(cassette, opts));
 }
 
-function buildReplayServer(cassette: Cassette, state: ReplayState): Server {
+export function buildReplayServer(cassette: Cassette, state: ReplayState): Server {
   const caps: ServerCapabilities = cassette.capabilities ?? {};
   const { lookup, countByMethod } = state;
   const server = new Server(

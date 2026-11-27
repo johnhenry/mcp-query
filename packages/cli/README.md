@@ -103,10 +103,36 @@ mcp-query tools --url https://host/mcp --bearer "$TOKEN"
 
 `--answer key=value` (repeatable, `call` and `prompt`) answers an `input_required` round without a
 prompt: `key` is the request key (`q0`; the value is a JSON object, or `accept` / `decline` / `cancel`,
-or a bare value for a one-field form) or the name of a form field. It implies `--era auto`, because
-`input_required` exists only on 2026-07-28 connections (`--era auto` tries `server/discover` first;
-the default `legacy` uses the `initialize` handshake). With `--era auto` and no `--answer`, a round that
-asks something prints the pending requests and exits 1. Sampling and roots requests need a JSON answer.
+or a bare value for a one-field form) or the name of a form field. `input_required` exists only on
+2026-07-28 connections, so `--answer` needs the default `--era auto` (it is refused with `--era legacy`).
+Without `--answer`, a round that asks something prints the pending requests and exits 1. Sampling and
+roots requests need a JSON answer.
+
+### `--era`: which handshake
+
+Every verb that connects (`tools` `call` `read` `prompt` `skills` `skill` `tasks` `ping` `session`, and
+`--daemon` calls) takes `--era auto|legacy`. The default is **`auto`**: probe `server/discover` first (a
+2026-07-28 server answers it, so there is no `initialize`), and fall back to the `initialize` handshake for
+anything else. `--era legacy` skips the probe and always uses `initialize`.
+
+What `auto` costs, measured against a 2025-era stdio server on one machine: a stdio server is spawned **one
+extra time** for the probe (a short-lived sibling process the SDK starts and discards, never left running),
+about 50 ms more per connect (41 ms → 92 ms); a server that never answers the probe costs the probe timeout,
+5 s by default (`MCPQ_ERA_PROBE_TIMEOUT_MS` overrides), and is then treated as legacy. On HTTP a probe that
+times out is retried once with the legacy handshake. A connection failure (refused, DNS) is reported as it is.
+
+To stop paying that for a server you know is 2025-era, pin it in the registry; the pin applies whenever
+`--era` is not given:
+
+```bash
+mcp-query add old-server --command node --args ./server.js --era legacy
+mcp-query servers          # the era column shows each entry's pin (auto when unset)
+```
+
+Pins live in the entry (`"era": "legacy"` in `servers.json` / `.mcp.json`), and the daemon keeps a pinned
+connection separate from an `auto` one. `mcp-bench` and `mcp-record` take the same flag with the same default
+and honour the pin; `mcp-lint --probe` always negotiates with the same bounded probe. `mcp-contract`, `mcp-docs`
+and non-probe `mcp-lint` capture with the plain `initialize` handshake and have no `--era` flag.
 `skill` refuses a file that is not in the skill's manifest or whose size/digest differs.
 `tasks` on a 2026-07-28 connection needs an SDK that allows `tasks/*` there (>= 2.3.0).
 

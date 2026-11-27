@@ -9,7 +9,7 @@ import { MCPClient } from "@johnhenry/mcp-query";
 import { rateLimit } from "@johnhenry/mcp-query/server";
 import { MockMCPServer } from "@johnhenry/mcp-query/testing";
 import { createGate } from "../../../packages/mcp-gate/src/index.js";
-import { traceBus, traceInterceptor, tenantMetaInterceptor, activeTenant } from "../src/trace.js";
+import { traceBus, traceInterceptor, tenantMetaInterceptor, activeTenant, hopOf } from "../src/trace.js";
 
 function upstream() {
   return new MockMCPServer({
@@ -109,5 +109,14 @@ describe("interceptor chain + tenant partitions", () => {
     expect(traceBus.rows[0]?.outcome).not.toBe("ok");
     expect(traceBus.rows[0]?.error).toContain("denied");
     await client.close();
+  });
+});
+
+describe("trace: forwarded interaction hops", () => {
+  it("labels the ask hop (methods, URL hosts) and the answer hop", () => {
+    const ask = { resultType: "input_required", inputRequests: { q0: { method: "elicitation/create", params: { mode: "url", url: "https://login.example.com/x" } } }, requestState: "s" };
+    expect(hopOf({}, ask)).toEqual({ phase: "ask", methods: ["elicitation/create"], urlHosts: ["login.example.com"] });
+    expect(hopOf({ interaction: { inputResponses: { q0: { action: "accept" } }, requestState: "s" } }, { content: [] })).toEqual({ phase: "answer", methods: [], urlHosts: [] });
+    expect(hopOf({}, { content: [] })).toBeUndefined();
   });
 });

@@ -135,6 +135,28 @@ describe("mountIframe host options (#66)", () => {
     await expect(worse.run()).rejects.toThrow(/allow-same-origin/);
   });
 
+  it("validates the deprecated innerSandbox like sandbox.inner, and refuses both together", async () => {
+    const forms = await mount({ innerSandbox: "allow-scripts allow-forms" });
+    await expect(forms.run()).rejects.toThrow(/innerSandbox "allow-forms".*unsafeLoosen/);
+    const same = await mount({ innerSandbox: "allow-scripts allow-same-origin", sandbox: { unsafeLoosen: true } });
+    await expect(same.run()).rejects.toThrow(/innerSandbox may not include allow-same-origin/);
+    const typo = await mount({ innerSandbox: "allow-scrpts" });
+    await expect(typo.run()).rejects.toThrow(/unknown sandbox token/);
+    const both = await mount({ innerSandbox: "allow-scripts", sandbox: { inner: "allow-scripts" } });
+    await expect(both.run()).rejects.toThrow(/not both/);
+    // nothing was appended to the DOM by a refused mount
+    expect(document.querySelectorAll("iframe").length).toBe(0);
+
+    const posted: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+    const proxyWin = { postMessage: (m: { method?: string; params?: Record<string, unknown> }) => void posted.push(m) };
+    vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue(proxyWin as never);
+    const ok = await mount({ innerSandbox: "allow-scripts allow-forms", sandbox: { unsafeLoosen: true } });
+    await ok.run();
+    window.dispatchEvent(new MessageEvent("message", { data: { jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, source: proxyWin as never }));
+    await vi.waitFor(() => expect(posted.some((m) => m.method === "ui/notifications/sandbox-resource-ready")).toBe(true));
+    expect(posted.find((m) => m.method === "ui/notifications/sandbox-resource-ready")!.params).toMatchObject({ sandbox: "allow-scripts allow-forms" });
+  });
+
   it("sends the host-customised CSP header to the sandbox proxy, and nothing extra by default", async () => {
     const posted: Array<{ method?: string; params?: Record<string, unknown> }> = [];
     const proxyWin = { postMessage: (m: { method?: string; params?: Record<string, unknown> }) => void posted.push(m) };

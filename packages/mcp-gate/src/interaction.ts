@@ -5,8 +5,8 @@
 
 import { AuthorizationError } from "@johnhenry/mcp-query/server";
 import { isInputRequiredResult, urlHost, type CallAuditEntry, type RequestInterceptor } from "@johnhenry/mcp-query";
-import type { AnswerGuard, AnswerGuardResult, AuthzRequest, AuthzVerdict, GatewayInteractions } from "@johnhenry/mcp-query/server";
-import { redactTracked, type RedactRule } from "./redact.js";
+import type { AnswerGuard, AnswerGuardResult, AuthzRequest, AuthzVerdict, GatewayInteractions, InputRequestGuard } from "@johnhenry/mcp-query/server";
+import { redactTracked, redactValue, type RedactRule } from "./redact.js";
 import type { AnswerPolicy } from "./config.js";
 
 /**
@@ -125,7 +125,7 @@ const DECLINE = { action: "decline" } as const;
 export function createAnswerGuard(opts: AnswerGuardOptions): AnswerGuard {
   return async (req): Promise<AnswerGuardResult> => {
     const verdictOf = compileAnswerPolicy(opts.policy, req.server);
-    const hints = req.kind !== "prompt" ? opts.toolHints?.(req.server, req.target) : undefined;
+    const hints = req.kind === "tool" || req.kind === "task" ? opts.toolHints?.(req.server, req.target) : undefined;
     const out: Record<string, unknown> = {};
     const declined: string[] = [];
     const redactedFields: string[] = [];
@@ -186,5 +186,24 @@ export function createAnswerGuard(opts: AnswerGuardOptions): AnswerGuard {
       out[key] = current;
     }
     return { inputResponses: out, redactedFields, declined };
+  };
+}
+
+/**
+ * The request hop of a relayed round (a 2025-era upstream's elicitation shown to the consumer, see
+ * `interactions: "forward"` in the README): the same two checks a modern upstream's in-band round gets
+ * from the interceptor chain, for the round the chain never sees. A URL-mode request to a host
+ * `urlElicitation` rejects is refused (`AuthorizationError`, -32003); what is left is scrubbed with the
+ * `redact` rules.
+ */
+export function createRequestGuard(opts: { redact?: RedactRule[]; urlElicitation?: UrlElicitationPolicy }): InputRequestGuard {
+  const check = compileUrlPolicy(opts.urlElicitation);
+  return (req) => {
+    for (const [key, r] of Object.entries(req.inputRequests)) {
+      if (r.method !== "elicitation/create" || r.params?.mode !== "url") continue;
+      const verdict = check(urlHost(r.params.url));
+      if (!verdict.ok) throw new AuthorizationError(`denied: url elicitation "${key}" from ${req.server}.${req.target}: ${verdict.reason}`);
+    }
+    return { inputRequests: opts.redact?.length ? redactValue(opts.redact, req.inputRequests) : req.inputRequests };
   };
 }

@@ -99,7 +99,7 @@ export interface MockResource {
   mimeType?: string;
   /** Advertised as `_meta` on the list entry and on the read contents (e.g. MCP Apps' `ui.csp`). */
   _meta?: Record<string, unknown>;
-  read?: () => { text?: string; blob?: string };
+  read?: (ctx: { elicit: MockToolContext["elicit"] }) => { text?: string; blob?: string } | Promise<{ text?: string; blob?: string }>;
 }
 export interface MockPrompt {
   name: string;
@@ -821,7 +821,7 @@ export class MockMCPServer {
     server.setRequestHandler("resources/templates/list", () => ({
       resourceTemplates: (s().templates ?? []).map((t) => ({ uriTemplate: t.uriTemplate, name: t.name })),
     }));
-    server.setRequestHandler("resources/read", async (req) => {
+    server.setRequestHandler("resources/read", async (req, ctx) => {
       const r = (s().resources ?? []).find((x) => x.uri === req.params.uri);
       if (!r) {
         const text = (await this.builtSkills()).find((b) => b.files.has(req.params.uri))?.files.get(req.params.uri);
@@ -832,7 +832,34 @@ export class MockMCPServer {
         }
       }
       if (!r) throw new ProtocolError(INVALID_PARAMS, `unknown resource ${req.params.uri}`, { uri: req.params.uri });
-      const contents = r.read?.() ?? { text: `contents of ${r.uri}` };
+      // `read` may elicit: same record/replay engine as tool handlers (modern: input_required round; legacy: SDK shim).
+      const token = ctx.mcpReq.requestState<string>() ?? `replay-${++this.replaySeq}`;
+      const answers = this.replay.get(token) ?? [];
+      this.replay.set(token, answers);
+      for (const [k, v] of Object.entries(ctx.mcpReq.inputResponses ?? {})) {
+        const idx = Number(k.slice(1));
+        if (Number.isInteger(idx)) answers[idx] = v;
+      }
+      let i = 0;
+      const elicit: MockToolContext["elicit"] = (params) => {
+        const idx = i++;
+        if (answers[idx] !== undefined) return Promise.resolve(answers[idx] as { action: string; content?: unknown });
+        throw new Suspend(
+          `q${idx}`,
+          (params as { mode?: string }).mode === "url"
+            ? inputRequired.elicitUrl({ message: String((params as { message?: unknown }).message ?? ""), url: String((params as { url?: unknown }).url ?? "") })
+            : inputRequired.elicit({ message: String((params as { message?: unknown }).message ?? ""), requestedSchema: ((params as { requestedSchema?: unknown }).requestedSchema ?? { type: "object", properties: {} }) as never }),
+        );
+      };
+      let contents: { text?: string; blob?: string };
+      try {
+        contents = (await r.read?.({ elicit })) ?? { text: `contents of ${r.uri}` };
+        this.replay.delete(token);
+      } catch (err) {
+        if (err instanceof Suspend) return inputRequired({ inputRequests: { [err.key]: err.request }, requestState: token }) as never;
+        this.replay.delete(token);
+        throw err;
+      }
       return {
         contents: [
           contents.blob != null

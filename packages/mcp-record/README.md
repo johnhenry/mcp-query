@@ -49,6 +49,7 @@ npx mcp-record record \
   --call 'get-sum:{"a":2,"b":3}'
 
 # 2. Replay: serve the cassette as an offline MCP server over stdio
+#    (a 2026-07-28 cassette is served to a modern client; a 2025-era one with `initialize`)
 npx mcp-record replay --cassette everything.tape.json
 
 # 3. Inspect: summarize a cassette and verify its integrity hash
@@ -57,8 +58,15 @@ npx mcp-record inspect everything.tape.json
 
 `record` always captures the listings (`tools/list`, `resources/list`,
 `resources/templates/list`, `prompts/list`) plus the `initialize` capabilities/identity;
-each `--call name:json` additionally records that tool's real result. A hosted server works
-the same way with `--url https://host/mcp [--bearer ...] [--header "K: V"]`.
+each `--call` additionally records that tool's real result. `--call` takes colon + JSON
+(`'echo:{"message":"hello"}'`) or a function-call string (`'echo(message: "hello")'`, `'get-sum(a: 2, b: 3)'`).
+A hosted server works the same way with `--url https://host/mcp [--bearer ...] [--header "K: V"]`.
+
+| Flag | Meaning |
+|---|---|
+| `--redact <path>` | repeatable. Mask a field with `[REDACTED]` in every interaction before the cassette is written, by dot-path (`params.apiKey`, `result.content.0.text`). Captured traffic is otherwise verbatim: secrets in it end up in the file |
+| `--era auto\|legacy` | `auto` (default): probe `server/discover` first and record a 2026-07-28 session when the server speaks it, falling back to `initialize`. The probe is bounded (5 s; `MCPQ_ERA_PROBE_TIMEOUT_MS` overrides), a silent or probe-hostile 2025-era server is recorded as legacy, and a failed `auto` connect is retried once as legacy. A stdio server is spawned once more for the probe. `legacy`: `initialize` only, no probe. A registry entry's `era` applies when the flag is absent |
+| `--answer key=value` | repeatable. Answer an `input_required` round during a `--call` (2026-07-28 connections; the key is the request key such as `q0`, or the name of a form field). Every round is recorded as its own interaction. Without it, a call whose server needs to ask the user something aborts the recording instead of writing a half cassette. Not allowed with `--era legacy` |
 
 Drop the replay server into an MCP host (CI, a demo) exactly where the real one would go:
 
@@ -79,8 +87,9 @@ What v2 adds:
 
 - `protocol` (`era`, negotiated `version`, `supportedVersions`). On a 2026-07-28 connection there is
   no `initialize`; the header is filled from `server/discover` (record with `--era auto`, or any client
-  using `versionNegotiation: auto`). `replayTransport` serves a modern cassette through the SDK's
-  era-aware handler, so a modern client negotiates with `server/discover` against the replay too.
+  using `versionNegotiation: auto`). `replayTransport` and `mcp-record replay` (stdio) serve a modern
+  cassette through the SDK's era-aware serving, so a modern client negotiates with `server/discover`
+  against the replay too (a legacy client is refused, as it would be by a 2026-07-28-only server).
   The integrity hash covers this header as well as the interactions.
 - `kind` / `mrtr` tags on interactions, derived from the wire: **multi round-trip requests**
   (`input_required` result = `round` 0, each retry carrying `requestState` / `inputResponses` = the next
@@ -92,11 +101,10 @@ What v2 adds:
 - `tasks/get` polling replays the recorded statuses in order and the terminal status sticks;
   `tasks/update` / `tasks/cancel` / `skills/list` / `skills/get` replay like any other method.
 
-Limits: `mcp-record replay` (stdio) serves the classic handshake only, so a modern client should use
-`replayTransport`. On SDK 2.0.0 `tasks/*` are era-gated off the 2026-07-28 wire (both ends), so task
+Limits: on SDK 2.0.0 `tasks/*` are era-gated off the 2026-07-28 wire (both ends), so task
 sequences on a modern connection need SDK >= 2.3.0; legacy-era task sequences work everywhere.
-`record --call` drives tool calls only (no MRTR answers); record richer flows through `recordTransport`
-around your own client.
+`record --call` drives tool calls only (answering `input_required` rounds with `--answer`); record richer
+flows through `recordTransport` around your own client.
 
 ## Programmatic API
 

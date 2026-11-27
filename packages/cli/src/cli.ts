@@ -24,13 +24,14 @@ import {
   hasCachedAuth,
   tokenCachePath,
   rejectUnknownFlags,
+  parseEra,
   type RegistryEntry,
   type Scope,
 } from "../../mcp-contract/src/index.js";
 import { registryVerbs, subcommandVerbs } from "./registry-verbs.js";
 import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
 import * as client from "./invoke.js";
-import { resolveInvoke, parseCallArgs, type InvokeFlags } from "./invoke.js";
+import { resolveInvoke, parseCallArgs, eraFor, type InvokeFlags } from "./invoke.js";
 import { session } from "./session.js";
 import { addFromCard, addFromDomain, showCard } from "./discovery-verbs.js";
 import { request, daemonStatus, daemonStop, daemonStart } from "./daemon/client.js";
@@ -128,7 +129,7 @@ export function helpText(): string {
     section("Client flags", [
       ["--answer key=value", "call/prompt: answer an input_required round (repeatable; key = request key or form field). Needs a 2026-07-28 server; without it, pending requests are printed and the exit code is 1"],
       ["--file <ref>", "skill: file within the skill to read (default SKILL.md)"],
-      ["--era legacy|auto", "legacy (default): initialize handshake. auto: try server/discover first (2026-07-28 servers)"],
+      ["--era auto|legacy", "auto (default): probe server/discover first, fall back to initialize (the probe is bounded; a stdio server is spawned one extra time). legacy: initialize only, no probe. A registry entry's `era` applies when unset"],
     ]),
     "",
     section("Daemon", [
@@ -158,7 +159,7 @@ export function helpText(): string {
 // error message). Client verbs are exempt: `call`/`prompt` pass unknown flags through
 // as tool arguments by design.
 const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
-  add: ["scope", "config", "description", "url", "command", "args", "header", "from-card", "from-domain", "pick", "var", "force", "allow-insecure-localhost", "json"],
+  add: ["scope", "config", "description", "url", "command", "args", "header", "from-card", "from-domain", "pick", "var", "force", "allow-insecure-localhost", "json", "era"],
   servers: ["json", "config"],
   ls: ["json", "config"],
   remove: ["scope", "config"],
@@ -176,6 +177,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
   switch (verb) {
     case "add": {
       if (p.flags["from-card"] || p.flags["from-domain"]) {
+        if (p.flags.era !== undefined) throw new Error("--era is not supported with --from-card/--from-domain; edit the entry afterwards or add the server directly");
         if ((p.flags["from-card"] && !str(p.flags["from-card"])) || (p.flags["from-domain"] && !str(p.flags["from-domain"]))) throw new Error("--from-card needs a URL and --from-domain needs a domain");
         if (p.flags["from-card"] && p.flags["from-domain"]) throw new Error("use either --from-card or --from-domain, not both");
         if (p.flags.url || p.flags.command || p.positionals[1]) throw new Error("--from-card/--from-domain take their connection from the card; drop the url/--command");
@@ -200,6 +202,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
       const headers = headersToRecord(p.headers);
       const entry: RegistryEntry = {};
       if (str(p.flags.description)) entry.description = str(p.flags.description);
+      if (p.flags.era !== undefined) entry.era = parseEra(str(p.flags.era)) as RegistryEntry["era"]; // pin: a legacy-only server skips the probe on every connect
       const url = maybeUrl && /^https?:\/\//i.test(maybeUrl) ? maybeUrl : str(p.flags.url);
       if (url) {
         entry.url = url;
@@ -232,6 +235,7 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
         name: s.name,
         kind: s.kind,
         entry: s.entry.url ?? `${s.entry.command ?? ""} ${(s.entry.args ?? []).join(" ")}`.trim(),
+        era: s.entry.era ?? "auto",
         source: s.source,
       }));
       console.log(formatResult(rows, "human"));
@@ -325,6 +329,7 @@ function flatEntry(entry: RegistryEntry): Record<string, string> {
   return {
     kind: entry.url ? (entry.type === "sse" ? "sse" : "http") : "stdio",
     entry: entry.url ?? `${entry.command ?? ""} ${(entry.args ?? []).join(" ")}`.trim(),
+    era: entry.era ?? "",
     description: entry.description ?? "",
   };
 }
@@ -395,7 +400,7 @@ async function runClient(verb: string, argv: string[]): Promise<void> {
 
   // `--daemon` routes tools/call/read/prompt/ping through the keep-alive daemon (session
   // and one-shot stay as they are).
-  if (f.daemon && (f.answers?.length || f.era)) throw new Error("--answer and --era are not supported with --daemon (the daemon holds a legacy-handshake connection)");
+  if (f.daemon && f.answers?.length) throw new Error("--answer is not supported with --daemon (the daemon cannot answer an input_required round)");
   if (f.daemon && verb !== "session") {
     return runClientViaDaemon(verb, serverRef, tokens, f);
   }
@@ -505,7 +510,9 @@ async function runDaemonVerb(sub: string | undefined, p: Parsed): Promise<void> 
 
 /** Build the DaemonRequest for a `--daemon` client verb, send it, and render the result. */
 async function runClientViaDaemon(verb: string, serverRef: string | undefined, tokens: string[], f: InvokeFlags): Promise<void> {
-  const opts = resolveInvoke(serverRef, f, "mcp-query-daemon");
+  const resolved = resolveInvoke(serverRef, f, "mcp-query-daemon");
+  // The era travels with the connection options: the daemon keys its upstreams on it.
+  const opts = { ...resolved, era: eraFor(f, resolved.era) };
   let req: DaemonRequest;
   switch (verb) {
     case "tools":

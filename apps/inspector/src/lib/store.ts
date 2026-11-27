@@ -10,6 +10,7 @@ import { WebSocketProxyTransport, type TargetSpec } from "./transport.js";
 import { createInstrumentedProvider } from "./oauth.js";
 import { appendStep, clearSteps } from "./oauthSteps.js";
 import { completeAuth } from "./oauthResume.js";
+import { governance } from "./governed.js";
 
 const params = new URLSearchParams(location.search);
 export const proxyToken = params.get("proxyToken") ?? "";
@@ -36,12 +37,13 @@ export const client = new MCPClient({
   servers: {},
   interactions: broker,
   devtools: hub,
+  interceptors: [governance.interceptor], // Apps tab governed mode: holds only governed app-initiated calls, passes everything else
   extensions: mcpAppsExtensions(), // advertise io.modelcontextprotocol/ui so servers expose MCP Apps
   handlers: { roots: () => roots.get() }, // advertised + answered on demand
   clientInfo: { name: "mcp-inspector", version: "0.0.1", title: "MCP Inspector" },
 });
 
-/** How each connected server was reached, so the Apps tab's governed mode can open a second, gated connection to it. */
+/** How each connected server was reached (transport factory), kept for reconnects. */
 export const serverConfigs = new Map<string, ConnectionConfig>();
 
 export interface SavedServer extends TargetSpec {

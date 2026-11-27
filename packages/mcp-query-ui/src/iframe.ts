@@ -11,12 +11,16 @@ export interface MountIframeOptions {
   container: Element;
   /** URL of the sandbox proxy page. MUST be a different origin from the host page (enforced). */
   sandboxUrl: string | URL;
-  /** `sandbox` attribute of the INNER iframe the proxy creates. Default "allow-scripts" (opaque origin). */
+  /**
+   * `sandbox` attribute of the INNER iframe the proxy creates. Default "allow-scripts" (opaque origin).
+   * @deprecated Use `sandbox.inner`. Since 3.0 this goes through the same validation as `sandbox.inner`
+   * (forbidden or unknown tokens throw, extra tokens need `sandbox.unsafeLoosen`), and passing both is an error.
+   */
   innerSandbox?: string;
   title?: string;
   /**
    * Host-configurable sandbox tokens (see {@link SandboxOptions}). Defaults are unchanged; tightening is free,
-   * loosening needs `sandbox.unsafeLoosen: true`. Takes precedence over `innerSandbox`.
+   * loosening needs `sandbox.unsafeLoosen: true`. Replaces the deprecated `innerSandbox` (passing both throws).
    */
   sandbox?: SandboxOptions;
   /**
