@@ -11,6 +11,7 @@
 import { createMcpHandler, inputRequired, Server, SdkError, SdkErrorCode, CLIENT_CAPABILITIES_META_KEY, type CreateMcpHandlerOptions, type McpHttpHandler } from "@modelcontextprotocol/server";
 import { MissingRequiredClientCapabilityError } from "@modelcontextprotocol/client";
 import type { MCPClient } from "../core/client.js";
+import { MCPError } from "../core/types.js";
 import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
 import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
@@ -59,7 +60,40 @@ export interface GatewayOptions {
    * Default `"answer"`. Give an object for per-upstream overrides.
    */
   interactions?: GatewayInteractions;
+  /**
+   * Called on the answer hop of a forwarded round (`interactions: "forward"`): the consumer's
+   * retry carries `inputResponses`, and this hook may rewrite them (redact, decline) or refuse
+   * the retry (throw) before anything goes upstream. `requestState` never passes through it.
+   * Absent: answers are forwarded untouched. mcp-gate installs one from its `redact` rules and
+   * `answerPolicy`.
+   */
+  guardAnswers?: AnswerGuard;
 }
+
+/** What an {@link AnswerGuard} sees: one forwarded round's answers, before they go upstream. */
+export interface AnswerGuardRequest {
+  /** `tools/call` or `prompts/get`. */
+  kind: "tool" | "prompt";
+  server: string;
+  /** Un-namespaced tool or prompt name. */
+  target: string;
+  args?: Record<string, unknown>;
+  /** The consumer's `_meta` (principal, partition, ...), as for any other call. */
+  context?: { meta?: Record<string, unknown> };
+  /** The consumer's answers, keyed like the previous round's `inputRequests`. */
+  inputResponses: Record<string, unknown>;
+}
+
+/** The guard's verdict: the answers to send upstream, and (names only, never values) what changed. */
+export interface AnswerGuardResult {
+  inputResponses: Record<string, unknown>;
+  /** Paths of redacted values, e.g. `q0.content.password`. */
+  redactedFields?: string[];
+  /** Keys of input requests whose answer was replaced by a decline. */
+  declined?: string[];
+}
+
+export type AnswerGuard = (req: AnswerGuardRequest) => AnswerGuardResult | Promise<AnswerGuardResult>;
 
 export interface GatewayHandlerOptions extends GatewayOptions {
   /** Passthrough to createMcpHandler — see its own TSDoc for each option. */
@@ -100,13 +134,28 @@ interface MrtrCtx {
 
 const SEP = ".";
 
-/** Translate a known upstream error into its gateway-facing form; rethrow anything else. */
-async function viaUpstream<T>(server: string, run: () => Promise<T>): Promise<T> {
+/** The wire code of MissingRequiredClientCapability (-32021). */
+const MISSING_CAPABILITY = -32021;
+
+/**
+ * Translate an upstream's "missing required client capability" into the gateway-facing
+ * {@link GatewayUpstreamCapabilityError}; rethrow anything else. `MCPClient` wraps the SDK's
+ * error in an `MCPError` (code -32021, `data.requiredCapabilities`) before it reaches here, so
+ * that is what is matched; the raw SDK error is matched too for embedders that hand the
+ * gateway a client of their own. With `passthrough` (a forwarding upstream) the capability
+ * that is missing is the consumer's own, so -32021 is the right code and is left alone.
+ */
+async function viaUpstream<T>(server: string, run: () => Promise<T>, passthrough = false): Promise<T> {
   try {
     return await run();
   } catch (e) {
-    if (e instanceof MissingRequiredClientCapabilityError) {
-      throw new GatewayUpstreamCapabilityError(server, e.requiredCapabilities, e.message);
+    if (!passthrough) {
+      if (e instanceof MissingRequiredClientCapabilityError) {
+        throw new GatewayUpstreamCapabilityError(server, e.requiredCapabilities, e.message);
+      }
+      if (e instanceof MCPError && e.code === MISSING_CAPABILITY) {
+        throw new GatewayUpstreamCapabilityError(server, (e.data as { requiredCapabilities?: unknown } | undefined)?.requiredCapabilities, e.message);
+      }
     }
     throw e;
   }
@@ -139,7 +188,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   // Returns the per-call `_meta` and retry params for an upstream whose mode isn't "answer",
   // plus a `settle` that turns an upstream `input_required` into this gateway's own result.
   // "answer" returns undefined: the call is made exactly as before.
-  const mrtr = (s: string, req: { params: { _meta?: unknown } }, ctx: MrtrCtx) => {
+  const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt", target: string) => {
     const mode = interactionModeFor(opts.interactions, s);
     if (mode === "answer") return undefined;
     const callerMeta = req.params._meta as Record<string, unknown> | undefined;
@@ -153,6 +202,22 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
       ...(ctx.mcpReq.inputResponses ? { inputResponses: ctx.mcpReq.inputResponses as Record<string, unknown> } : {}),
       ...(ctx.mcpReq.requestState<string>() !== undefined ? { requestState: ctx.mcpReq.requestState<string>() } : {}),
     };
+    // The answer hop: let the guard redact/decline/refuse what the consumer typed before it
+    // goes upstream. `requestState` is not handed to the guard and is left as it came.
+    if (mode === "forward" && opts.guardAnswers && interaction.inputResponses) {
+      const guarded = await opts.guardAnswers({
+        kind,
+        server: s,
+        target,
+        args: (req.params.arguments as Record<string, unknown> | undefined) ?? {},
+        context: callerMeta ? { meta: callerMeta } : undefined,
+        inputResponses: interaction.inputResponses,
+      });
+      interaction.inputResponses = guarded.inputResponses;
+      if (guarded.redactedFields?.length || guarded.declined?.length) {
+        interaction.answers = { ...(guarded.redactedFields?.length ? { redactedFields: guarded.redactedFields } : {}), ...(guarded.declined?.length ? { declined: guarded.declined } : {}) };
+      }
+    }
     const meta = { ...(callerMeta ?? {}), [CLIENT_CAPABILITIES_META_KEY]: caps };
     const settle = (res: unknown): unknown => {
       if (!isInputRequiredResult(res)) return res;
@@ -205,10 +270,11 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
     // the gateway — without this, multi-tenant _meta dies at the gate.
     const meta = req.params._meta as Record<string, unknown> | undefined;
-    const m = mrtr(s, req, ctx);
+    const m = await mrtr(s, req, ctx, "tool", tool);
     if (m) {
       const res = await viaUpstream(s, () =>
         client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {}, { context: { meta: m.meta }, interaction: m.interaction }),
+        interactionModeFor(opts.interactions, s) === "forward",
       );
       return m.settle(res) as never;
     }
@@ -247,10 +313,11 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   server.setRequestHandler("prompts/get", async (req, ctx) => {
     const [s, name] = split(req.params.name, servers(), namespace);
     const meta = req.params._meta as Record<string, unknown> | undefined;
-    const m = mrtr(s, req, ctx);
+    const m = await mrtr(s, req, ctx, "prompt", name);
     if (m) {
       const res = await viaUpstream(s, () =>
         client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { meta: m.meta }, interaction: m.interaction }),
+        interactionModeFor(opts.interactions, s) === "forward",
       );
       return m.settle(res) as never;
     }

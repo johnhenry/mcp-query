@@ -21,6 +21,32 @@ import type { GatewayInteractions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
 
 /**
+ * Policy for the ANSWER hop of a forwarded round (`interactions: "forward"`): the consumer's
+ * reply to one upstream input request, judged before it goes upstream. Each `accept`ed answer
+ * is evaluated on its own (declined/cancelled answers carry no data and pass). Verdicts are the
+ * usual allow / deny / approve; a denied (or unapproved) answer is replaced by
+ * `{ action: "decline" }`, so the upstream sees the person declined, and the call is audited
+ * with the key in `interaction.declined`. With no `answerPolicy`, answers are allowed (still
+ * redacted).
+ *
+ * A function receives an `AuthzRequest` with `kind: "answer"`, `target` the tool/prompt name and
+ * `answer: { surface, key, action, fields }` (field names only, never values).
+ */
+export type AnswerPolicy = ((req: AuthzRequest) => AuthzVerdict | Promise<AuthzVerdict>) | AnswerPolicyRules;
+
+/**
+ * Declarative answer rules. Precedence, first match wins: `deny` -> `denyFields` -> `approve` ->
+ * `approveFields` -> allow. `deny`/`approve` are globs on the `server.tool` (or `server.prompt`)
+ * id; `denyFields`/`approveFields` are globs on field names (a dotted path or its last segment).
+ */
+export interface AnswerPolicyRules {
+  deny?: string[];
+  denyFields?: string[];
+  approve?: string[];
+  approveFields?: string[];
+}
+
+/**
  * Declarative policy: glob-matched `server.tool` allow/deny/approve lists + a destructive switch.
  *
  * Precedence, first match wins: `deny` -> `denyDestructive` -> not in `allow` (when set) -> `approve` -> allow.
@@ -184,6 +210,12 @@ export interface GateConfig {
    * URL-mode requests are denied (-32003, audited "denied"). Form-mode is unaffected.
    */
   urlElicitation?: UrlElicitationPolicy;
+  /**
+   * Policy for the consumer's answers to forwarded input requests (see `AnswerPolicy`).
+   * `approve` verdicts need `approval`. Default: answers are allowed. Independently of this,
+   * every answer is scrubbed with `redact` before it goes upstream (`requestState` never is).
+   */
+  answerPolicy?: AnswerPolicy;
   /**
    * Derive a tenant/session partition from request `_meta` for per-tenant `rateLimit`/
    * `circuitBreaker` isolation (so one tenant hammering an upstream doesn't throttle or

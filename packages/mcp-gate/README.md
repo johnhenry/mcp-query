@@ -114,6 +114,7 @@ export default config;
 | `clientInfo` | `ClientInfo` | `mcp-gate` | Identity sent to upstreams. |
 | `interactions` | `"answer" \| "forward" \| "deny" \| { default?, upstreams? }` | `"answer"` | What an upstream's `input_required` (MRTR) round does — see [Forwarding upstream interactions](#forwarding-upstream-interactions). |
 | `urlElicitation` | `{ allowHosts?, denyHosts? }` | none (URL mode denied) | Host globs for a forwarded URL-mode elicitation. |
+| `answerPolicy` | `AnswerPolicy` (rules or function) | none (answers allowed) | allow / deny / approve for the consumer's answers to forwarded input requests — see [Answers going upstream](#answers-going-upstream). |
 
 `HttpUpstreamSpec.getToken?: () => string | undefined | Promise<string | undefined>` resolves
 a bearer token fresh before every request (the SDK's own `AuthProvider.token()` hook — no
@@ -245,7 +246,7 @@ the default, and it is unchanged. `interactions` makes it a choice:
 | `interactions` | An upstream `input_required` round... |
 |---|---|
 | `"answer"` (default) | is answered by the gate's own `MCPClient` handlers, or fails. The consumer never sees it. |
-| `"forward"` | is returned to the consumer. `inputRequests` pass through the gate's `redact` rules; `requestState` is forwarded byte-for-byte (never redacted); the consumer's retry (`inputResponses` + `requestState`) is routed back to the same upstream call. Each hop goes through `authorize`, rate-limit, circuit-breaker and `audit`. |
+| `"forward"` | is returned to the consumer. `inputRequests` pass through the gate's `redact` rules; `requestState` is forwarded byte-for-byte (never redacted); the consumer's retry (`inputResponses` + `requestState`) is routed back to the same upstream call, with the answers redacted and checked against `answerPolicy` first ([Answers going upstream](#answers-going-upstream)). Each hop goes through `authorize`, rate-limit, circuit-breaker and `audit`. |
 | `"deny"` | is refused: the upstream is told the gate cannot ask anyone, and an `input_required` result anyway fails with `-32003`. |
 
 Set one mode for every upstream, or a default plus per-upstream overrides:
@@ -278,11 +279,59 @@ What forwarding does and does not do:
   that lets it influence authorization must protect its integrity itself, as the spec requires.
 - **Audit.** A `CallAuditEntry` for a call that was one hop of a round carries
   `interaction: { phase: "request", methods, urlHosts? }` (the call returned `input_required`)
-  or `{ phase: "response" }` (the call carried the consumer's answers). Payloads are not logged.
+  or `{ phase: "response", redactedFields?, declined? }` (the call carried the consumer's
+  answers; see [Answers going upstream](#answers-going-upstream)). Payloads are not logged.
   A refused round is an ordinary `"denied"` / `"error"` entry.
 - **There is no server capability flag for MRTR** in the 2026-07-28 spec, so nothing new is
   advertised to the consumer in `initialize`/`server/discover`; the advertisement happens in
   the per-request client capabilities sent to the upstream, as above, and only when forwarding is on.
+
+### Answers going upstream
+
+A forwarded form elicitation is a person typing into a field, and what they type travels
+back through the gate. The consumer's retry carries `inputResponses`, and the gate treats
+them as data leaving the organisation:
+
+- **Redaction.** Every `redact` rule is applied to every string in `inputResponses` before the
+  retry goes upstream, so a password or key typed into a form is scrubbed on the way out (the
+  same rules that scrub results and `inputRequests`). **`requestState` is never touched**:
+  the gate passes it through byte-for-byte, so a redact rule can't corrupt the upstream's own
+  token.
+- **Policy.** `answerPolicy` gives authorization a say on the answer hop, with the usual
+  allow / deny / approve. Each `accept`ed answer is judged on its own (declined and cancelled
+  answers carry no data and pass). A denied answer is **replaced by `{ action: "decline" }`**,
+  so the upstream sees that the person declined and the call carries on. An `approve` verdict
+  waits for the `approval` backend, and a refusal, timeout or missing backend declines the
+  answer (it never fails open). If an answer is not an elicitation result at all (so a decline
+  can't stand in for it), the retry is refused with `-32003` and audited as `"denied"`.
+- **No policy, no change.** Without `answerPolicy`, answers are allowed, so a gate that
+  already forwards rounds keeps working; they are still redacted.
+
+```ts
+export default {
+  upstreams: { github: { url: "https://example.com/mcp" } },
+  interactions: "forward",
+  redact: [{ pattern: "ghp_\\w+", replacement: "[TOKEN]" }],
+  // Never let a typed password through; ask a person before an SSN goes upstream.
+  answerPolicy: { denyFields: ["password"], approveFields: ["ssn"] },
+  approval: { handler: askOnSlack },
+} satisfies GateConfig;
+```
+
+`AnswerPolicy` is either rules, matched in this order (first match wins): `deny` (globs on the
+`server.tool` / `server.prompt` id), `denyFields` (globs on field names: the dotted path or its
+last segment), `approve`, `approveFields`, otherwise allow. Or it is a function receiving an
+`AuthzRequest` with `kind: "answer"`, `target` (the tool or prompt name) and
+`answer: { surface: "tool" | "prompt", key, action, fields }`: field **names**, never values.
+There is no elicitation `mode` in it: an answer does not say whether it answers a form or a
+URL request, and the gate is stateless between rounds.
+
+**Audit.** The answer hop's `CallAuditEntry.interaction` is
+`{ phase: "response", redactedFields?: string[], declined?: string[] }`: dotted paths such as
+`q0.content.password` that were redacted, and the request keys (`q0`) that were declined.
+Names only, never values. Caveats: a prompt's round (`prompts/get`) is guarded the same way
+but, like every `prompts/get` today, does not produce an audit entry; and the field names come
+from the consumer, so they are as trustworthy as the consumer is.
 
 ### URL-mode elicitation
 

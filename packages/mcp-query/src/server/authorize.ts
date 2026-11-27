@@ -14,7 +14,12 @@ import type { CallContext } from "../core/client.js";
 export type AuthzVerdict = "allow" | "deny" | "approve";
 
 export interface AuthzRequest {
-  kind: OperationKind;
+  /**
+   * `"answer"` is the answer hop of a forwarded MRTR round (mcp-gate `answerPolicy`): the
+   * consumer's reply to ONE upstream input request, judged before it goes upstream. `authorize()`
+   * itself only ever produces the operation kinds.
+   */
+  kind: OperationKind | "answer";
   server: string;
   /** Resource URI (read) or tool name (call/query). */
   target: string;
@@ -22,6 +27,20 @@ export interface AuthzRequest {
   context?: CallContext;
   destructive: boolean;
   readOnly: boolean;
+  /** `kind: "answer"` only: what the consumer answered. Field names only, never values. */
+  answer?: AnswerInfo;
+}
+
+/** One consumer answer to one upstream input request, as a policy sees it (no values). */
+export interface AnswerInfo {
+  /** Whether the round belongs to a `tools/call` or a `prompts/get`. */
+  surface: "tool" | "prompt";
+  /** The input request's key in the round (`q0`, ...). */
+  key: string;
+  /** The elicitation action the consumer chose. Only `accept` carries data, so only `accept` is judged. */
+  action: string;
+  /** Names (dotted paths) of the fields the consumer filled in. */
+  fields: string[];
 }
 
 /** Thrown when a policy denies an operation. Code -32003 → audited as "denied". */
