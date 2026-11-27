@@ -15,7 +15,7 @@ import { captureContract, connectClient, resolveConnect, rejectUnknownFlags, upg
 import { lintContract, type Finding, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
-import { LIVE_RULES, connectProbeClient, runProbes, type ProbeClient } from "./probes.js";
+import { LIVE_RULES, connectProbeClient, runDisconnectedProbes, runProbes, type ProbeClient } from "./probes.js";
 
 const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "contract", "max-warnings", "off", "error", "list-rules", "probe"] as const;
 
@@ -31,16 +31,27 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
   return { flags, headers };
 }
 
-async function loadContract(flags: Record<string, string>, headers: string[]): Promise<{ contract: Contract; probes?: Finding[] }> {
+async function loadContract(flags: Record<string, string>, headers: string[]): Promise<{ contract?: Contract; probes?: Finding[] }> {
   if (flags.contract) return { contract: upgradeContract(JSON.parse(await readFile(flags.contract, "utf8"))) }; // reads v1 and v2
   const connect = "probe" in flags ? connectProbeClient : connectClient;
   const target = resolveConnect(flags, headers);
-  const { client, close } = await connect({ ...target, clientName: "mcp-lint" });
+  let connection;
+  try {
+    connection = await connect({ ...target, clientName: "mcp-lint" });
+  } catch (e) {
+    // A server that only speaks HTTP+SSE cannot be connected to over Streamable HTTP; `sse-only-transport` is the finding to report.
+    if (!("probe" in flags) || !target.url) throw e;
+    const probes = await runDisconnectedProbes({ rules: overridesFrom(flags), url: target.url, ...(target.headers ? { headers: target.headers } : {}) });
+    if (probes.length === 0) throw e;
+    console.error(`[mcp-lint] could not connect (${e instanceof Error ? e.message : e}); reporting what a connection-less probe found`);
+    return { probes };
+  }
+  const { client, close } = connection;
   try {
     const contract = await captureContract(client);
     if (!("probe" in flags)) return { contract };
     // Live mode: keep the connection open for the probe rules, with the same severity overrides.
-    const probes = await runProbes(client as unknown as ProbeClient, { rules: overridesFrom(flags), ...(target.url ? { url: target.url } : {}) });
+    const probes = await runProbes(client as unknown as ProbeClient, { rules: overridesFrom(flags), ...(target.url ? { url: target.url } : {}), ...(target.headers ? { headers: target.headers } : {}) });
     return { contract, probes };
   } finally {
     await close();
@@ -68,7 +79,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
   const opts: LintOptions = { rules: overridesFrom(flags) };
 
-  const base = lintContract(contract, opts);
+  const base = contract ? lintContract(contract, opts) : { findings: [] as Finding[] };
   const findings = [...base.findings, ...(probes ?? [])];
   const result = { findings, errors: findings.filter((f) => f.severity === "error").length, warnings: findings.filter((f) => f.severity === "warn").length };
   console.error(formatLint(result, { color: process.stderr.isTTY }));
