@@ -104,8 +104,8 @@ createAppHost({
 
 | Capability | Wire method | Executed by | Approval |
 |---|---|---|---|
-| `resourcesList` | `resources/list` | `client.listResources(server)` | broker `confirm` (if a broker is set) |
-| `promptsList` | `prompts/list` | `client.listPrompts(server)` | broker `confirm` (if a broker is set) |
+| `resourcesList` | `resources/list` | `client.discover("resources", server)`: the client's interceptor chain | broker `confirm` (if a broker is set) |
+| `promptsList` | `prompts/list` | `client.discover("prompts", server)`: the client's interceptor chain | broker `confirm` (if a broker is set) |
 | `sampling` | `sampling/createMessage` | `broker.handleSampling` (policy, human, your model, optional response review) | **required**: `createAppHost` throws without a broker |
 | `updateModelContext` | `ui/update-model-context` | your `onUpdateModelContext` (required; throw to refuse) | broker `confirm` (if a broker is set) |
 
@@ -117,12 +117,14 @@ createAppHost({
   auto-allows the server's own sampling does not auto-allow an app's.
 - **Sampling is deprecated in the core protocol (SEP-2577).** It is off by default and discouraged; prefer
   tools and `ui/message`. It is only offered so existing apps keep working under a human/policy gate.
-- **Gate limitation.** `mcp-query`'s interceptor chain only wraps `read` / `call` / `query` operations, and
-  `listResources` / `listPrompts` are served from the client's capability snapshot. So `mcp-gate`
-  policy/rate-limit/audit see `tools/call` and `resources/read`, but **not** these list requests; the
-  `InteractionBroker` is their gate (and the `state.calls` trail their audit). A gate-fronted client does not
-  carry a broker, so pass one via `interactions`. Routing lists through the interceptor chain needs a new
-  operation kind in `@johnhenry/mcp-query` (tracked separately).
+- **Lists run through the interceptor chain.** `resources/list` and `prompts/list` are executed as
+  `kind: "list"` operations (`target` `resources` / `prompts`) with the app's context, so
+  `mcp-gate` policy, audit and any user interceptor see them with principal
+  `mcp-app:<ui uri>`, and a deny or a filter (e.g. a gate `deny` glob) shows up in the app's list. The
+  `InteractionBroker` `confirm` step above is unchanged and still runs first (human approval, and the
+  fallback gate for a client built without a gate); the `state.calls` trail is unchanged. This needs an
+  `@johnhenry/mcp-query` that has `client.discover` (the version carrying #90); with an older one the host
+  falls back to the client's synchronous lists, which only the broker gates.
 
 ## Security: running under the gate
 

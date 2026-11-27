@@ -56,6 +56,7 @@ export function rateLimit(opts: RateLimitOptions = {}): RateLimit {
 
   return {
     interceptor: async (op, next) => {
+      if (op.kind === "list") return next(op); // a catalog view is computed locally: nothing to throttle
       const k = keyFn(op);
       keyServer.set(k, op.peer);
       await acquire(k);

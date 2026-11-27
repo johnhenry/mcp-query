@@ -5,9 +5,9 @@
 // `createGate` on the same `buildGateClient`, adding the gateway Server and stdio upstreams.
 
 import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry, type ConnectionConfig } from "@johnhenry/mcp-query";
-import { authorize, rateLimit, circuitBreaker, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
+import { authorize, listFilter, rateLimit, circuitBreaker, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
-import { compilePolicy, type GateConfig, type GateUpstream } from "./config.js";
+import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
 import { forwardsAnything, urlElicitationPolicy } from "./interaction.js";
 import { resolveHttpUpstream } from "./upstream-http.js";
@@ -52,6 +52,13 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   // reaches a human, and a human wait doesn't hold a rate-limit slot or feed the breaker.
   const approval = config.approval ? createApproval(config.approval) : undefined;
   if (config.policy) interceptors.push(authorize(compilePolicy(config.policy), { onApprove: approval?.onApprove }));
+  // Catalog views (listTools/listResources/listPrompts) follow the same declarative policy as the gateway's
+  // own tools/list: name-denied items are hidden, approve-gated ones annotated (approval.discovery).
+  if (config.policy) {
+    const keep = policyListFilter(config.policy, config.approval?.discovery);
+    const annotate = policyListAnnotator(config.policy, config.approval?.discovery);
+    if (keep || annotate) interceptors.push(listFilter({ keep, annotate }));
+  }
   // A forwarded URL-mode elicitation sends a person to an upstream-chosen URL: judge the host
   // here (outside redact, so the URL checked is the URL shown) and fail closed.
   if (forwardsAnything(config.interactions)) interceptors.push(urlElicitationPolicy(config.urlElicitation));

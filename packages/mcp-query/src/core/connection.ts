@@ -109,6 +109,11 @@ export interface ConnectionDeps {
   defaultInputRequired?: InputRequiredOptions;
   onStateChange?: (server: string, state: ServerState, caps?: ServerCapabilities) => void;
   onCapabilitiesChanged?: (server: string, kind: "tools" | "resources" | "prompts") => void;
+  /**
+   * Awaited right after a catalog was (re)fetched and BEFORE it is published (cache write /
+   * `onCapabilitiesChanged`): the client runs the interceptor chain over it here (#90).
+   */
+  onCatalogFetched?: (server: string, kind: "tools" | "resources" | "resourceTemplates" | "prompts") => void | Promise<void>;
   /** Server-emitted log messages (notifications/message). */
   onLog?: (server: string, entry: { level: string; logger?: string; data: unknown }) => void;
   /** Every JSON-RPC message in/out (for the devtools message log). */
@@ -463,6 +468,7 @@ export class ServerConnection {
       this.prompts = indexBy(res.prompts, "name");
       ttlMs = cacheTtl(res);
     }
+    await this.deps.onCatalogFetched?.(this.name, kind);
     // Write the catalog into the cache (tagged) so list-observing hooks re-render and
     // tag-based invalidation has something to hit. Server-provided ttlMs (SEP-2549)
     // becomes the entry's staleTime.
@@ -487,6 +493,7 @@ export class ServerConnection {
         .listResourceTemplates(undefined, { cacheMode: "refresh" })
         .catch(() => ({ resourceTemplates: [] as ResourceTemplate[] }));
       this.templates = res.resourceTemplates;
+      await this.deps.onCatalogFetched?.(this.name, "resourceTemplates");
       // Cache templates (tagged with the resources catalog) so useResourceTemplates re-renders.
       this.cache.write({ kind: "templateList", server: this.name }, this.templates, {
         tags: [capsTag(this.name, "resources")],

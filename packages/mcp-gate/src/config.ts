@@ -49,6 +49,9 @@ export interface AnswerPolicyRules {
 /**
  * Declarative policy: glob-matched `server.tool` allow/deny/approve lists + a destructive switch.
  *
+ * Globs apply to tool calls, resource reads and `prompts/get` (by prompt name). Catalog views and the
+ * skills calls stay allowed here; function policies receive every kind (`list`, `prompt`, `skill`, ...).
+ *
  * Precedence, first match wins: `deny` -> `denyDestructive` -> not in `allow` (when set) -> `approve` -> allow.
  * So `approve` never widens access: an id outside `allow` is still denied, and a
  * destructive tool is denied (not approvable) while `denyDestructive` is on. To route
@@ -298,6 +301,9 @@ export function explainPolicy(
   const deny = compileList(policy.deny);
   const approve = compileList(policy.approve);
   return (req) => {
+    // Catalog views (`list`) are filtered per item by policyListFilter, and the skills calls have no
+    // glob-addressable id: a declarative policy leaves both permissive (use a function policy to gate them).
+    if (req.kind === "list" || req.kind === "skill") return { decision: "allow" };
     const id = idFor(options, req.server, req.target);
     const denied = deny?.find((r) => r.re.test(id));
     if (denied) return { decision: "deny", rule: { list: "deny", glob: denied.glob } };

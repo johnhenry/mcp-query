@@ -17,14 +17,34 @@ import type { CallContext } from "./client.js";
 import type { Tool } from "./types.js";
 import type { ToolInteraction } from "./interaction.js";
 
-export type OperationKind = "read" | "call" | "query";
+/**
+ * What an {@link Operation} is. `read`/`call`/`query` are the original kinds; the rest were added
+ * additively (#90), so an interceptor written against the first three keeps working: it sees the
+ * new kinds, passes them to `next(op)` untouched, and behaves exactly as before.
+ *
+ * - `read`   resources/read (`target` = URI)
+ * - `call`   tools/call (`target` = tool name)
+ * - `query`  a cached read-only tool call (`target` = tool name)
+ * - `list`   the catalog of one server: `target` is a {@link CatalogName} (`tools`, `resources`,
+ *            `resourceTemplates`, `prompts`). Runs where the catalog is fetched/refreshed (the
+ *            result becomes what the synchronous `listTools()`/`listResources()`/... return) and
+ *            for `client.discover()`. The "result" is the array of items: filter or annotate it.
+ * - `prompt` prompts/get (`target` = prompt name, `args` = its arguments)
+ * - `skill`  a skills-extension call; `method` says which (`skills/list`, `skills/get`, `skills/read`)
+ */
+export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill";
+
+/** The four catalogs a `list` operation can target. */
+export type CatalogName = "tools" | "resources" | "resourceTemplates" | "prompts";
 
 export interface Operation {
   kind: OperationKind;
   peer: string;
-  /** Resource URI (read) or tool name (call/query). */
+  /** Resource URI (read), tool name (call/query), prompt name (prompt), catalog name (list) or skill/file URI (skill). */
   target: string;
-  /** Tool arguments (call/query); undefined for reads. Mutable. */
+  /** The MCP method or client operation, where `kind` alone is ambiguous (`prompts/get`, `tools/list`, `skills/read`, ...). Absent on read/call/query. */
+  method?: string;
+  /** Tool arguments (call/query) or prompt arguments (prompt); undefined otherwise. Mutable. */
   args?: Record<string, unknown>;
   /** The resolved tool definition (call/query) — read annotations (destructive/read-only) here. */
   def?: Tool;

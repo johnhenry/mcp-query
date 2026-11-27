@@ -21,7 +21,7 @@ export interface AuthzRequest {
    */
   kind: OperationKind | "answer";
   server: string;
-  /** Resource URI (read) or tool name (call/query). */
+  /** Resource URI (read), tool/prompt name (call/query/prompt), catalog name (list: `tools`, `resources`, ...) or skill/file URI (skill). */
   target: string;
   args?: Record<string, unknown>;
   context?: CallContext;
@@ -79,7 +79,10 @@ export function authorize(
     if (verdict === "deny") {
       throw new AuthorizationError(`denied: ${op.kind} ${op.peer}.${op.target}`);
     }
-    if (verdict === "approve") {
+    // A `list` operation is a catalog view being (re)computed, often during connect(): there is no
+    // action to approve and a human wait would stall it, so "approve" lets it through. Gate the
+    // *items* with listFilter(), or deny the list outright.
+    if (verdict === "approve" && op.kind !== "list") {
       if (!opts.onApprove) {
         throw new AuthorizationError(`denied: ${op.kind} ${op.peer}.${op.target} requires approval but no approver is configured`);
       }

@@ -193,6 +193,78 @@ tag-based and protocol invalidation still fan out across partitions (safe — re
 leak). Note: true per-user *auth* on a shared connection isn't an MCP concept — for that,
 instantiate one `MCPClient` per principal; `context` covers cache isolation + `_meta`.
 
+## Interceptors (what runs through the chain)
+
+`new MCPClient({ interceptors })` wraps these operations in an onion of `(op, next) => ...` functions.
+`op.kind` is one of `read | call | query | list | prompt | skill`; `op.peer` is the server, `op.target`
+what it acts on, `op.method` the MCP method where needed.
+
+| Operation | Kind (`op.method`) | `op.target` |
+|---|---|---|
+| `readResource` | `read` | resource URI |
+| `callTool`, `callToolTask` (initiation) | `call` | tool name |
+| `queryTool` | `query` | tool name |
+| `getPrompt` | `prompt` (`prompts/get`) | prompt name; `op.args` = its arguments |
+| `listSkills` / `getSkill` / `readSkillFile` | `skill` (`skills/list`, `skills/get`, `skills/read`) | `skills` / skill URI / file ref or URI |
+| the catalogs behind `listTools` / `listResources` / `listResourceTemplates` / `listPrompts`, and `discover()` | `list` (`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`) | `tools` / `resources` / `resourceTemplates` / `prompts` |
+
+Not wrapped (they still bypass the chain): `complete`, `ping`, `setLogLevel`, resource
+subscribe/unsubscribe, task polling/cancel (`getTask`, `listTasks`, `getTaskResult`, `cancelTask`),
+and `notifyRootsChanged`.
+
+```ts
+import { authorize, listFilter } from "@johnhenry/mcp-query/server";
+
+const client = new MCPClient({
+  servers,
+  interceptors: [
+    authorize((req) => (req.kind === "prompt" && req.target === "internal" ? "deny" : "allow")),
+    listFilter({ keep: (_server, kind, name) => !(kind === "tool" && name.startsWith("admin_")) }),
+  ],
+  onCall: (e) => audit(e), // e.kind is any of the kinds above
+});
+client.listTools("fs");                      // still synchronous: the chain-vetted catalog
+await client.discover("tools", "fs", { context: { meta: { principal } } }); // same chain, per caller
+await client.getPrompt("greet", { who: "ann" }, "fs");                       // kind: "prompt"
+```
+
+### Lists: the chain runs where the catalog is fetched
+
+`listTools()`, `listResources()`, `listResourceTemplates()` and `listPrompts()` are synchronous reads
+of a catalog the connection already fetched, and they stay that way. With interceptors configured,
+each catalog is run through the chain (`kind: "list"`, no caller context) **when it is fetched or
+re-fetched** (connect, `list_changed`), before subscribers are told, and the accessors return what
+the chain answered. So an interceptor can:
+
+- **filter or annotate** the items: return a new array (`listFilter({ keep, annotate })` from
+  `@johnhenry/mcp-query/server` does this with the same `(server, kind, name)` callbacks as the
+  gateway's `filter`/`annotate`; copy an item before changing it, the chain hands you the live objects);
+- **hide the whole catalog** by throwing (`AuthorizationError`): the view is empty and the denial is
+  audited (`onCall`, `outcome: "denied"`). Until a catalog has been through the chain the accessors
+  return `[]`, never an unvetted list;
+- or do nothing: an answer that is not an array means "no opinion" and the catalog shows as fetched.
+
+Only the *view* is filtered: routing (`callTool("s.name")`, `readResource`) still resolves against the
+raw catalog, so a hidden tool is still refused by policy at call time, not "unknown".
+
+Because that view has no caller, per-principal decisions use the async variant, which runs the same
+chain now with a context:
+
+```ts
+const tools = await client.discover("tools", "fs", { context: { meta: { principal: "mcp-app:ui://x" } } });
+await client.scope({ meta: { principal } }).discover("prompts");   // bound context
+```
+
+`discover(catalog, server?)` rejects when the list is denied; with no `server` it returns the union
+(each item tagged `server`) and leaves out servers whose list is denied.
+
+Notes for existing interceptors: `authorize()` treats an `"approve"` verdict on a `list` as allow (a
+catalog view is not an action and a human wait would stall `connect()`); `rateLimit` and
+`circuitBreaker` skip `list` operations (they are local); an `authorize` policy that denies every
+kind it does not recognise will now also deny `list`, `prompt` and `skill`.
+
+See [backend.md](./backend.md#interceptor-chain--the-seam) for authorization, resilience and audit.
+
 ## React hooks
 
 ```tsx
