@@ -7,7 +7,7 @@
 //   mcp-bench --url https://host/mcp --max-p95 250 --max-error-rate 0
 //
 // 2026-07-28 ops:
-//   mcp-bench --url … --discover                      # server/discover latency (implies --era auto)
+//   mcp-bench --url … --discover                      # server/discover latency (needs the default --era auto)
 //   mcp-bench --url … --era auto --task 'render:{"id":1}' [--poll-interval 50] [--task-timeout 60]
 //                                                     # time to the *terminal* task state; the time to the handle is shown as a [handle] row
 //
@@ -17,8 +17,7 @@
 // ⚠  Benchmarking sends REAL traffic. Against a hosted server that means real load on
 //    someone else's infra — mind rate limits and terms of service.
 
-import { Client } from "@modelcontextprotocol/client";
-import { buildTransport, connectClient, resolveConnect, captureContract, parseCallSpec, rejectUnknownFlags } from "../../mcp-contract/src/index.js";
+import { connectEra, parseEra, DEFAULT_ERA, resolveConnect, captureContract, parseCallSpec, rejectUnknownFlags } from "../../mcp-contract/src/index.js";
 import { discoverOp, taskToTerminalOp, type DiscoverClient, type RequestClient } from "./ops.js";
 import { benchmark, type BenchOp } from "./bench.js";
 import { evaluateReport, type Budget } from "./report.js";
@@ -63,12 +62,6 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
   return { flags, headers, calls, tasks };
 }
 
-async function connectAuto(opts: Parameters<typeof buildTransport>[0]) {
-  const client = new Client({ name: opts.clientName ?? "mcp-bench", version: "0.0.1" }, { capabilities: {}, versionNegotiation: { mode: "auto" } });
-  await client.connect(buildTransport(opts));
-  return { client, close: () => client.close().catch(() => {}) };
-}
-
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { flags, headers, calls, tasks } = parseArgs(argv);
   rejectUnknownFlags("mcp-bench", flags, KNOWN_FLAGS);
@@ -76,13 +69,13 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   // parse before connecting so a bad spec fails fast.
   const parsedCalls = calls.map((spec) => parseCallSpec(spec));
   const parsedTasks = tasks.map((spec) => parseCallSpec(spec));
-  const era = flags.era ?? ("discover" in flags ? "auto" : "legacy");
-  if (era !== "legacy" && era !== "auto") throw new Error('--era must be "legacy" (default, initialize handshake) or "auto" (try server/discover first)');
-  if ("discover" in flags && era !== "auto") throw new Error("--discover needs --era auto (server/discover is a 2026-07-28 request)");
+  const explicitEra = parseEra(flags.era);
+  if ("discover" in flags && explicitEra === "legacy") throw new Error("--discover needs --era auto (server/discover is a 2026-07-28 request)");
   if (flags.url) console.error("⚠  benchmarking a hosted server sends real traffic — mind rate limits & ToS.\n");
 
   const connectOpts = { ...resolveConnect(flags, headers), clientName: "mcp-bench" };
-  const { client, close } = era === "auto" ? await connectAuto(connectOpts) : await connectClient(connectOpts);
+  if ("discover" in flags && !explicitEra && connectOpts.era === "legacy") throw new Error("--discover needs a 2026-07-28 connection, but this server is pinned to era legacy in the registry; pass --era auto");
+  const { client, close } = await connectEra(connectOpts, explicitEra ?? connectOpts.era ?? DEFAULT_ERA);
   try {
     const ops: BenchOp[] = [{ label: "tools/list", invoke: () => client.listTools() }];
 

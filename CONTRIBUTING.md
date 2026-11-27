@@ -19,6 +19,13 @@ Each published package (`@johnhenry/mcp-query`, `@johnhenry/mcp-gate`,
    the tag `<package name>@<version>` (e.g. `@johnhenry/mcp-query@0.3.0`) and a GitHub
    Release as by-products.
 
+**Spec calendar check.** Before cutting a release, look at where the spec is: the MCP specification now
+ships twice a year, generally on the last Tuesday of March and September (SEP-3398), and the next revision
+targets 2027-03-30. A release notes entry that touches protocol behaviour (new lint rules, an `--era`
+default, deprecations) should say which revision it was written against, and a feature that SEP-2596 lists
+as Deprecated (HTTP+SSE, sampling, roots, logging; earliest removal on or after 2027-07-28) should not be
+newly adopted.
+
 **One-time repository requirement.** `changesets/action` opens the Version Packages PR
 with `GITHUB_TOKEN`, which needs both `permissions: pull-requests: write` on the job
 (already set in the workflow) and the repo setting *Settings > Actions > General >

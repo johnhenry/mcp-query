@@ -9,7 +9,7 @@
 import net from "node:net";
 import { appendFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Client } from "@modelcontextprotocol/client";
-import { connectClient, type ConnectOptions } from "../../../mcp-contract/src/index.js";
+import { connectEra, type ConnectOptions } from "../../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../../mcp-contract/src/schema.js";
 import { coerceArgs } from "../invoke.js";
 import {
@@ -55,7 +55,7 @@ function isTransportError(err: unknown): boolean {
  * no spawning — `connect` is injectable so tests can supply a MockMCPServer-backed upstream
  * and assert reuse (connect is invoked once across repeated requests for the same key).
  */
-export function createHandler(connect: Connect = connectClient) {
+export function createHandler(connect: Connect = (opts) => connectEra(opts)) {
   const upstreams = new Map<string, Entry>();
   const startedAt = Date.now();
 
