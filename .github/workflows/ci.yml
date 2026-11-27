@@ -39,7 +39,14 @@ jobs:
           node -e 'const v=JSON.parse(require("fs").readFileSync("node_modules/@modelcontextprotocol/client/package.json","utf8")).version; console.log("client", v); if ("${{ matrix.sdk }}"==="2.0.0" && v!=="2.0.0") { console.error("floor leg did not resolve 2.0.0"); process.exit(1); }'
       # Other workspaces import @johnhenry/mcp-query's subpath exports (./server, ./testing),
       # which resolve to dist/, so it must be built before any of them type-checks or tests.
-      - run: npm run build -w @johnhenry/mcp-query
+      - name: Build the packages the others import by name
+        # In dependency order: mcp-query first, then mcp-gate and mcp-contract (which import it),
+        # then mcp-record (which imports mcp-contract). Their dependents resolve them through
+        # dist/, and plain `npm run -w` does not build dependencies the way turbo does.
+        run: |
+          npm run build -w @johnhenry/mcp-query
+          npm run build -w @johnhenry/mcp-gate -w @johnhenry/mcp-contract
+          npm run build -w @johnhenry/mcp-record
       - name: Typecheck (published packages + CLI)
         run: >-
           npm run typecheck
