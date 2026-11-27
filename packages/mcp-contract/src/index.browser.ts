@@ -10,6 +10,7 @@
 export { diffSchema, type Variance, type SchemaChange, type JSONSchema } from "./schema.js";
 export {
   captureContract,
+  cardForContract,
   diffContract,
   upgradeContract,
   SKILLS_EXTENSION,
@@ -19,6 +20,8 @@ export {
   type ContractV1,
   type ContractIcon,
   type ContractProtocol,
+  type ContractCard,
+  type ContractCardRemote,
   type ContractCacheHints,
   type CacheHint,
   type ContractSkill,

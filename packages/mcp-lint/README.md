@@ -66,6 +66,7 @@ the captured contract alone, so they stay silent on a contract that did not capt
 | `schema-dialect` | warn | `inputSchema` / `outputSchema` are 2020-12 object schemas: `inputSchema` root is `type: object`, no foreign `$schema`, no array-form `items` / `additionalItems` / `dependencies` (SEP-2106). A boolean or array `outputSchema` is fine |
 | `x-mcp-header` | warn | values are valid header tokens (RFC 9110 `1*tchar`), not spelling a reserved `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*` header, case-insensitively unique, on primitive (`string` / `integer` / `boolean`) properties reachable through `properties` keys only (SEP-2243) |
 | `skills-manifest` | warn | skills have `name` / `description` frontmatter matching their directory, a manifest that lists `SKILL.md` with digests, at most 512 files / 16 MiB, and `skill://` URIs (SEP-2640) |
+| `destructive-needs-confirmation` | warn | ADVISORY: a tool with `destructiveHint: true` whose description and input schema show no confirmation step (no `confirm` / `dryRun` style property, no mention of confirming, approving or previewing). A server may elicit at call time, which a contract cannot show, so expect false positives (spec: human in the loop for sensitive operations, 2026-07-28 server/tools) |
 | `x-mcp-file` | warn | EXPERIMENTAL (the `io.modelcontextprotocol/files` draft, no SEP): an `x-mcp-file` argument declares `accept` (media types) and `maxSize` (bytes) |
 
 `cache-hints` only judges the first page of each list and does not see `resources/read` (a capture
@@ -85,16 +86,16 @@ Findings are tagged `probe` in the output. All `warn`; `--off` / `--error` apply
 | `stateless-ready` | the server answers `server/discover` (the connection negotiated the 2026-07-28 era, no `initialize`), lists `supportedVersions`, and serves `tools/list` (SEP-2575) |
 | `deterministic-list-order` | two consecutive `tools/list` calls (all pages, client cache bypassed) return the same tools in the same order (2026-07-28 changelog: servers SHOULD) |
 | `resource-not-found-code` | reading a made-up URI fails with `-32602`, not the legacy `-32002` (SEP-2164); needs the `resources` capability |
+| `reserved-error-range` | the error answers to safe probes (an unknown method, a made-up tool name, `tools/call` without a name, a missing resource) do not use codes from `-32020`..`-32099`, which the 2026-07-28 spec reserves for itself (only `-32020`, `-32021`, `-32022` are assigned, and none describes these conditions; basic/index "Error Codes", changelog change 12). Judged on 2026-07-28 connections only. It never calls a real tool: a server cannot be made to emit its own undefined codes on demand, so only what these probes provoke is checked |
+| `sse-only-transport` | a `--url` server is reachable over Streamable HTTP, not only over the deprecated HTTP+SSE transport (`GET` opens an event stream whose first event is `endpoint`, and `POST` is not a JSON-RPC endpoint). HTTP+SSE is Deprecated under SEP-2596. This is the one rule that still runs when the connection fails, so an SSE-only server gets a finding instead of just a connect error |
 | `server-card` | an HTTP server (`--url`) publishes a Server Card at `<url>/server-card` (warns on 404 or an unusable card) and the card agrees with the live connection: connected URL, server name/version, negotiated and supported protocol versions (SEP-2127; the live values win). Silent for stdio servers |
 
 ```bash
 npx tsx packages/mcp-lint/src/cli.ts --url https://host/mcp --probe
 ```
 
-Not implemented here: `reserved-error-range` (error codes are not part of a contract),
-`destructive-needs-confirmation` (needs an elicitation round), and an HTTP+SSE check (the transport is
-always stdio or Streamable HTTP). `x-mcp-file` has no published specification yet (SEP-2356 was closed),
-so there is no rule to write against. `tool-title-icons` stays on at `warn` by default.
+`x-mcp-file` has no published specification yet (SEP-2356 was closed), so that rule is experimental.
+`tool-title-icons` stays on at `warn` by default.
 
 The annotation rules are heuristic (they match verb segments in names), so they're warnings
 you can silence per-rule when a name is a false positive.

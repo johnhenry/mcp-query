@@ -90,7 +90,9 @@ describe("record over Streamable HTTP", () => {
 
     // ── replay: fully offline, never touches the HTTP server again ──
     const before = upstreamCalls.length;
-    const rp = new Client({ name: "t", version: "1" }, { capabilities: {} });
+    // `--era auto` is the recording default, so this fixture (which speaks both eras) was recorded on 2026-07-28 and replays to a negotiating client.
+    expect(cassette.protocol?.era).toBe("modern");
+    const rp = new Client({ name: "t", version: "1" }, { capabilities: {}, versionNegotiation: { mode: "auto" } });
     await rp.connect(replayTransport(cassette)());
     expect((await rp.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     expect(text(await rp.callTool({ name: "echo", arguments: { message: "fn-form" } }))).toBe("fn-form");

@@ -64,6 +64,22 @@ npx mcp-contract auth --url https://host/mcp
 
 `mcp-contract --help` prints the full usage.
 
+### Pinning the Server Card
+
+A remote server may publish a Server Card (SEP-2127) that says where and how to connect. `--card` fetches it
+during `snapshot` and pins its identity and remotes (name, and each remote's type, URL and
+`supportedProtocolVersions`; never tools or capabilities) in the contract's `card` field. A later
+`verify` / `diff` that is also given `--card` reports a changed endpoint or a dropped protocol version as drift.
+
+```bash
+npx mcp-contract snapshot --url https://host/mcp --card auto --out mcp.contract.json   # <url>/server-card
+npx mcp-contract snapshot --command … --card https://host/.well-known/…/card            # a stdio server: name the card
+```
+
+From code: `cardForContract(card, url)` reduces a parsed card (for example from `fetchServerCard` in
+`@johnhenry/mcp-query/discovery`) to a `ContractCard`, and `captureContract(client, { card })` records it.
+Both, and the `ContractCard` type, are exported. Plain-http cards are accepted on loopback only.
+
 ## Connecting: local or hosted
 
 A live server is reached either over **stdio** (a locally-spawned process) or **Streamable
@@ -153,7 +169,7 @@ point (`src/schema.ts`):
 | **Output** field removed, or a produced type widened (`integer`→`number`) | **breaking** |
 | Tool gains `destructiveHint`, or loses `readOnlyHint` | **breaking** (policy-relevant) |
 | Extension **removed**, or its `revision` changed | **breaking** |
-| Protocol version **dropped** from `server/discover`'s `supportedVersions` | **breaking** |
+| Protocol version **dropped** from `protocol.supported` (the `server/discover` `supportedVersions`) | **breaking** |
 | Server capability removed, or `listChanged` / `subscribe` no longer advertised | **breaking** |
 | Event type removed, `payloadSchema` narrowed (output variance), or a delivery mode removed | **breaking** |
 | Skill removed | **breaking** |
@@ -168,8 +184,8 @@ point (`src/schema.ts`):
 `snapshot` now writes `"version": 2`. On top of v1's tools / resources / templates / prompts it captures:
 
 - `capabilities` and `extensions` (`capabilities.extensions`, each with its `revision` when the server sends one);
-- `protocol`: the era (`modern` / `legacy`), the negotiated version and, on a 2026-07-28 connection, the
-  `supportedVersions` from `server/discover`;
+- `protocol`: `era` (`modern` / `legacy`), `negotiated` and, on a 2026-07-28 connection, `supported` (the
+  `supportedVersions` that `server/discover` returned, sorted);
 - per tool: `title`, `icons`, `_meta`;
 - `cacheHints`: the `ttlMs` / `cacheScope` seen on `server/discover` and each list call (SEP-2549);
 - `skills` and `events` when the server advertises `io.modelcontextprotocol/skills` / `io.modelcontextprotocol/events`.

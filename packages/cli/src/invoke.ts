@@ -12,15 +12,14 @@
 
 import { createInterface } from "node:readline";
 import type { Client } from "@modelcontextprotocol/client";
-import { Client as SdkClient } from "@modelcontextprotocol/client";
-import { buildTransport, connectClient, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
+import { connectEra, parseEra, DEFAULT_ERA, coerceArgs, type Era, InputRequiredError, runRounds, resolveServer, resolveConnect, parseCallExpr, splitKeyValue, parseLiteral, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import type { JSONSchema } from "../../mcp-contract/src/schema.js";
 
 // The function-call / literal parsing now lives in mcp-contract (shared with
 // `mcp-bench --call` / `mcp-record --call`); re-exported here for existing importers.
 export { parseCallExpr } from "../../mcp-contract/src/index.js";
 import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./format.js";
-import { InputRequiredError, opSkill, opSkills, opTasks, runRounds } from "./extension-verbs.js";
+import { opSkill, opSkills, opTasks } from "./extension-verbs.js";
 
 const log = (s: string): void => console.log(s);
 
@@ -47,7 +46,7 @@ export interface InvokeFlags {
   answers?: string[];
   /** `--file <ref>` (skill): which file of the skill to read. Default SKILL.md. */
   file?: string;
-  /** `--era legacy|auto`: `legacy` (default) uses the initialize handshake; `auto` tries server/discover first (2026-07-28). */
+  /** `--era legacy|auto`: `auto` (default) tries server/discover first (2026-07-28) and falls back to the initialize handshake; `legacy` skips the probe. A registry entry's `era` applies when this is unset. */
   era?: string;
 }
 
@@ -83,22 +82,29 @@ function inlineHeaders(f: InvokeFlags): Record<string, string> {
   return headers;
 }
 
+/**
+ * The era a connection will use: an explicit `--era` wins, then the server's registry pin, then the default (`auto`).
+ * `--answer` needs a 2026-07-28 connection, so it implies `auto` unless `--era legacy` was given outright.
+ */
+export function eraFor(f: InvokeFlags, pinned?: Era): Era {
+  const flag = parseEra(f.era);
+  if (flag === "legacy" && f.answers?.length) throw new Error("--answer needs a 2026-07-28 connection (the multi round-trip pattern); drop --era legacy");
+  if (flag) return flag;
+  if (f.answers?.length) return "auto";
+  return pinned ?? DEFAULT_ERA;
+}
+
 /** Resolve + connect; caller owns close(). Shared by one-shot verbs, the REPL, and the daemon. */
 export function connectFor(serverRef: string | undefined, f: InvokeFlags, clientName = "mcp-query"): Promise<{ client: Client; close: () => Promise<void> }> {
   const opts = resolveInvoke(serverRef, f, clientName);
-  if (f.era !== undefined && f.era !== "legacy" && f.era !== "auto") throw new Error('--era must be "legacy" (default, initialize handshake) or "auto" (try server/discover first)');
-  const answering = !!f.answers?.length;
-  if (answering && f.era === "legacy") throw new Error("--answer needs a 2026-07-28 connection (the multi round-trip pattern); drop --era legacy");
-  // --answer implies auto negotiation: `input_required` rounds only exist on 2026-07-28 connections.
-  if (f.era === "auto" || answering) return connectAuto(opts, answering);
-  return connectClient(opts);
+  const era = eraFor(f, opts.era);
+  // Declare elicitation only when we can actually answer it (from --answer).
+  return connectEra(opts, era, { capabilities: f.answers?.length ? { elicitation: { form: {}, url: {} } } : {} });
 }
 
-async function connectAuto(opts: ConnectOptions, answering: boolean): Promise<{ client: Client; close: () => Promise<void> }> {
-  // Declare elicitation only when we can actually answer it (from --answer).
-  const client = new SdkClient({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: answering ? { elicitation: { form: {}, url: {} } } : {}, versionNegotiation: { mode: "auto" } });
-  await client.connect(buildTransport(opts));
-  return { client, close: () => client.close().catch(() => {}) };
+/** Does this verb need the manual `input_required` round loop? Yes on any 2026-07-28 connection (or when `--answer` was given). */
+export function usesRounds(client: Client, f: InvokeFlags): boolean {
+  return !!f.answers?.length || (client as unknown as { getProtocolEra?: () => string | undefined }).getProtocolEra?.() === "modern";
 }
 
 // ── failure classification (for --json error reports) ─────────────────────────
@@ -130,52 +136,7 @@ function fail(err: unknown, ctx: { server: string; tool?: string }, mode: Output
 
 // ── value coercion ────────────────────────────────────────────────────────────
 
-/**
- * Coerce a whole raw arg map by a tool's inputSchema (each value retyped per `coerce`).
- * Exported so the daemon can coerce flag-style string args without re-deriving the logic.
- */
-export function coerceArgs(schema: JSONSchema | undefined, rawArgs: Record<string, unknown>): Record<string, unknown> {
-  const args: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(rawArgs)) args[k] = coerce(k, v, schema);
-  return args;
-}
-
-/** Coerce a raw string token to the type the tool's inputSchema declares for `key`. */
-function coerce(key: string, raw: unknown, schema: JSONSchema | undefined): unknown {
-  // Already a non-string (came from a parsed function-call literal) — keep it.
-  if (typeof raw !== "string") return raw;
-  const prop = schema?.properties?.[key];
-  const t = Array.isArray(prop?.type) ? prop?.type[0] : prop?.type;
-  switch (t) {
-    case "number":
-    case "integer": {
-      const n = Number(raw);
-      return Number.isNaN(n) ? raw : n;
-    }
-    case "boolean":
-      return raw === "true" ? true : raw === "false" ? false : raw;
-    case "object":
-    case "array":
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw;
-      }
-    case "string":
-      return raw;
-    default: {
-      // No schema hint: best-effort JSON for objects/arrays, leave the rest as a string.
-      if (/^[[{]/.test(raw.trim())) {
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return raw;
-        }
-      }
-      return raw;
-    }
-  }
-}
+export { coerceArgs };
 
 /**
  * Parse `call` arguments from BOTH styles. The positional `tokens` may be either:
@@ -259,7 +220,7 @@ export async function opCall(client: Client, toolName: string | undefined, argTo
   }
 
   // Without --answer an `input_required` result must be visible (not swallowed by the SDK driver) so it can be reported.
-  const result = f.era === "auto" || f.answers?.length
+  const result = usesRounds(client, f)
     ? await runRounds((retry) => client.callTool({ name, arguments: args, ...retry } as never, { allowInputRequired: true } as never) as Promise<Awaited<ReturnType<Client["callTool"]>>>, f.answers ?? [])
     : await client.callTool({ name, arguments: args });
   if (mode === "raw") return log(formatResult(result, "raw"));
@@ -280,7 +241,7 @@ export async function opPrompt(client: Client, name: string, argTokens: string[]
   const parsed = parseCallArgs(name, argTokens);
   const args: Record<string, string> = {};
   for (const [k, v] of Object.entries(parsed.args)) args[k] = typeof v === "string" ? v : JSON.stringify(v);
-  const result = f.era === "auto" || f.answers?.length
+  const result = usesRounds(client, f)
     ? await runRounds((retry) => client.getPrompt({ name, arguments: args, ...retry } as never, { allowInputRequired: true } as never) as Promise<Awaited<ReturnType<Client["getPrompt"]>>>, f.answers ?? [])
     : await client.getPrompt({ name, arguments: args });
   if (mode === "raw") return log(formatResult(result, "raw"));

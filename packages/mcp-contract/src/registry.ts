@@ -7,7 +7,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { connectFromFlags, type ConnectOptions } from "./connect.js";
+import { connectFromFlags, parseEra, type ConnectOptions } from "./connect.js";
 
 /** A server entry in the standard `mcpServers` shape (stdio OR remote). */
 export interface RegistryEntry {
@@ -21,6 +21,11 @@ export interface RegistryEntry {
   type?: "http" | "sse" | "stdio";
   url?: string;
   headers?: Record<string, string>;
+  /**
+   * Pin the protocol era for this server so it does not pay the `server/discover` probe on every connect:
+   * `"legacy"` for a 2025-era server, `"auto"` (the default everywhere) to probe. An `--era` flag still wins.
+   */
+  era?: "legacy" | "auto";
 }
 
 export interface MCPServersFile {
@@ -44,13 +49,15 @@ function expandRecord(rec: Record<string, string> | undefined): Record<string, s
 /** Map a standard registry entry onto ConnectOptions (the shape every tool already consumes). */
 export function entryToConnectOptions(entry: RegistryEntry): ConnectOptions {
   const headers = expandRecord(entry.headers);
-  if (entry.url) return { url: expandEnv(entry.url), headers };
+  const era = parseEra(entry.era, "server entry `era`");
+  if (entry.url) return { url: expandEnv(entry.url), headers, ...(era ? { era } : {}) };
   if (entry.command) {
     return {
       command: expandEnv(entry.command),
       args: (entry.args ?? []).map(expandEnv).join(" "),
       env: expandRecord(entry.env),
       cwd: entry.cwd ? expandEnv(entry.cwd) : undefined,
+      ...(era ? { era } : {}),
     };
   }
   throw new Error("server entry needs a `command` (stdio) or `url` (http/sse)");
