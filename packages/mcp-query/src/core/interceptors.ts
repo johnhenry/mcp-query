@@ -31,8 +31,11 @@ import type { ToolInteraction } from "./interaction.js";
  *            for `client.discover()`. The "result" is the array of items: filter or annotate it.
  * - `prompt` prompts/get (`target` = prompt name, `args` = its arguments)
  * - `skill`  a skills-extension call; `method` says which (`skills/list`, `skills/get`, `skills/read`)
+ * - `task`   a tasks-extension call a gateway re-serves (`tasks/get`, `tasks/update`, `tasks/cancel`); `target` is the
+ *            name of the tool that started the task, `args` carries the upstream `taskId` (#82)
+ * - `extension` any other extension method a gateway passes through on an explicit allowlist; `target` is the method
  */
-export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill";
+export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill" | "task" | "extension";
 
 /** The four catalogs a `list` operation can target. */
 export type CatalogName = "tools" | "resources" | "resourceTemplates" | "prompts";

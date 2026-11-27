@@ -134,7 +134,7 @@ export interface CallAuditEntry {
   at: number;
   ms: number;
   server: string;
-  kind: "read" | "call" | "query" | "list" | "prompt" | "skill";
+  kind: "read" | "call" | "query" | "list" | "prompt" | "skill" | "task" | "extension";
   target: string;
   /** `context.meta.principal`, if the caller set one. */
   principal?: unknown;
@@ -196,6 +196,20 @@ export interface QueryToolOpts {
    * cancelled only once every caller waiting on it has aborted (reference-counted).
    * An already-aborted signal rejects immediately without starting a request.
    */
+  signal?: AbortSignal;
+}
+
+/** Options for {@link MCPClient.forward}. */
+export interface ForwardOpts {
+  /** What the interceptor chain treats the request as. Default `"extension"`. */
+  kind?: "task" | "extension";
+  /** `Operation.target` (default: the method). */
+  target?: string;
+  /** `Operation.args`: what policies may read (not sent). */
+  args?: Record<string, unknown>;
+  context?: CallContext;
+  /** MRTR answers this request carries, for the audit entry (`describeInteraction`); not sent. */
+  interaction?: ToolInteraction;
   signal?: AbortSignal;
 }
 
@@ -670,6 +684,41 @@ export class MCPClient {
     }
   }
 
+  // ── raw requests through the chain (gateway extension pass-through, #82) ──
+  /**
+   * Send one raw request to a single upstream through the interceptor chain (authorize, audit,
+   * rate-limit, redact, ...), for methods the client has no typed API for: the tasks extension's
+   * `tasks/get|update|cancel` and allowlisted extension methods a gateway re-serves. `kind` is what
+   * the chain sees (default `"extension"`). `args` is what policies see (default none: wire params
+   * can carry answers, which a policy should not read); the result is returned as the loose object.
+   */
+  async forward(server: string, method: string, params: Record<string, unknown>, opts: ForwardOpts = {}): Promise<Record<string, unknown>> {
+    await this.wake(server);
+    const conn = this.req(server);
+    const op: Operation = {
+      kind: opts.kind ?? "extension",
+      peer: server,
+      target: opts.target ?? method,
+      method,
+      args: opts.args,
+      context: opts.context,
+      interaction: opts.interaction,
+      state: {},
+    };
+    return this.run(op, async (o) => {
+      const meta = this.withMeta(conn, o.context);
+      try {
+        return await conn.sdk.request(
+          { method, params: { ...params, ...(meta ? { _meta: meta } : {}) } },
+          UpdateTaskResultSchema,
+          { signal: opts.signal, ...this.defaultRequestOptions },
+        );
+      } catch (err) {
+        throw this.toError(err, server, "protocol");
+      }
+    }) as Promise<Record<string, unknown>>;
+  }
+
   // ── capability lists (useTools / useResourceList / usePrompts) ───────────
   /** The connections a `list*` call covers: one named server (throws if unknown) or all of them. */
   private listScope(server: string | undefined): Array<[string, ServerConnection]> {
@@ -803,7 +852,7 @@ export class MCPClient {
   }
   /** One verified file of `skill` (default `SKILL.md`; `ref` is relative to the skill root or absolute). */
   readSkillFile(skill: Skill, ref?: string, opts: SkillOpts = {}): Promise<SkillFile> {
-    const op: Operation = { kind: "skill", peer: skill.server, target: ref ?? skill.uri, method: "skills/read", context: opts.context, state: {} };
+    const op: Operation = { kind: "skill", peer: skill.server, target: ref ?? skill.uri, method: "skills/read", args: { skill: skill.uri }, context: opts.context, state: {} };
     return this.run(op, (o) => this.skills.readFile(skill, ref, { ...opts, context: o.context })) as Promise<SkillFile>;
   }
 

@@ -17,7 +17,7 @@
 import type { AuthzRequest, AuthzVerdict } from "@johnhenry/mcp-query/server";
 import type { ConnectionConfig, ClientInfo, CallAuditEntry, InteractionBroker, CallContext } from "@johnhenry/mcp-query";
 import type { RedactRule } from "./redact.js";
-import type { GatewayInteractions } from "@johnhenry/mcp-query/server";
+import type { GatewayInteractions, GatewayExtensions } from "@johnhenry/mcp-query/server";
 import type { UrlElicitationPolicy } from "./interaction.js";
 
 /**
@@ -67,6 +67,15 @@ export interface GatePolicyRules {
   approve?: string[];
   /** Deny any tool flagged destructiveHint. */
   denyDestructive?: boolean;
+  /**
+   * Skills (`io.modelcontextprotocol/skills`): allow / deny / approve a WHOLE skill, never its text
+   * (a skill's files are digest-verified, so the gate never rewrites them). Globs match the skill id
+   * `server.<skill-path>`, the `skill://` URI without its scheme (`github.git-commit`,
+   * `github.team/deploy`); a glob that matches a skill also covers every file in it. `deny` wins, then
+   * `allow` (when set) must match, then `approve`. Skills with no rule are allowed. Hidden from
+   * `skills/list` when denied or outside `allow`; an approve-gated skill is listed and held at `get` / file read.
+   */
+  skills?: { allow?: string[]; deny?: string[]; approve?: string[] };
 }
 
 /** What an approver (the `approval.handler`, or the UI behind the broker) is shown. */
@@ -229,6 +238,15 @@ export interface GateConfig {
    * embedder sets it directly via `gate.client.scope({ partition, meta })`.
    */
   partitionFrom?: (meta: Record<string, unknown> | undefined) => string | undefined;
+  /**
+   * MCP extensions the gate offers consumers and passes through (tasks, skills, MCP Apps, and an opt-in
+   * allowlist for unknown extension methods). An extension is offered to a consumer only when an upstream
+   * advertises it, this config allows it, and the consumer declared it. Allowed by default: tasks, skills,
+   * `io.modelcontextprotocol/ui`. The gate's own connection to upstreams declares the UI extension (so
+   * upstreams send their MCP Apps metadata; it is stripped for consumers that did not declare it) unless
+   * UI is denied here. Set `tasksSecret` when several gate instances share consumers. See the README.
+   */
+  extensions?: GatewayExtensions;
 }
 
 function escapeRe(s: string): string {
@@ -303,7 +321,8 @@ export function explainPolicy(
   return (req) => {
     // Catalog views (`list`) are filtered per item by policyListFilter, and the skills calls have no
     // glob-addressable id: a declarative policy leaves both permissive (use a function policy to gate them).
-    if (req.kind === "list" || req.kind === "skill") return { decision: "allow" };
+    if (req.kind === "list" || req.kind === "extension") return { decision: "allow" };
+    if (req.kind === "skill") return skillDecision(policy.skills, req);
     const id = idFor(options, req.server, req.target);
     const denied = deny?.find((r) => r.re.test(id));
     if (denied) return { decision: "deny", rule: { list: "deny", glob: denied.glob } };
@@ -313,9 +332,50 @@ export function explainPolicy(
       allowed = allow.find((r) => r.re.test(id));
       if (!allowed) return { decision: "deny", rule: { list: "allow" } };
     }
-    const ask = approve?.find((r) => r.re.test(id));
+    // A task poll/answer/cancel follows the tool that started it: denied tools stay denied, but approval was
+    // asked when the task began, not at every poll.
+    const ask = req.kind === "task" ? undefined : approve?.find((r) => r.re.test(id));
     if (ask) return { decision: "approve", rule: { list: "approve", glob: ask.glob } };
     return allowed ? { decision: "allow", rule: { list: "allow", glob: allowed.glob } } : { decision: "allow" };
+  };
+}
+
+/** The ids a skill operation names, longest first: `server.a/b/SKILL.md`, `server.a/b`, `server.a`. A glob matching any covers the skill. */
+function skillIds(server: string, uri: string): string[] {
+  const path = uri.startsWith("skill://") ? uri.slice("skill://".length) : uri;
+  const parts = path.split("/").filter(Boolean);
+  return parts.map((_, i) => `${server}.${parts.slice(0, parts.length - i).join("/")}`);
+}
+
+function skillDecision(rules: GatePolicyRules["skills"], req: AuthzRequest): PolicyDecision {
+  // The catalog call itself is filtered per skill (policySkillFilter); naming a whole skill is what is judged.
+  if (!rules || req.method === "skills/list" || req.target === "skills") return { decision: "allow" };
+  const named = (req.args as { skill?: unknown } | undefined)?.skill;
+  const ids = skillIds(req.server, typeof named === "string" ? named : req.target);
+  const hit = (globs?: string[]) => globs?.find((g) => ids.some((id) => globToRe(g).test(id)));
+  const denied = hit(rules.deny);
+  if (denied) return { decision: "deny", rule: { list: "deny", glob: denied } };
+  if (rules.allow) {
+    const ok = hit(rules.allow);
+    if (!ok) return { decision: "deny", rule: { list: "allow" } };
+  }
+  const ask = hit(rules.approve);
+  if (ask) return { decision: "approve", rule: { list: "approve", glob: ask } };
+  return { decision: "allow" };
+}
+
+/**
+ * The gateway's `skillFilter` for a declarative policy: skills denied (or outside `skills.allow`) are
+ * hidden from `skills/list`. Undefined when the policy has no skill rules (or is a function).
+ */
+export function policySkillFilter(policy: GatePolicy): ((server: string, uri: string) => boolean) | undefined {
+  if (typeof policy === "function" || !(policy.skills?.deny?.length || policy.skills?.allow)) return undefined;
+  const rules = policy.skills;
+  return (server, uri) => {
+    const ids = skillIds(server, uri);
+    if (rules.deny?.some((g) => ids.some((id) => globToRe(g).test(id)))) return false;
+    if (rules.allow && !rules.allow.some((g) => ids.some((id) => globToRe(g).test(id)))) return false;
+    return true;
   };
 }
 

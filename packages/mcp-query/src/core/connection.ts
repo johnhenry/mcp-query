@@ -10,7 +10,7 @@
 // `subscriptions/listen` stream (ListenManager), and have no sessions/ping/
 // logging-setLevel. The same notification handlers serve both delivery paths.
 
-import { Client, type InputRequiredOptions, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
+import { Client, type ClientCapabilities, type InputRequiredOptions, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
 
 import type { MCPCache } from "./cache.js";
 import { clientCapabilities, installHandlers } from "./handlers.js";
@@ -184,6 +184,11 @@ export class ServerConnection {
       if (this.state === "ready" || this.state === "degraded") this.scheduleReconnect();
     };
     return client;
+  }
+
+  /** The client capabilities this connection declares (what its handlers and `extensions` back). */
+  get clientCapabilities(): ClientCapabilities {
+    return clientCapabilities(this.deps.handlers, this.deps.extensions);
   }
 
   get isLazy(): boolean {
