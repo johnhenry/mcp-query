@@ -6,7 +6,8 @@
   "description": "Shared app spine for the mcp-query example apps: reusable WS proxy, transports, OAuth, and React glue (provider, schema form, result/JSON views).",
   "main": "src/react/index.tsx",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
@@ -19,6 +20,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.5.13",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   }
 }

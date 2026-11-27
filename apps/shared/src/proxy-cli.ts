@@ -8,15 +8,26 @@
 // connect URL (with ?proxyToken / ?proxyPort) so you can open the app pre-wired to this proxy.
 // WEB_PORT lets each app pin its Vite port (see its `dev` script) so the printed URL is correct.
 
-import { startProxy } from "./proxy.js";
+import { readFileSync, existsSync } from "node:fs";
+import { startProxy, type TargetRule } from "./proxy.js";
 
 const port = Number(process.env.PROXY_PORT ?? 6280);
 const webUrl = process.env.WEB_URL ?? `http://localhost:${process.env.WEB_PORT ?? 5173}`;
+
+// Safe by default: only targets matching ./proxy-allow.json (relative to the app dir the script
+// runs in) may be dialed; with no file, nothing may. An app whose whole job is launching whatever
+// the user types opts in explicitly with PROXY_ALLOW_ANY=1 (warns at startup).
+const allowFile = process.env.PROXY_ALLOW_FILE ?? "proxy-allow.json";
+const allowTargets: TargetRule[] = existsSync(allowFile) ? JSON.parse(readFileSync(allowFile, "utf8")) : [];
+const allowAnyTarget = process.env.PROXY_ALLOW_ANY === "1";
+if (!allowAnyTarget && allowTargets.length === 0) console.warn(`  ! no targets allowed: add ${allowFile} (or set PROXY_ALLOW_ANY=1)`);
 
 const proxy = await startProxy({
   port,
   token: process.env.PROXY_TOKEN,
   webUrl,
+  allowTargets,
+  allowAnyTarget,
 });
 
 console.log(`\n  ⬡ mcp-query proxy  ${proxy.url}`);

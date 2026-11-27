@@ -69,6 +69,10 @@
     "./otel": {
       "types": "./dist/otel/index.d.ts",
       "default": "./dist/otel/index.js"
+    },
+    "./browser-bundle": {
+      "types": "./dist/browser/mcp-query.browser.d.ts",
+      "default": "./dist/browser/mcp-query.browser.js"
     }
   },
   "bin": {
@@ -76,7 +80,7 @@
     "mcp-query-inspect": "dist/cli/inspect.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/codegen/cli.js dist/cli/inspect.js && node scripts/build-browser.mjs",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -91,7 +95,9 @@
     "example:03": "tsx examples/03-live-subscriptions.ts",
     "example:04": "tsx examples/04-multi-server.ts",
     "example:05": "tsx examples/05-human-in-the-loop.ts",
-    "example:06": "tsx examples/06-alongside-another-client.ts"
+    "example:06": "tsx examples/06-alongside-another-client.ts",
+    "build:browser": "node scripts/build-browser.mjs",
+    "size-table": "node scripts/size-table.mjs"
   },
   "peerDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
@@ -120,6 +126,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.17",
     "@vitest/coverage-v8": "^4.1.9",
+    "esbuild": "^0.28.1",
     "happy-dom": "^20.10.6",
     "react": "^19.2.7",
     "tsx": "^4.22.4",
