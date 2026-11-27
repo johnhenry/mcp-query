@@ -154,12 +154,24 @@ export interface FileOAuthProviderOptions {
   dpop?: boolean;
 }
 
+/** The SDK's `OAuthClientProvider.dpop` type when the installed SDK declares it, else this package's slice. */
+type SdkDpopMember = OAuthClientProvider extends { dpop?: infer D }
+  ? unknown extends D
+    ? () => Promise<DpopSessionLike>
+    : NonNullable<D>
+  : () => Promise<DpopSessionLike>;
+
 export class FileOAuthProvider implements OAuthClientProvider {
   lastAuthorizationUrl?: URL;
   private cache: CacheState;
   private dpopPromise?: Promise<DpopSessionLike>;
-  /** Present only when constructed with `dpop: true`; the SDK detects DPoP by this member. */
-  dpop?: () => Promise<DpopSessionLike>;
+  /**
+   * Present only when constructed with `dpop: true`; the SDK detects DPoP by this member.
+   * Typed from the installed SDK's own `OAuthClientProvider.dpop` where it has one (>= 2.1.0, whose
+   * `DpopSession` is wider than the slice this package uses), so the class type-checks on every
+   * supported SDK; on older SDKs, which have no such member, it is this package's own shape.
+   */
+  dpop?: SdkDpopMember;
   private readonly cimdUrl: string | undefined;
 
   constructor(
@@ -172,7 +184,8 @@ export class FileOAuthProvider implements OAuthClientProvider {
     if (opts.dpop) {
       assertDpopSupported();
       const keyFile = dpopKeyPath(file);
-      this.dpop = () => (this.dpopPromise ??= loadOrCreateDpopSession(keyFile));
+      // The session comes from the SDK's own `DpopSession.create`, so it is the SDK's type at runtime.
+      this.dpop = (() => (this.dpopPromise ??= loadOrCreateDpopSession(keyFile))) as SdkDpopMember;
     }
   }
 
