@@ -78,6 +78,174 @@ offers it, and falls back losslessly to 2025-11-25 (v1) otherwise; a modern-only
 pins (no fallback). Unconfigured connections — and everything installed from `latest`
 today — keep speaking 2025-11-25 byte-for-byte, no probe.
 
+## Browser
+
+### Single-file browser bundle
+
+`@johnhenry/mcp-query/browser-bundle` is one self-contained ES module for hosts that vendor or
+sandbox their dependencies (no nested `node_modules`, no CDN resolution, no peer-dependency
+surprises). The MCP SDK client, `zod`, and `@johnhenry/agent-query-core` are inlined, so a single
+`import` makes a single request:
+
+```js
+import { MCPClient, StreamableHTTPClientTransport, createGateClient } from "/vendor/mcp-query.browser.js";
+// or, through a bundler / import map: "@johnhenry/mcp-query/browser-bundle"
+
+const client = new MCPClient({
+  servers: { api: { transport: () => new StreamableHTTPClientTransport(new URL("https://example.com/mcp")) } },
+});
+await client.connect();
+```
+
+What is inside:
+
+- everything `@johnhenry/mcp-query` exports from its main entry (`MCPClient`, cache, router, interceptors, ...);
+- the browser-safe transports `StreamableHTTPClientTransport`, `SSEClientTransport`, `InMemoryTransport`
+  (the Node-only `StdioClientTransport` is excluded; reach stdio servers through a bridge, below);
+- the browser-safe parts of [`@johnhenry/mcp-gate`](../mcp-gate), its `browser` export condition:
+  `createGateClient`, `compilePolicy`, `explainPolicy`, `policyListAnnotator`, `policyListFilter`,
+  `validateGateConfig`, `redact`, `redactValue`, `resolveHttpUpstream`, `CircuitOpenError`. The gateway
+  `Server` (`createGate`) and stdio upstreams are not included.
+
+What is not: **the React hooks** (`@johnhenry/mcp-query/react`) are not in this bundle. They need your
+app's single copy of `react`, so they stay a normal module import with `react` external; this
+bundle is the framework-free core. Types for the core and transports ship as
+`dist/browser/mcp-query.browser.d.ts`; the gate's types come from `@johnhenry/mcp-gate`.
+
+The existing export paths (`.`, `./react`, `./transports`, ...) resolve exactly as before.
+The bundle is built by `npm run build` (`scripts/build-browser.mjs`, esbuild, minified ESM,
+`es2022`) and checked by `test/browser-bundle.test.ts`, which serves the single file to
+Chromium, intercepts every request to prove nothing else is fetched, constructs an `MCPClient`
+and connects it, plus a governed gate client, over an in-page transport. (The Chromium step needs
+Playwright, which is not a dependency of this repo; it runs when `require("playwright")` resolves or
+`PLAYWRIGHT_MODULE` points at an install, and is skipped otherwise.)
+
+Sizes (regenerate with `npm run size-table -w @johnhenry/mcp-query -- --write`):
+
+<!-- size-table:start -->
+| File | Raw | gzip | brotli |
+| --- | ---: | ---: | ---: |
+| `mcp-query.browser.js` (minified, one file) | 363.3 KiB | 98.2 KiB | 83.8 KiB |
+
+Where the raw bytes come from:
+
+| Inlined package | Raw (minified) |
+| --- | ---: |
+| `@modelcontextprotocol/client` | 190.9 KiB |
+| `zod` | 84.6 KiB |
+| `@johnhenry/mcp-query (core)` | 40.1 KiB |
+| `@modelcontextprotocol/core` | 16.0 KiB |
+| `@johnhenry/mcp-gate (browser parts)` | 13.0 KiB |
+| `@johnhenry/agent-query-core` | 7.8 KiB |
+| `eventsource` | 5.1 KiB |
+| `eventsource-parser` | 3.7 KiB |
+| `pkce-challenge` | 0.7 KiB |
+<!-- size-table:end -->
+
+### Connecting to servers from a browser
+
+A page has two ways to reach an MCP server: **Streamable HTTP, directly** (a remote server, or a
+local one that speaks HTTP), or **through a local bridge** for stdio servers.
+
+#### Streamable HTTP from a page
+
+```ts
+import { MCPClient, StreamableHTTPClientTransport } from "@johnhenry/mcp-query";
+
+const client = new MCPClient({
+  versions: ["2026-07-28", "2025-11-25"], // modern first, fall back to the 2025-era handshake
+  servers: {
+    api: {
+      transport: () =>
+        new StreamableHTTPClientTransport(new URL("https://api.example.com/mcp"), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } }, // or an authProvider (OAuth)
+        }),
+    },
+  },
+});
+```
+
+The page's `fetch` is subject to CORS, and MCP's headers are all non-safelisted, so **every request
+is preflighted**. A browser-reachable server (or the reverse proxy in front of it) must therefore
+allow and expose the headers below. CORS is not defined by the MCP spec; this table is what the
+2026-07-28 and 2025-11-25 Streamable HTTP pages require clients to *send* and *read*, which is
+what CORS must let through.
+
+| | 2026-07-28 | 2025-era (2025-03-26 to 2025-11-25) |
+| --- | --- | --- |
+| `Access-Control-Allow-Methods` | `POST, OPTIONS` (GET and DELETE are removed; a server answers them `405`) | `POST, GET, DELETE, OPTIONS` |
+| `Access-Control-Allow-Headers` | `Content-Type`, `Accept`, `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Authorization`, plus one `Mcp-Param-<Name>` per `x-mcp-header` your tools declare | `Content-Type`, `Accept`, `MCP-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-ID`, `Authorization` |
+| `Access-Control-Expose-Headers` | `WWW-Authenticate` (OAuth discovery on `401`) | `Mcp-Session-Id`, `WWW-Authenticate` |
+| `Access-Control-Allow-Origin` | the page's exact origin (echoed from an allowlist) + `Vary: Origin` | same |
+
+Details that matter:
+
+- **2026-07-28 request headers.** `MCP-Protocol-Version` on every POST; `Mcp-Method` on every request;
+  `Mcp-Name` on `tools/call`, `resources/read` and `prompts/get` (Base64 `=?base64?...?=` encoded when the
+  value is not plain ASCII); and `Mcp-Param-<Name>` for each tool parameter whose `inputSchema` has an
+  `x-mcp-header` annotation (so `{"x-mcp-header": "Region"}` is sent as `Mcp-Param-Region`). A server must
+  validate them against the body and answers a mismatch with `400` and JSON-RPC error `-32020`. There is
+  no session id in this revision and nothing session-related to expose.
+- **`Mcp-Param-*` cannot be wildcarded.** `Access-Control-Allow-Headers` has no prefix patterns, and its `*`
+  does not cover `Authorization` (and is ignored on credentialed requests), so list the header names your
+  tools actually use, plus `Authorization` explicitly. If the tool set is dynamic, echo the preflight's
+  `Access-Control-Request-Headers` back after checking each name against an allowlist.
+- **2025-era servers.** The session id arrives in an `Mcp-Session-Id` *response* header; the browser hides it
+  from JavaScript unless it is in `Access-Control-Expose-Headers`, and the client then sends it back as a
+  request header (so it is also in `Allow-Headers`). Without `Expose-Headers: Mcp-Session-Id` a
+  session-ful server appears to work for `initialize` and then fails on the next call. `Last-Event-ID` is
+  only sent when resuming an SSE stream.
+- **Both eras, when you probe.** With `versions: ["2026-07-28", ...]` the first request is a modern probe;
+  a legacy server's `400`/`404`/`405` then triggers the `initialize` fallback. CORS must be correct on
+  those error responses too (headers on non-2xx answers, not only on `200`), or the browser reports an
+  opaque network error instead of the status and the fallback cannot tell what happened.
+- **Preflight.** Answer `OPTIONS` on the MCP endpoint with `204`, the `Allow-*` headers above, and
+  `Access-Control-Max-Age` (for example `600`). Preflights do not carry `Authorization`, so do not
+  require auth on `OPTIONS`.
+- **`Origin` is still validated.** The spec requires servers to reject requests with an invalid `Origin`
+  with `403` (DNS-rebinding defence). A CORS allowlist and that check should use the same list.
+- **Auth.** A `401` should carry `WWW-Authenticate` (exposed, as above). The OAuth discovery documents
+  and the authorization server's token and registration endpoints are fetched by the page too, so they
+  need CORS as well. Run OAuth in the page with an `authProvider` (see `instrumentAuthProvider`).
+- **Local servers from an `https` page.** Browsers may additionally require a private-network-access
+  opt-in on the preflight (`Access-Control-Allow-Private-Network: true`) and block `http` from `https`
+  as mixed content, with `http://localhost` / `http://127.0.0.1` exempted. Check the browser versions
+  you target.
+
+A minimal Node reference (adapt the allowlist):
+
+```js
+const ALLOWED = new Set(["https://app.example"]);
+const HEADERS = "Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Authorization, Mcp-Param-Region, Mcp-Session-Id, Last-Event-ID";
+function cors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED.has(origin)) return res.writeHead(403).end();
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, WWW-Authenticate"); // drop Mcp-Session-Id on 2026-07-28-only servers
+  }
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", HEADERS);
+    res.setHeader("Access-Control-Max-Age", "600");
+    return res.writeHead(204).end();
+  }
+}
+```
+
+#### stdio servers: the WebSocket bridge
+
+A page cannot spawn a stdio server, so a local **bridge** relays JSON-RPC between a WebSocket and the
+child process. The wire protocol (framing, how the target command is selected, token and `Origin`
+checks, lifecycle, errors) is specified in [docs/ws-stdio-bridge.md](https://github.com/johnhenry/mcp-query/blob/main/packages/mcp-query/docs/ws-stdio-bridge.md); the
+reference implementation is `apps/shared`'s `startProxy` and is pinned by tests. mcp-query does not ship
+a bridge itself. Because the bridge **spawns local processes on behalf of a web page**, any
+implementation must bind to loopback, check `Origin`, require a token and refuse to spawn anything it
+was not explicitly told to allow; the doc lists the exact requirements. The reference bridge is safe by
+default: `Origin` required and loopback-only, and **no target allowed until you pass `allowTargets`** (or the
+named, warning-logging `allowAnyTarget` escape hatch).
+
 
 ### Tasks and SDK versions
 
