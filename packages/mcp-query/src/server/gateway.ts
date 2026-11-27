@@ -16,9 +16,10 @@ import type { MCPClient, CallAuditEntry, CallContext } from "../core/client.js";
 import { MCPError } from "../core/types.js";
 import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
-import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
+import { describeInteraction, isInputRequiredResult, type AuditInteraction, type ToolInteraction } from "../core/interaction.js";
 import { AuthorizationError } from "./authorize.js";
-import { applyInboundAuth, type InboundAuthOptions } from "./inboundAuth.js";
+import { applyInboundAuth, withListenAuth, type InboundAuthOptions } from "./inboundAuth.js";
+import { isInteractionRelay, type RelayIdentity, type RelayStep } from "./interactionRelay.js";
 import { TASKS_EXT } from "../core/tasksExt.js";
 import { SKILLS_EXT } from "../core/skillsExt.js";
 import {
@@ -46,7 +47,12 @@ export type { GatewayExtensions } from "./gatewayExtensions.js";
  * - `"forward"`: the round is returned to the consumer (`inputRequests` after the gate's own
  *   interceptors, `requestState` byte-for-byte) and the consumer's retry is routed back to the
  *   same upstream. Elicitation requests only; the upstream is told the consumer's real
- *   elicitation capability. Applies to upstreams on a modern (2026-07-28) connection.
+ *   elicitation capability. Covers `tools/call`, `prompts/get` and `resources/read`. A modern
+ *   (2026-07-28) upstream's in-band round is handed on as it is. A 2025-era upstream asks with a
+ *   server-initiated `elicitation/create` during the call: that is relayed through an
+ *   {@link InteractionRelay} installed as the client's `interactions` (the gateway fails closed
+ *   without one), in the consumer's own form (an `input_required` round for a modern consumer, a
+ *   server-initiated `elicitation/create` for a 2025-era consumer that declared the capability).
  * - `"deny"`: the upstream is told the gate cannot ask anyone, and an `input_required` result
  *   anyway is refused with a -32003 error.
  */
@@ -97,6 +103,15 @@ export interface GatewayOptions {
    */
   guardAnswers?: AnswerGuard;
   /**
+   * Called on the request hop of a relayed round (`interactions: "forward"` to a 2025-era upstream, see
+   * {@link InteractionRelay}): the upstream's elicitation, before the consumer is shown it. A modern
+   * upstream's in-band round passes the client's interceptor chain (redact, URL policy) instead; this
+   * hook is that same step for the round the chain never sees. It may rewrite the requests (redact) or
+   * refuse (throw: the upstream's request is cancelled and the consumer's call fails with the error).
+   * Absent: requests are forwarded untouched. mcp-gate installs one from its `redact` rules and `urlElicitation` policy.
+   */
+  guardInputRequests?: InputRequestGuard;
+  /**
    * Which MCP extensions the gateway offers and passes through: tasks, skills, MCP Apps (UI) and an
    * opt-in allowlist for unknown extension methods; see {@link GatewayExtensions}. An extension is
    * offered to a consumer only when an upstream advertises it, this policy allows it and the consumer
@@ -117,10 +132,10 @@ export interface GatewayOptions {
 
 /** What an {@link AnswerGuard} sees: one forwarded round's answers, before they go upstream. */
 export interface AnswerGuardRequest {
-  /** `tools/call`, `prompts/get`, or `tasks/update` (`"task"`: `target` is the tool that started the task). */
-  kind: "tool" | "prompt" | "task";
+  /** `tools/call`, `prompts/get`, `resources/read` (`"resource"`: `target` is the URI), or `tasks/update` (`"task"`: `target` is the tool that started the task). */
+  kind: "tool" | "prompt" | "resource" | "task";
   server: string;
-  /** Un-namespaced tool or prompt name. */
+  /** Un-namespaced tool or prompt name, or the resource URI. */
   target: string;
   args?: Record<string, unknown>;
   /** The consumer's `_meta` (principal, partition, ...), as for any other call. */
@@ -139,6 +154,20 @@ export interface AnswerGuardResult {
 }
 
 export type AnswerGuard = (req: AnswerGuardRequest) => AnswerGuardResult | Promise<AnswerGuardResult>;
+
+/** What an {@link InputRequestGuard} sees: the requests a relayed upstream wants shown to the consumer. */
+export interface InputRequestGuardRequest {
+  kind: "tool" | "prompt" | "resource";
+  server: string;
+  /** Un-namespaced tool or prompt name, or the resource URI. */
+  target: string;
+  context?: { meta?: Record<string, unknown> };
+  /** Keyed like an `input_required` round's `inputRequests`. */
+  inputRequests: Record<string, { method: string; params?: Record<string, unknown> }>;
+}
+
+/** The (possibly redacted) requests to show. Throw an `AuthorizationError` to refuse the round. */
+export type InputRequestGuard = (req: InputRequestGuardRequest) => { inputRequests: InputRequestGuardRequest["inputRequests"] } | Promise<{ inputRequests: InputRequestGuardRequest["inputRequests"] }>;
 
 export interface GatewayHandlerOptions extends GatewayOptions {
   /** Passthrough to createMcpHandler — see its own TSDoc for each option. */
@@ -172,6 +201,7 @@ export class GatewayUpstreamCapabilityError extends Error {
 interface MrtrCtx {
   http?: { authInfo?: import("./inboundAuth.js").InboundAuthInfo };
   mcpReq: {
+    signal?: AbortSignal;
     envelope?: Record<string, unknown>;
     inputResponses?: unknown;
     requestState<T = unknown>(): T | undefined;
@@ -301,7 +331,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
   // Returns the per-call `_meta` and retry params for an upstream whose mode isn't "answer",
   // plus a `settle` that turns an upstream `input_required` into this gateway's own result.
   // "answer" returns undefined: the call is made exactly as before.
-  const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt", target: string, declared: Record<string, object> = {}) => {
+  const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt" | "resource", target: string, declared: Record<string, object> = {}) => {
     const mode = interactionModeFor(opts.interactions, s);
     if (mode === "answer") return undefined;
     const callerMeta = req.params._meta as Record<string, unknown> | undefined;
@@ -346,6 +376,93 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
       });
     };
     return { meta, interaction, settle };
+  };
+
+
+  // ── relayed interactions: `forward` to a 2025-era upstream (#82) ──
+  // A 2025-era upstream asks with a server-initiated `elicitation/create` while the call is open. The
+  // InteractionRelay (the client's `interactions`) holds the call, and this turns what it holds into a
+  // round in the form the consumer's era uses: an `input_required` result either way. A modern consumer
+  // retries it; for a 2025-era consumer the SDK's legacy shim turns the same result into a
+  // server-initiated `elicitation/create` and re-enters this handler with the answer. Both come back
+  // here with the same one-use `requestState`.
+  const relayOf = () => (isInteractionRelay(client.interactions) ? client.interactions : undefined);
+  const relays = (s: string): boolean => interactionModeFor(opts.interactions, s) === "forward" && client.connection(s)?.era === "legacy";
+  const OP_KIND = { tool: "call", prompt: "prompt", resource: "read" } as const;
+  const relayed = async <T>(
+    s: string,
+    kind: "tool" | "prompt" | "resource",
+    target: string,
+    args: Record<string, unknown>,
+    req: { params: { _meta?: unknown } },
+    ctx: MrtrCtx,
+    start: () => Promise<T>,
+  ): Promise<{ done: T } | { round: unknown }> => {
+    const relay = relayOf();
+    if (!relay) {
+      throw new GatewayUpstreamCapabilityError(
+        s,
+        { elicitation: {} },
+        `interactions "forward" for the 2025-era upstream "${s}" needs an InteractionRelay as the client's \`interactions\` (new MCPClient({ interactions: new InteractionRelay() })); none is installed, so the request cannot be relayed`,
+      );
+    }
+    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
+    const partition = partitionOf(callerMeta);
+    const who: RelayIdentity = { ...(typeof callerMeta?.principal === "string" ? { principal: callerMeta.principal } : {}), ...(partition !== undefined ? { partition } : {}) };
+    const expect = { server: s, surface: kind, target } as const;
+    const note = (outcome: CallAuditEntry["outcome"], interaction: AuditInteraction, error?: string) =>
+      opts.audit?.({ at: Date.now(), ms: 0, server: s, kind: OP_KIND[kind], target, principal: callerMeta?.principal, outcome, ...(error ? { error } : {}), interaction });
+    const caps = (ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? callerMeta?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
+      | { elicitation?: { form?: object; url?: object } }
+      | undefined;
+    // An empty `elicitation: {}` means form (the pre-url declaration); url needs its own sub-capability.
+    const accepts = (p: Record<string, unknown>): boolean => {
+      const el = caps?.elicitation;
+      if (!el) return false;
+      return p.mode === "url" ? el.url !== undefined : el.form !== undefined || el.url === undefined;
+    };
+    const state = ctx.mcpReq.requestState<string>();
+    let step: RelayStep<T>;
+    if (state !== undefined) {
+      const pending = relay.inspect(state, who, expect); // unknown / spent / someone else's: one generic error
+      let responses = (ctx.mcpReq.inputResponses ?? {}) as Record<string, unknown>;
+      let scrub: Pick<AuditInteraction, "redactedFields" | "declined"> = {};
+      if (opts.guardAnswers) {
+        try {
+          const g = await opts.guardAnswers({ kind, server: s, target, args: pending.args, context: callerMeta ? { meta: callerMeta } : undefined, inputResponses: responses });
+          responses = g.inputResponses;
+          scrub = { ...(g.redactedFields?.length ? { redactedFields: g.redactedFields } : {}), ...(g.declined?.length ? { declined: g.declined } : {}) };
+        } catch (e) {
+          relay.cancel(state, who, expect); // a refused answer must not leave the upstream waiting
+          throw e;
+        }
+      }
+      note("ok", { phase: "response", ...scrub });
+      step = await relay.resume<T>(state, who, expect, responses, ctx.mcpReq.signal);
+    } else {
+      step = await relay.begin<T>(
+        {
+          ...expect,
+          args,
+          who,
+          accepts,
+          signal: ctx.mcpReq.signal,
+          onExpire: (ask) => note("error", { phase: "response", declined: [ask.key] }, `the consumer did not answer in time; ${s}'s request was declined`),
+        },
+        start,
+      );
+    }
+    if (step.kind === "done") return { done: step.value };
+    let inputRequests: Record<string, { method: string; params?: Record<string, unknown> }> = { [step.key]: { method: "elicitation/create", params: step.params } };
+    try {
+      if (opts.guardInputRequests) inputRequests = (await opts.guardInputRequests({ kind, server: s, target, context: callerMeta ? { meta: callerMeta } : undefined, inputRequests })).inputRequests;
+    } catch (e) {
+      relay.cancel(step.state, who, expect);
+      note(e instanceof AuthorizationError ? "denied" : "error", describeInteraction({ resultType: "input_required", inputRequests }, undefined)!, e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+    note("ok", describeInteraction({ resultType: "input_required", inputRequests }, undefined)!);
+    return { round: inputRequired({ inputRequests: inputRequests as never, requestState: step.state }) };
   };
 
   // SEP-2549 cache hints: the 2026-07-28 encode step reads `ttlMs`/`cacheScope` directly
@@ -410,12 +527,21 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     const callerMeta = req.params._meta as Record<string, unknown> | undefined;
     // What the consumer declared (tasks, MCP Apps, ...) is what the upstream is told, and no more.
     const declared = declaredExtensions(opts.extensions, server, ctx as never, callerMeta);
-    const m = await mrtr(s, req, ctx, "tool", tool, declared);
+    const relayLegacy = relays(s);
+    const m = relayLegacy ? undefined : await mrtr(s, req, ctx, "tool", tool, declared);
     const meta = m ? m.meta : upstreamMeta(callerMeta, client.connection(s), declared);
     const args = (req.params.arguments as Record<string, unknown>) ?? {};
     // What the policy / rate limit / audit may read about this request: from the BODY, never a header.
     const route = routing("tools/call", req.params, client.listTools(s).find((t) => t.name === tool)?.inputSchema);
-    const res = m
+    let relayedRes: { done: unknown } | undefined;
+    if (relayLegacy) {
+      const out = await relayed(s, "tool", tool, args, req, ctx, () => viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { ...(meta ? { meta } : {}), routing: route } })));
+      if ("round" in out) return out.round as never;
+      relayedRes = out;
+    }
+    const res = relayedRes
+      ? relayedRes.done
+      : m
       ? await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { meta: m.meta, routing: route }, interaction: m.interaction }), interactionModeFor(opts.interactions, s) === "forward")
       : await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { ...(meta ? { meta } : {}), routing: route } }));
     // An upstream task handle: namespaced and handed on to a consumer that declared the tasks
@@ -453,10 +579,26 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
       if (file) return file as never;
     }
     const s = findResourceServer(req.params.uri);
-    // The consumer's declaration (MCP Apps mime types, ...) reaches the upstream that serves the read.
-    const meta = s ? upstreamMeta(callerMeta, client.connection(s), declared) : undefined;
     const partition = partitionOf(callerMeta);
     const route = routing("resources/read", req.params);
+    // `interactions: "forward"`: an upstream `input_required` round on a read is handed to the consumer
+    // like one on a tool call (a modern upstream's in-band round, or a 2025-era upstream's relayed request).
+    // A read that may involve an answer is never served from or written to the cache.
+    if (s && relays(s)) {
+      const ctxFor = (extra?: Record<string, unknown>) => ({ ...(partition !== undefined ? { partition } : {}), ...(extra ? { meta: extra } : {}), routing: route });
+      const relMeta = upstreamMeta(callerMeta, client.connection(s), declared);
+      const out = await relayed(s, "resource", req.params.uri, {}, req, ctx, () => viaUpstream(s, () => client.readResource(req.params.uri, { context: ctxFor(relMeta), interaction: {} })));
+      return ("round" in out ? out.round : out.done) as never;
+    }
+    const m = s ? await mrtr(s, req, ctx, "resource", req.params.uri, declared) : undefined;
+    // The consumer's declaration (MCP Apps mime types, ...) reaches the upstream that serves the read.
+    const meta = m ? m.meta : s ? upstreamMeta(callerMeta, client.connection(s), declared) : undefined;
+    if (m && s) {
+      const res = await viaUpstream(s, () => client.readResource(req.params.uri, { context: { ...(partition !== undefined ? { partition } : {}), meta: m.meta, routing: route }, interaction: m.interaction }), true);
+      // An interim round is not a read: no cache hints on it.
+      if (isInputRequiredResult(res)) return m.settle(res) as never;
+      return { ...(res as Record<string, unknown>) } as never;
+    }
     const result = (await (s
       ? viaUpstream(s, () => client.readResource(req.params.uri, { context: { ...(partition !== undefined ? { partition } : {}), ...(meta ? { meta } : {}), routing: route } }))
       : client.readResource(req.params.uri))) as Record<string, unknown>;
@@ -477,8 +619,14 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
     const req = withEnvelope(rawReq, ctx);
     const [s, name] = split(req.params.name, servers(), namespace);
     const meta = req.params._meta as Record<string, unknown> | undefined;
-    const m = await mrtr(s, req, ctx, "prompt", name);
+    const relayLegacy = relays(s);
+    const m = relayLegacy ? undefined : await mrtr(s, req, ctx, "prompt", name);
     const route = routing("prompts/get", req.params);
+    if (relayLegacy) {
+      const args = (req.params.arguments as Record<string, unknown>) ?? {};
+      const out = await relayed(s, "prompt", name, args, req, ctx, () => viaUpstream(s, () => client.getPrompt(name, args, s, { context: { ...(meta ? { meta } : {}), routing: route } })));
+      return ("round" in out ? out.round : out.done) as never;
+    }
     if (m) {
       const res = await viaUpstream(s, () =>
         client.getPrompt(name, (req.params.arguments as Record<string, unknown>) ?? {}, s, { context: { meta: m.meta, routing: route }, interaction: m.interaction }),
@@ -492,6 +640,65 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: T
   });
 
   return server;
+}
+
+/** A small non-cryptographic hash (cyrb53): enough to tell "the visible catalog changed" from "it did not". */
+function hash53(str: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+/**
+ * Change notifications that carry only what a consumer could already see. An upstream's `list_changed`
+ * is forwarded to every consumer (and every `subscriptions/listen` stream), so without this a tool the
+ * gate hides (`filter`, a policy deny) being added upstream would still tell every consumer "the tool list
+ * changed": a signal about items they may not see. The returned function says whether the gateway-facing
+ * catalog of `kind` (after `filter` / `annotate`) differs from the one last announced; it records what it
+ * announced, so call it once per upstream event.
+ */
+function visibleChangeGate(client: MCPClient, opts: GatewayOptions): (kind: "tools" | "resources" | "prompts") => boolean {
+  const digest = (kind: "tools" | "resources" | "prompts"): string => {
+    const rows: string[] = [];
+    for (const c of client.connections()) {
+      const s = c.name;
+      const items: Array<[string, object]> =
+        kind === "tools" ? client.listTools(s).map((t) => [t.name, t]) : kind === "resources" ? client.listResources(s).map((r) => [r.uri, r]) : client.listPrompts(s).map((p) => [p.name, p]);
+      const k = kind === "tools" ? "tool" : kind === "resources" ? "resource" : "prompt";
+      for (const [name, item] of items) {
+        if (opts.filter && !opts.filter(s, k, name)) continue;
+        if (opts.skillFilter && kind === "resources" && name.startsWith("skill://") && !opts.skillFilter(s, name)) continue;
+        rows.push(JSON.stringify([s, name, item, opts.annotate?.(s, k, name) ?? null]));
+      }
+    }
+    return hash53(rows.sort().join("\n"));
+  };
+  const last = new Map<string, string>();
+  const read = (kind: "tools" | "resources" | "prompts") => {
+    try {
+      return digest(kind);
+    } catch {
+      return undefined; // cannot tell: announce
+    }
+  };
+  for (const kind of ["tools", "resources", "prompts"] as const) {
+    const d = read(kind);
+    if (d !== undefined) last.set(kind, d);
+  }
+  return (kind) => {
+    const d = read(kind);
+    if (d === undefined) return true;
+    const changed = last.get(kind) !== d;
+    last.set(kind, d);
+    return changed;
+  };
 }
 
 /**
@@ -512,7 +719,9 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
     send().catch((e) => {
       if (!(e instanceof SdkError) || e.code !== SdkErrorCode.NotConnected) throw e;
     });
+  const changed = visibleChangeGate(client, opts);
   client.subscribeCapabilities((_s, kind) => {
+    if (!changed(kind)) return;
     if (kind === "tools") void notifyIfConnected(() => server.sendToolListChanged());
     else if (kind === "resources") void notifyIfConnected(() => server.sendResourceListChanged());
     else void notifyIfConnected(() => server.sendPromptListChanged());
@@ -543,7 +752,9 @@ export function createGatewayHandler(client: MCPClient, opts: GatewayHandlerOpti
     maxSubscriptions: opts.maxSubscriptions,
     bus: opts.bus,
   });
+  const changed = visibleChangeGate(client, opts);
   const unsubscribe = client.subscribeCapabilities((_s, kind) => {
+    if (!changed(kind)) return;
     if (kind === "tools") handler.notify.toolsChanged();
     else if (kind === "resources") handler.notify.resourcesChanged();
     else handler.notify.promptsChanged();
@@ -555,7 +766,8 @@ export function createGatewayHandler(client: MCPClient, opts: GatewayHandlerOpti
     const [server, tool] = split(name, client.connections().map((c) => c.name), namespace);
     return server ? client.listTools(server).find((t) => t.name === tool)?.inputSchema : undefined;
   };
-  const guarded = withRoutingGuard(handler.fetch.bind(handler) as McpHttpHandler["fetch"], { toolSchema });
+  // `subscriptions/listen` never reaches the request handlers (the SDK serves it), so inbound auth is enforced here.
+  const guarded = withListenAuth(withRoutingGuard(handler.fetch.bind(handler) as McpHttpHandler["fetch"], { toolSchema }), opts.inboundAuth);
   return { ...handler, fetch: guarded, close: async () => { unsubscribe(); await handler.close(); } };
 }
 

@@ -265,7 +265,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy", "extensions", "card", "experimental"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "interactionTimeoutMs", "urlElicitation", "answerPolicy", "extensions", "card", "experimental"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -288,6 +288,9 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
     checkType(config.card, "listUpstreams", "a boolean", aBoolean, "card");
   }
   if (config.interactions !== undefined) validateInteractions(config.interactions);
+  if (config.interactionTimeoutMs !== undefined && !(typeof config.interactionTimeoutMs === "number" && Number.isFinite(config.interactionTimeoutMs) && config.interactionTimeoutMs > 0)) {
+    fail(`"interactionTimeoutMs" must be a positive number of milliseconds (got ${JSON.stringify(config.interactionTimeoutMs)})`);
+  }
   if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
   if (config.answerPolicy !== undefined) {
     validateAnswerPolicy(config.answerPolicy);

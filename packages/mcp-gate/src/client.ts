@@ -5,11 +5,11 @@
 // `createGate` on the same `buildGateClient`, adding the gateway Server and stdio upstreams.
 
 import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry, type ConnectionConfig } from "@johnhenry/mcp-query";
-import { authorize, listFilter, rateLimit, circuitBreaker, extensionAllowed, UI_EXT, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
+import { authorize, listFilter, rateLimit, circuitBreaker, extensionAllowed, interactionModeFor, InteractionRelay, UI_EXT, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
-import { urlElicitationPolicy } from "./interaction.js";
+import { forwardsAnything, urlElicitationPolicy } from "./interaction.js";
 import { filesGuard } from "./files.js";
 import { resolveHttpUpstream } from "./upstream-http.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
@@ -24,6 +24,8 @@ const tenantKey = (op: Operation) => `${op.peer}::${op.context?.partition ?? ""}
 
 export interface GateClientParts {
   client: MCPClient;
+  /** The elicitation relay installed on the client (present when any upstream forwards interactions). */
+  relay?: InteractionRelay;
   approvals?: InteractionBroker;
   /** Drop per-server rateLimit/circuitBreaker state (used when an upstream is removed). */
   dropServer(name: string): void;
@@ -90,7 +92,13 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
     }
   };
 
+  // `interactions: "forward"` for a 2025-era upstream relays its server-initiated elicitation to the consumer;
+  // the relay is the client's broker. Upstreams that do not forward keep the client's ordinary handlers.
+  const relay = forwardsAnything(config.interactions)
+    ? new InteractionRelay({ forwards: (s) => interactionModeFor(config.interactions, s) === "forward", timeoutMs: config.interactionTimeoutMs })
+    : undefined;
   const client = new MCPClient({
+    ...(relay ? { interactions: relay } : {}),
     // Declarative `{command}`/`{url}` specs get their transport factory built here.
     servers: Object.fromEntries(Object.entries(config.upstreams).map(([name, up]) => [name, resolve(up)])),
     interceptors,
@@ -107,6 +115,7 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   await client.connect();
   return {
     client,
+    relay,
     approvals: approval?.broker,
     onApprove: approval?.onApprove,
     audit: onCall,

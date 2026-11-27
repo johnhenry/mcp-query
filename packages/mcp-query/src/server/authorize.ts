@@ -35,8 +35,8 @@ export interface AuthzRequest {
 
 /** One consumer answer to one upstream input request, as a policy sees it (no values). */
 export interface AnswerInfo {
-  /** Whether the round belongs to a `tools/call`, a `prompts/get` or a task (`tasks/update`; `target` is then the tool that started it). */
-  surface: "tool" | "prompt" | "task";
+  /** Whether the round belongs to a `tools/call`, a `prompts/get`, a `resources/read` or a task (`tasks/update`; `target` is then the tool that started it). */
+  surface: "tool" | "prompt" | "resource" | "task";
   /** The input request's key in the round (`q0`, ...). */
   key: string;
   /** The elicitation action the consumer chose. Only `accept` carries data, so only `accept` is judged. */
