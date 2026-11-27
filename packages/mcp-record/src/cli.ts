@@ -22,10 +22,12 @@
 // scrubbing) — pass repeated --redact "path" (e.g. --redact params.apiKey --redact
 // "result.content.0.text") to mask specific fields with "[REDACTED]" before they're written.
 
+import { realpathSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "../../mcp-contract/src/index.js";
+import { buildTransport, resolveConnect, parseCallSpec, rejectUnknownFlags, type ConnectOptions } from "@johnhenry/mcp-contract";
 import { createCassette, loadCassette, sealCassette, type Cassette } from "./cassette.js";
 import { recordTransport, redactPaths } from "./record.js";
 import { replayServer } from "./replay.js";
@@ -100,7 +102,23 @@ function summarize(c: Cassette): string {
   ].join("\n");
 }
 
+const HELP = `mcp-record: record a live MCP server's traffic to a cassette, replay it offline
+
+usage:
+  mcp-record record  (--command CMD [--args "A B"] | --url URL [--bearer T] [--header "K: V"] | --server NAME)
+                     [--out tape.json] [--call 'tool(arg: 1)']... [--redact path]... [--era legacy|auto]
+  mcp-record replay  --cassette tape.json     serve the cassette over stdio as a mock MCP server
+  mcp-record inspect tape.json                summarize a cassette and verify its integrity hash
+  mcp-record --help
+
+Cassettes are sealed with a SHA-256 integrity hash; edit with care. Captured traffic is verbatim: use
+--redact to mask fields before writing. Docs: https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-record`;
+
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(HELP);
+    return;
+  }
   const { _, flags, headers, calls, redact } = parseArgs(argv);
   rejectUnknownFlags("mcp-record", flags, KNOWN_FLAGS);
   switch (_[0]) {
@@ -138,7 +156,19 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Compare realpaths, not raw import.meta.url/process.argv[1] strings: an npm bin
+// (node_modules/.bin/mcp-record, what `npx` / a global install runs) is a symlink, so the
+// two would otherwise never match and this file would silently no-op for every real install.
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-record]", e instanceof Error ? e.message : e);
     process.exit(1);

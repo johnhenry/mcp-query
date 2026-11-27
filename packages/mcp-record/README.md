@@ -1,4 +1,4 @@
-# mcp-record
+# @johnhenry/mcp-record
 
 **Record real MCP server traffic to a cassette, replay it offline as a deterministic
 mock.** VCR / Polly / nock, for the Model Context Protocol.
@@ -26,35 +26,46 @@ server returned*, with no subprocess, no network, no flakiness, no API keys.
 Use a **contract** to assert a server's surface hasn't drifted; use a **cassette** when your
 test needs the server's *real output* but you want it fast, offline, and frozen.
 
-## Install / use
+## Install
 
-Runs from source via `tsx` in this monorepo:
+```bash
+npm install --save-dev @johnhenry/mcp-record
+# or run it without installing:
+npx @johnhenry/mcp-record --help
+```
+
+Requires Node >= 26. The CLI is `mcp-record`; the same code is importable as a library (see
+[Programmatic API](#programmatic-api)). `@johnhenry/mcp-query`, `@johnhenry/mcp-contract` (the
+CLI's connector) and the official MCP SDK are regular dependencies and install with it.
+
+## CLI
 
 ```bash
 # 1. Record: capture the capability surface + the real results of specific calls
-npx tsx packages/mcp-record/src/cli.ts record \
+npx mcp-record record \
   --command npx --args "-y @modelcontextprotocol/server-everything" \
   --out everything.tape.json \
   --call 'echo:{"message":"hello"}' \
   --call 'get-sum:{"a":2,"b":3}'
 
 # 2. Replay: serve the cassette as an offline MCP server over stdio
-npx tsx packages/mcp-record/src/cli.ts replay --cassette everything.tape.json
+npx mcp-record replay --cassette everything.tape.json
 
-# 3. Inspect: summarize a cassette
-npx tsx packages/mcp-record/src/cli.ts inspect everything.tape.json
+# 3. Inspect: summarize a cassette and verify its integrity hash
+npx mcp-record inspect everything.tape.json
 ```
 
 `record` always captures the listings (`tools/list`, `resources/list`,
 `resources/templates/list`, `prompts/list`) plus the `initialize` capabilities/identity;
-each `--call name:json` additionally records that tool's real result.
+each `--call name:json` additionally records that tool's real result. A hosted server works
+the same way with `--url https://host/mcp [--bearer ...] [--header "K: V"]`.
 
 Drop the replay server into an MCP host (CI, a demo) exactly where the real one would go:
 
 ```jsonc
 { "mcpServers": { "everything": {
   "command": "npx",
-  "args": ["tsx", "packages/mcp-record/src/cli.ts", "replay", "--cassette", "everything.tape.json"]
+  "args": ["mcp-record", "replay", "--cassette", "everything.tape.json"]
 }}}
 ```
 
@@ -92,17 +103,19 @@ around your own client.
 Record by wrapping any transport; replay as a server or a transport factory:
 
 ```ts
-import { createCassette, recordTransport, replayServer, replayTransport } from "@mcp-query/record";
+import { Client } from "@modelcontextprotocol/client";
+import { createCassette, sealCassette, loadCassette, recordTransport, replayServer, replayTransport } from "@johnhenry/mcp-record";
 
 // ── record (e.g. once, against a real upstream) ──
 const cassette = createCassette();
 const client = new Client({ name: "app", version: "1" }, { capabilities: {} });
 await client.connect(recordTransport(realTransport, cassette)); // initialize → capabilities
 await client.callTool({ name: "echo", arguments: { message: "hi" } });
+sealCassette(cassette);                                          // stamp the integrity hash
 await writeFile("tape.json", JSON.stringify(cassette, null, 2));
 
 // ── replay (in tests / offline) ──
-const tape = JSON.parse(await readFile("tape.json", "utf8"));
+const tape = loadCassette(await readFile("tape.json", "utf8")); // verifies the integrity hash
 const client2 = new Client({ name: "test", version: "1" }, { capabilities: {} });
 await client2.connect(replayTransport(tape)());     // a ConnectionConfig-style factory
 // …or serve it: await replayServer(tape).connect(new StdioServerTransport());
@@ -110,6 +123,27 @@ await client2.connect(replayTransport(tape)());     // a ConnectionConfig-style 
 
 `replayTransport(cassette)` is a `() => Transport` factory — usable directly as an mcp-query
 upstream `transport`, so a recorded server slots into the same client wiring as the live one.
+
+## Browser entry
+
+`@johnhenry/mcp-record` has a `browser` export condition (Vite, webpack and
+`esbuild --platform=browser` pick it up by default) that resolves to `index.browser.js`: the same
+library API (`createCassette`, `recordTransport`, `replayTransport`, `replayServer`,
+`sealCassette`, `loadCassette`, ...) with **no `node:` module in the bundle**. Cassette hashing uses
+a built-in synchronous SHA-256 rather than `node:crypto`, and gives byte-identical hashes, so a cassette sealed
+in Node loads in the browser and vice versa. The file-based pieces (reading and writing tapes) are
+yours to do with `fetch`/`File`: `loadCassette` takes a JSON string. The CLI is Node-only and is not
+part of the browser entry; a test bundles the entry for a browser platform and fails if any
+`node:` module sneaks in.
+
+```ts
+import { loadCassette, replayTransport } from "@johnhenry/mcp-record";
+import { Client } from "@modelcontextprotocol/client";
+
+const tape = loadCassette(await (await fetch("/fixtures/everything.tape.json")).text());
+const client = new Client({ name: "demo", version: "1" }, { capabilities: {} });
+await client.connect(replayTransport(tape)());
+```
 
 ## Behavior notes
 
@@ -142,7 +176,7 @@ one devtools uses) — no SDK patching. Replay is a plain SDK `Server` reading t
 ## Tests
 
 ```bash
-npx vitest run   # record→replay identity, ordered episodes, capability fidelity
+npm test -w @johnhenry/mcp-record   # from a clone of the repo: record→replay identity, ordered episodes, capability fidelity
 ```
 
 All headless against an in-memory `MockMCPServer` — record through it, replay without it,
@@ -150,6 +184,21 @@ assert identical results and that the upstream was never touched again.
 
 ## Status
 
-MVP (`private: true`). Roadmap: record over Streamable HTTP, capture notifications &
-sampling/elicitation exchanges, redaction-on-record (pair with mcp-gate), and a `--update`
-mode that re-records only changed interactions.
+Pre-1.0: the cassette format is versioned (see above) and older versions are read compatibly, but the
+library API may still change in minor releases. Roadmap: capture notifications &
+sampling/elicitation exchanges, and a `--update` mode that re-records only changed interactions.
+
+## Releasing
+
+Published from `main` by `.github/workflows/release-mcp-record.yml` (do not rename; npm trusted
+publishing is keyed to the filename). A brand-new package cannot be created by trusted publishing, so the
+**first** release is manual, from a logged-in maintainer shell, once the Changesets "Version Packages"
+PR has bumped the package to `0.1.0` and `@johnhenry/mcp-contract` is on npm:
+
+```bash
+npm run build -w @johnhenry/mcp-query -w @johnhenry/mcp-contract -w @johnhenry/mcp-record
+cd packages/mcp-record && npm publish --access public
+npm trust github @johnhenry/mcp-record --repository johnhenry/mcp-query --file release-mcp-record.yml --allow-publish
+```
+
+After that, the Version Packages PR drives every release like the other packages.
