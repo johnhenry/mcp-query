@@ -20,6 +20,10 @@ the Web Components analog of `useSyncExternalStore`). Built per
 
 ![OAuth debugger](screenshots/oauth.png)
 
+**Apps** — MCP Apps (SEP-1865): tools carrying `_meta.ui.resourceUri` open in a sandboxed iframe (proxy page on another origin) with the session's `status`, `calls`, and `messages` live beside it.
+
+![MCP Apps panel](screenshots/apps.png)
+
 ## Run
 
 ```bash
@@ -30,6 +34,32 @@ npm run dev -w @mcp-query/inspector
 
 Open the printed URL (the `proxyToken` authorizes the browser↔proxy WebSocket). Then add a
 server — e.g. stdio `npx` `-y @modelcontextprotocol/server-everything`, or an HTTP/SSE URL.
+
+### MCP Apps (the Apps tab)
+
+The client is built with `extensions: mcpAppsExtensions()`, so servers see `io.modelcontextprotocol/ui`.
+The **Apps** tab lists the active server's tools that declare `_meta.ui.resourceUri` (app-only tools are
+flagged), opens one with the framework-agnostic `createAppHost(...).open(...)` + `mountIframe(...)` from
+[`@johnhenry/mcp-query-ui`](../../packages/mcp-query-ui), and renders `session.subscribe` state beside the
+app: status (`loaded → connecting → ready → closed`), app info, the exact CSP the proxy must enforce, every
+app-initiated call with its outcome, and `ui/message`s. App `tools/call`/`resources/read` run through the
+same `MCPClient` as the Tools tab, so they show up in the Messages log too. `ui/open-link` is refused
+(the host default). Switching tabs closes the open app.
+
+The spec requires the app to be wrapped in a **sandbox proxy served from a different origin** than the host.
+`npm run dev` therefore starts a third process, `sandbox/server.ts`, serving `sandbox/proxy.html`
+on `http://127.0.0.1:5174` while the inspector is on `http://localhost:5173` (different host and port;
+`mountIframe` throws if they match). The proxy (`sandbox/proxy-lib.js`) waits for the host's
+`sandbox-resource-ready`, builds the inner iframe (`sandbox="allow-scripts"`, never `allow-same-origin`),
+applies the metadata-derived CSP as a `<meta>` tag, and relays all other JSON-RPC unchanged; it pins its
+postMessage target to the inspector origin passed as `?host=`. It is a local copy: the
+`@modelcontextprotocol/ext-apps` npm package ships the host/app libraries but not a sandbox page.
+
+**Try it offline:** with `npm run dev` running, click **+ demo MCP App server** (it spawns
+`fixtures/mcp-app-demo.ts` over stdio through the proxy, i.e. `npx tsx fixtures/mcp-app-demo.ts` relative to
+`apps/inspector`), open the **Apps** tab, pick `show_counter`, **open app**, and press the app's button; each
+press is an app-initiated `next_count` call listed under *Calls*. Override ports with `SANDBOX_PORT` (server)
+and `?sandboxPort=` (inspector URL) if 5174 is taken.
 
 ## Architecture
 
@@ -47,7 +77,8 @@ trusted local component.
 - `src/lib/transport.ts` — `WebSocketProxyTransport` (SDK `Transport` over the proxy).
 - `src/lib/reactive.ts` — the `Reactive` base element + store-tracking.
 - `src/lib/store.ts` — the single `MCPClient`, `InteractionBroker`, `DevtoolsHub`, active-server signal.
-- `src/components/*` — `<mcp-connections>`, `<mcp-tools>`, `<mcp-resources>`, `<mcp-prompts>`, `<mcp-app>`.
+- `src/components/*` — `<mcp-connections>`, `<mcp-tools>`, `<mcp-apps>`, `<mcp-resources>`, `<mcp-prompts>`, `<mcp-app>`.
+- `sandbox/` — the MCP Apps sandbox proxy page + its static server; `fixtures/mcp-app-demo.ts` — demo app server.
 
 ## Status (phased)
 
@@ -78,4 +109,5 @@ img-src 'self' data:; connect-src 'self' ws://localhost:* http: https:;
 worker-src 'self'; frame-ancestors 'none'
 ```
 
-(`connect-src` must allow the proxy WebSocket and any HTTP/SSE MCP servers you inspect.)
+(`connect-src` must allow the proxy WebSocket and any HTTP/SSE MCP servers you inspect. To use the
+Apps tab, also add `frame-src <your sandbox proxy origin>`; `default-src 'self'` would otherwise block it.)

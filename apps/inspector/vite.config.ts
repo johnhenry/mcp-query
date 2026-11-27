@@ -12,6 +12,8 @@ export default defineConfig({
       // Point at protocol.ts (DevtoolsHub) directly — index.ts also re-exports the React Panel.
       { find: "@johnhenry/mcp-query/devtools", replacement: resolve(lib, "devtools/protocol.ts") },
       { find: "@johnhenry/mcp-query/webmcp", replacement: resolve(lib, "webmcp/index.ts") },
+      { find: "@johnhenry/mcp-query/testing", replacement: resolve(lib, "testing/mockServer.ts") },
+      { find: "@johnhenry/mcp-query-ui", replacement: resolve(here, "../../packages/mcp-query-ui/src/index.ts") },
       { find: "@johnhenry/mcp-query", replacement: resolve(lib, "index.ts") },
     ],
   },

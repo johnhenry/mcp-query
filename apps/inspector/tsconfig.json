@@ -12,9 +12,10 @@
     "noEmit": true,
     "paths": {
       "@johnhenry/mcp-query": ["../../packages/mcp-query/src/index.ts"],
+      "@johnhenry/mcp-query-ui": ["../../packages/mcp-query-ui/src/index.ts"],
       "@johnhenry/mcp-query/devtools": ["../../packages/mcp-query/src/devtools/protocol.ts"],
       "@johnhenry/mcp-query/webmcp": ["../../packages/mcp-query/src/webmcp/index.ts"]
     }
   },
-  "include": ["src", "server", "vite.config.ts"]
+  "include": ["src", "server", "fixtures", "sandbox/server.ts", "vite.config.ts"]
 }
