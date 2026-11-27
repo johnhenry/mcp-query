@@ -44,6 +44,7 @@ function redactDeep(value: unknown, rules: Compiled[]): unknown {
     return s;
   }
   if (Array.isArray(value)) return value.map((v) => redactDeep(v, rules));
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value; // raw bytes: see redact() for skill files
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v, rules);
@@ -65,6 +66,15 @@ export function redact(rules: RedactRule[], options?: RedactOptions): RequestInt
   const compiled = compile(rules, options);
   return async (op, next) => {
     const result = await next(op);
+    // Catalog views are not content (a pattern must not rewrite a tool name the router resolves).
+    if (op.kind === "list") return result;
+    // A verified skill file: scrub its text, and drop the (now different) bytes' claim to be verified.
+    if (op.kind === "skill" && result && typeof result === "object" && (result as { bytes?: unknown }).bytes instanceof Uint8Array) {
+      const file = result as { bytes: Uint8Array; text?: string; body?: string };
+      const scrubbed = redactDeep({ ...file, bytes: undefined }, compiled) as Record<string, unknown>;
+      const changed = scrubbed.text !== file.text || scrubbed.body !== file.body;
+      return { ...scrubbed, bytes: changed && typeof scrubbed.text === "string" ? new TextEncoder().encode(scrubbed.text) : file.bytes, ...(changed ? { verified: false } : {}) };
+    }
     // An MRTR `input_required` round: redact what the consumer will be shown (`inputRequests`)
     // but never `requestState` -- it is opaque upstream state echoed byte-for-byte on retry.
     if (isInputRequiredResult(result)) {

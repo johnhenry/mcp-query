@@ -63,7 +63,7 @@ export { Router, AmbiguousCapability, CapabilityNotFound } from "./core/router.j
 export { runInterceptors } from "./core/interceptors.js";
 export { isInputRequiredResult, urlHost } from "./core/interaction.js";
 export type { ToolInteraction, InputRequiredShape, AuditInteraction } from "./core/interaction.js";
-export type { RequestInterceptor, Operation, OperationKind, Next } from "./core/interceptors.js";
+export type { RequestInterceptor, Operation, OperationKind, CatalogName, Next } from "./core/interceptors.js";
 export { InteractionBroker } from "./core/interactions.js";
 export type {
   Interaction,

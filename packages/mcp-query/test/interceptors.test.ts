@@ -22,6 +22,7 @@ describe("interceptor chain", () => {
     const mk =
       (name: string): RequestInterceptor =>
       async (op, next) => {
+        if (op.kind !== "call") return next(op); // catalog `list` operations also pass through the chain now
         log.push(`>${name}`);
         const r = await next(op);
         log.push(`<${name}`);

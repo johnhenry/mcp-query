@@ -19,7 +19,7 @@ import type { CacheStore } from "./cacheStore.js";
 import { cacheScope, cacheTtl, ServerConnection, type ConnectionConfig } from "./connection.js";
 import { InteractionBroker } from "./interactions.js";
 import type { TrafficEvent } from "./instrument.js";
-import { runInterceptors, type Operation, type RequestInterceptor } from "./interceptors.js";
+import { runInterceptors, type CatalogName, type Operation, type RequestInterceptor } from "./interceptors.js";
 import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
@@ -134,7 +134,7 @@ export interface CallAuditEntry {
   at: number;
   ms: number;
   server: string;
-  kind: "read" | "call" | "query";
+  kind: "read" | "call" | "query" | "list" | "prompt" | "skill";
   target: string;
   /** `context.meta.principal`, if the caller set one. */
   principal?: unknown;
@@ -252,6 +252,17 @@ function abortError(signal: AbortSignal): Error {
   return e;
 }
 
+/** The item type of each {@link CatalogName}. */
+export interface CatalogItems {
+  tools: Tool;
+  resources: Resource;
+  resourceTemplates: ResourceTemplate;
+  prompts: Prompt;
+}
+type CatalogItemOf<C extends CatalogName> = CatalogItems[C];
+const listMethod = (catalog: CatalogName): string =>
+  catalog === "tools" ? "tools/list" : catalog === "resources" ? "resources/list" : catalog === "prompts" ? "prompts/list" : "resources/templates/list";
+
 export class MCPClient {
   readonly cache: MCPCache;
   /** The human-in-the-loop broker, if one was configured (read by useInteractions). */
@@ -282,6 +293,9 @@ export class MCPClient {
   private schemeMap?: Record<string, string>;
   private syncTaskSeq = 0;
   private skills: SkillsController;
+  /** Interceptor-vetted catalogs (what the sync `list*()` return when interceptors are configured). Key `server\0catalog`. */
+  private views = new Map<string, unknown[]>();
+  private viewGen = new Map<string, number>();
 
   constructor(cfg: MCPClientConfig) {
     this.handlers = cfg.handlers ?? {};
@@ -363,6 +377,7 @@ export class MCPClient {
         this.bumpServerState();
         this.devtools?.emit({ type: "server-state", server: s, state, capabilities: caps });
       },
+      onCatalogFetched: (s, kind) => (this.interceptors.length ? this.refreshView(s, kind) : undefined),
       onCapabilitiesChanged: (s, kind) => {
         for (const cb of this.capListeners) cb(s, kind);
         this.devtools?.emit({ type: "capabilities", server: s, kind });
@@ -427,6 +442,9 @@ export class MCPClient {
         this.callTool<A, R>(name, args, merge(opts)),
       queryTool: <A extends Record<string, unknown>, R = unknown>(name: string, args: A, opts: QueryToolOpts = {}) =>
         this.queryTool<A, R>(name, args, merge(opts)),
+      getPrompt: (name: string, args: Record<string, unknown>, server?: string, opts: { context?: CallContext; interaction?: ToolInteraction } = {}) =>
+        this.getPrompt(name, args, server, merge(opts)),
+      discover: (catalog: CatalogName, server?: string, opts: { context?: CallContext } = {}) => this.discover(catalog as never, server as never, merge(opts)),
       listSkills: (server?: string, opts: ListSkillsOpts = {}) => this.listSkills(server, merge(opts)),
       getSkill: (uri: string, server: string, opts: SkillOpts = {}) => this.getSkill(uri, server, merge(opts)),
       readSkillFile: (skill: Skill, ref?: string, opts: SkillOpts = {}) => this.readSkillFile(skill, ref, merge(opts)),
@@ -437,7 +455,13 @@ export class MCPClient {
   private run(op: Operation, exec: (op: Operation) => Promise<unknown>): Promise<unknown> {
     if (this.draining) return Promise.reject(new Error("client is draining"));
     const at = this.onCall ? Date.now() : 0;
-    let base = this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
+    // A non-async interceptor that throws synchronously still becomes a (audited) rejection.
+    let base: Promise<unknown>;
+    try {
+      base = this.interceptors.length ? runInterceptors(this.interceptors, op, exec) : exec(op);
+    } catch (e) {
+      base = Promise.reject(e);
+    }
     if (this.onCall) {
       base = base.then(
         (r) => (this.audit(op, at, "ok", undefined, r), r),
@@ -652,10 +676,71 @@ export class MCPClient {
     if (server === undefined) return [...this.conns.entries()];
     return [[server, this.req(server)]];
   }
-  private listCaps<T extends object>(server: string | undefined, pick: (c: ServerConnection) => T[]): T[] {
+  private listCaps<T extends object>(server: string | undefined, catalog: CatalogName, pick: (c: ServerConnection) => T[]): T[] {
     const scope = this.listScope(server);
-    if (server !== undefined) return pick(scope[0]![1]);
-    return scope.flatMap(([name, c]) => pick(c).map((x) => ({ ...x, server: name })));
+    // With interceptors configured the accessors return the catalog as the chain last vetted it (#90).
+    if (server !== undefined) return this.vetted(server, catalog, pick(scope[0]![1]));
+    return scope.flatMap(([name, c]) => this.vetted(name, catalog, pick(c)).map((x) => ({ ...x, server: name })));
+  }
+  /** Raw (unfiltered) catalog items of one connection. */
+  private rawCatalog(c: ServerConnection, catalog: CatalogName): unknown[] {
+    return catalog === "tools" ? [...c.tools.values()] : catalog === "resources" ? [...c.resources.values()] : catalog === "prompts" ? [...c.prompts.values()] : [...c.templates];
+  }
+  private vetted<T>(server: string, catalog: CatalogName, raw: T[]): T[] {
+    if (!this.interceptors.length) return raw;
+    const v = this.views.get(`${server}\0${catalog}`);
+    // Not vetted yet: fail closed (nothing is shown that no interceptor has seen).
+    return v ? (v.slice() as T[]) : raw.length ? [] : raw;
+  }
+  /** Run the chain over one fetched catalog (`kind: "list"`, no caller context) and keep the outcome as the sync view. */
+  private async refreshView(server: string, catalog: CatalogName | "tools" | "resources" | "prompts"): Promise<void> {
+    const conn = this.conns.get(server);
+    if (!conn) return;
+    const key = `${server}\0${catalog}`;
+    const gen = (this.viewGen.get(key) ?? 0) + 1;
+    this.viewGen.set(key, gen);
+    let out: unknown[];
+    try {
+      const op: Operation = { kind: "list", peer: server, target: catalog, method: listMethod(catalog), state: {} };
+      const r = await this.run(op, async () => this.rawCatalog(conn, catalog));
+      // A non-array answer is "no opinion" (an interceptor written before `list` existed that swallows
+      // kinds it does not know): the catalog is shown as fetched. Denying is done by throwing.
+      out = Array.isArray(r) ? r : this.rawCatalog(conn, catalog);
+    } catch {
+      if (this.draining) return;
+      out = []; // a denial or interceptor failure hides the catalog (audited by run())
+    }
+    if (this.viewGen.get(key) === gen) this.views.set(key, out);
+  }
+  /**
+   * Async, gated read of a catalog: the same chain as the sync view, but run now and with the
+   * caller's `context` (principal, partition), so a per-principal policy can decide. Returns
+   * the interceptors' result (filtered/annotated); a denial throws. With no `server`, the
+   * union across servers (each tagged `server`), omitting servers whose list is denied.
+   */
+  discover<C extends CatalogName>(catalog: C, server: string, opts?: { context?: CallContext }): Promise<Array<CatalogItemOf<C>>>;
+  discover<C extends CatalogName>(catalog: C, server?: undefined, opts?: { context?: CallContext }): Promise<Array<CatalogItemOf<C> & { server: string }>>;
+  discover<C extends CatalogName>(catalog: C, server?: string, opts?: { context?: CallContext }): Promise<Array<CatalogItemOf<C>> | Array<CatalogItemOf<C> & { server: string }>>;
+  async discover(catalog: CatalogName, server?: string, opts: { context?: CallContext } = {}): Promise<unknown[]> {
+    await this.wake(server);
+    const one = async (name: string, conn: ServerConnection): Promise<unknown[]> => {
+      const op: Operation = { kind: "list", peer: name, target: catalog, method: listMethod(catalog), context: opts.context, state: {} };
+      const r = await this.run(op, async () => this.rawCatalog(conn, catalog));
+      return Array.isArray(r) ? r : this.rawCatalog(conn, catalog);
+    };
+    const scope = this.listScope(server);
+    if (server !== undefined) return one(server, scope[0]![1]);
+    const parts = await Promise.all(
+      scope.map(async ([name, c]) => {
+        try {
+          return (await one(name, c)).map((x) => ({ ...(x as object), server: name }));
+        } catch (e) {
+          if ((e as { code?: number })?.code === -32003) return []; // denied: this server's list is not shown
+          throw e;
+        }
+      }),
+    );
+    return parts.flat();
   }
   /**
    * Tools of one server (`listTools("fs")`) or, with no argument, the union across every
@@ -666,43 +751,60 @@ export class MCPClient {
   listTools(server?: undefined): Array<Tool & { server: string }>;
   listTools(server?: string): Tool[] | Array<Tool & { server: string }>;
   listTools(server?: string) {
-    return this.listCaps(server, (c) => [...c.tools.values()]);
+    return this.listCaps(server, "tools", (c) => [...c.tools.values()]);
   }
   /** Like {@link listTools}, for resources. */
   listResources(server: string): Resource[];
   listResources(server?: undefined): Array<Resource & { server: string }>;
   listResources(server?: string): Resource[] | Array<Resource & { server: string }>;
   listResources(server?: string) {
-    return this.listCaps(server, (c) => [...c.resources.values()]);
+    return this.listCaps(server, "resources", (c) => [...c.resources.values()]);
   }
   /** Like {@link listTools}, for resource templates. */
   listResourceTemplates(server: string): ResourceTemplate[];
   listResourceTemplates(server?: undefined): Array<ResourceTemplate & { server: string }>;
   listResourceTemplates(server?: string): ResourceTemplate[] | Array<ResourceTemplate & { server: string }>;
   listResourceTemplates(server?: string) {
-    return this.listCaps(server, (c) => [...c.templates]);
+    return this.listCaps(server, "resourceTemplates", (c) => [...c.templates]);
   }
   /** Like {@link listTools}, for prompts. */
   listPrompts(server: string): Prompt[];
   listPrompts(server?: undefined): Array<Prompt & { server: string }>;
   listPrompts(server?: string): Prompt[] | Array<Prompt & { server: string }>;
   listPrompts(server?: string) {
-    return this.listCaps(server, (c) => [...c.prompts.values()]);
+    return this.listCaps(server, "prompts", (c) => [...c.prompts.values()]);
   }
   capsTagFor = capsTag;
 
   // ── skills over MCP (io.modelcontextprotocol/skills, SEP-2640; SDK >= 2.4.0) ─
   /** Skills of one server, or the union across every skills-capable server (each tagged `server`). Cached. */
-  listSkills(server?: string, opts?: ListSkillsOpts): Promise<Skill[]> {
-    return this.skills.list(server, opts);
+  async listSkills(server?: string, opts: ListSkillsOpts = {}): Promise<Skill[]> {
+    // Through the interceptor chain (`kind: "skill"`, one operation per server). With no server,
+    // servers whose list is denied are left out and reported to `onError`, like any failed server.
+    const one = (name: string): Promise<Skill[]> =>
+      this.run({ kind: "skill", peer: name, target: "skills", method: "skills/list", context: opts.context, state: {} }, (o) =>
+        this.skills.list(name, { ...opts, context: o.context }),
+      ) as Promise<Skill[]>;
+    if (server !== undefined) return one(server);
+    const targets = this.connections().filter((c) => c.supports("skills"));
+    const settled = await Promise.allSettled(targets.map((c) => one(c.name)));
+    const out: Skill[] = [];
+    settled.forEach((r, i) => {
+      if (r.status === "fulfilled") out.push(...r.value);
+      else opts.onError?.(targets[i]!.name, this.toError(r.reason, targets[i]!.name, "protocol"));
+    });
+    return out;
   }
   /** One skill by its `SKILL.md` URI (listed or not). Cached. */
-  getSkill(uri: string, server: string, opts?: SkillOpts): Promise<Skill> {
-    return this.skills.get(uri, server, opts);
+  getSkill(uri: string, server: string, opts: SkillOpts = {}): Promise<Skill> {
+    return this.run({ kind: "skill", peer: server, target: uri, method: "skills/get", context: opts.context, state: {} }, (o) =>
+      this.skills.get(uri, server, { ...opts, context: o.context }),
+    ) as Promise<Skill>;
   }
   /** One verified file of `skill` (default `SKILL.md`; `ref` is relative to the skill root or absolute). */
-  readSkillFile(skill: Skill, ref?: string, opts?: SkillOpts): Promise<SkillFile> {
-    return this.skills.readFile(skill, ref, opts);
+  readSkillFile(skill: Skill, ref?: string, opts: SkillOpts = {}): Promise<SkillFile> {
+    const op: Operation = { kind: "skill", peer: skill.server, target: ref ?? skill.uri, method: "skills/read", context: opts.context, state: {} };
+    return this.run(op, (o) => this.skills.readFile(skill, ref, { ...opts, context: o.context })) as Promise<SkillFile>;
   }
 
   // ── server-state reactive store (useServerState) ─────────────────────────
@@ -1089,6 +1191,7 @@ export class MCPClient {
     await conn.close();
     this.conns.delete(name);
     this.serverHandlers.delete(name);
+    for (const k of [...this.views.keys()]) if (k.startsWith(`${name}\0`)) (this.views.delete(k), this.viewGen.delete(k));
     this.cache.markStaleByServer(name);
     this.bumpServerState();
   }
@@ -1184,13 +1287,16 @@ export class MCPClient {
     const s = server ?? this.connections().find((c) => c.prompts.has(name))?.name;
     if (!s) throw new Error(`No connected server offers prompt "${name}"`);
     const conn = this.req(s);
-    // MCP prompt arguments are string-valued; coerce so callers can pass numbers/bools.
-    const stringArgs = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)]));
-    const meta = this.withMeta(conn, opts.context);
-    return conn.sdk.getPrompt(
-      { name, arguments: stringArgs, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
-      opts.interaction ? ({ allowInputRequired: true } as never) : undefined,
-    );
+    const op: Operation = { kind: "prompt", peer: s, target: name, method: "prompts/get", args, context: opts.context, interaction: opts.interaction, state: {} };
+    return this.run(op, (o) => {
+      // MCP prompt arguments are string-valued; coerce so callers can pass numbers/bools.
+      const stringArgs = Object.fromEntries(Object.entries(o.args ?? {}).map(([k, v]) => [k, String(v)]));
+      const meta = this.withMeta(conn, o.context);
+      return conn.sdk.getPrompt(
+        { name, arguments: stringArgs, ...(meta ? { _meta: meta } : {}), ...mrtrParams(opts.interaction) } as never,
+        opts.interaction ? ({ allowInputRequired: true } as never) : undefined,
+      );
+    }) as ReturnType<ServerConnection["sdk"]["getPrompt"]>;
   }
 
   // ── internals ──────────────────────────────────────────────────────────

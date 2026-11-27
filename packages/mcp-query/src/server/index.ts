@@ -3,6 +3,8 @@
 
 export { authorize, denyDestructiveUnless, AuthorizationError } from "./authorize.js";
 export type { AuthzVerdict, AuthzRequest, AuthorizeOptions } from "./authorize.js";
+export { listFilter } from "./listFilter.js";
+export type { ListFilterOptions, ListItemKind } from "./listFilter.js";
 export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError, interactionModeFor } from "./gateway.js";
 export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions } from "./gateway.js";
 export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";

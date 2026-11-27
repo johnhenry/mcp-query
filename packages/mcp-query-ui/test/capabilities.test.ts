@@ -91,6 +91,51 @@ describe("resources/list and prompts/list when opted in", () => {
   });
 });
 
+describe("resources/list and prompts/list run through the client's interceptor chain (#90)", () => {
+  it("an mcp-gate policy sees each app list as a `list` operation for the app principal, and its audit records it", async () => {
+    const seen: Array<{ kind: string; target: string; principal: unknown }> = [];
+    fx = await makeFixture(
+      {
+        policy: (req) => {
+          const principal = (req.context?.meta as { principal?: string } | undefined)?.principal;
+          if (principal?.startsWith("mcp-app:")) seen.push({ kind: req.kind, target: req.target, principal });
+          return req.kind === "list" && req.target === "prompts" && principal?.startsWith("mcp-app:") ? "deny" : "allow";
+        },
+      },
+      { appCapabilities: { resourcesList: true, promptsList: true } },
+      { prompts: true },
+    );
+    const { app, session } = await fx.openAndConnect();
+    expect((await app.listServerResources()).resources.map((r) => r.uri)).toContain(APP_URI);
+    await expect(app.request({ method: "prompts/list", params: {} }, anyResult)).rejects.toThrow(/denied/);
+    expect(seen.filter((o) => o.kind === "list")).toEqual([
+      { kind: "list", target: "resources", principal: `mcp-app:${APP_URI}` },
+      { kind: "list", target: "prompts", principal: `mcp-app:${APP_URI}` },
+    ]);
+    expect(session.getState().calls.map((c) => [c.kind, c.outcome])).toEqual([
+      ["resources-list", "ok"],
+      ["prompts-list", "denied"],
+    ]);
+    const entries = fx.audit.mock.calls.map((c) => c[0] as { kind: string; target: string; principal?: string; outcome: string });
+    expect(entries.filter((e) => e.kind === "list" && e.principal === `mcp-app:${APP_URI}`).map((e) => [e.target, e.outcome])).toEqual([
+      ["resources", "ok"],
+      ["prompts", "denied"],
+    ]);
+  });
+
+  it("a gate deny glob hides the item from the app's list too", async () => {
+    fx = await makeFixture({ policy: { deny: ["demo.file:///data.txt"] } }, { appCapabilities: { resourcesList: true } });
+    const { app } = await fx.openAndConnect();
+    expect((await app.listServerResources()).resources.map((r) => r.uri)).not.toContain("file:///data.txt");
+  });
+
+  it("the broker gate still runs first (a human can hold the request) and the lists stay off by default", async () => {
+    fx = await makeFixture({ policy: () => "allow" });
+    const { app } = await fx.openAndConnect();
+    await expect(app.listServerResources()).rejects.toThrow(/not enabled/);
+  });
+});
+
 describe("sampling (opt-in, discouraged: deprecated in core, SEP-2577)", () => {
   it("runs through the InteractionBroker: policy sees `sampling` for the app peer, then the model answers", async () => {
     const policy = vi.fn(() => "allow" as const);

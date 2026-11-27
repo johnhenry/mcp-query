@@ -30,7 +30,7 @@ plays for HTTP services.
 | **Authorization** | Declarative allow/deny globs over `server.tool`; block tools flagged `destructiveHint`. Denied tools are also *hidden from discovery*. |
 | **Data loss (DLP)** | Regex redaction rewrites secrets (SSNs, emails, keys) in every tool/resource/structured result before the agent sees them. |
 | **Resilience** | Per-upstream circuit breaker + concurrency cap, so one bad server can't take down the agent. |
-| **Audit** | Every call (allowed *and* denied) emitted to a pluggable sink — stderr by default, a DB/SIEM in production. |
+| **Audit** | Every call (allowed *and* denied) emitted to a pluggable sink — stderr by default, a DB/SIEM in production. Covers `tools/call`, `resources/read`, `prompts/get`, the skills calls and catalog (`list`) views. |
 | **Aggregation** | Many upstreams → one namespaced (`server.tool`) endpoint, with live `list_changed` propagation. |
 
 ## Install / run
@@ -171,6 +171,29 @@ gate inherits mcp-query's reconnection, aggregation, `_meta` propagation, dynami
 `addServer`/`removeServer`, and audit hook for free; `mcp-gate` only adds the DLP
 interceptor, the tenant-aware `rateLimit`/`circuitBreaker` fork (see [Multi-tenancy](#multi-tenancy)),
 the policy compiler, and the CLI.
+
+### What the policy sees: operation kinds
+
+Policy, redaction, rate-limit, circuit-breaker and `audit` run on every operation of the governed
+client, and the audit entry's `kind` says which: `read` (resources/read), `call`/`query` (tools),
+`prompt` (prompts/get, `target` = prompt name), `skill` (skills list/get/read; `target` = `skills`, a
+skill URI or a file) and `list` (the catalog behind `listTools()`/`listResources()`/`listPrompts()`;
+`target` = `tools`, `resources`, `resourceTemplates` or `prompts`).
+
+- **Declarative policy.** Globs apply to tool calls, resource reads and `prompts/get` (by prompt name,
+  the same ids `policyListFilter` already used to hide prompts from discovery). `list` and `skill`
+  operations are always allowed by a declarative policy, so existing `allow`/`deny` configs do not
+  start refusing catalogs or skills. Name-denied items are hidden from the client's own
+  `listTools()` / `listResources()` / `listPrompts()` the way they are from the gateway's `*/list`
+  (library mode included), and `approval.discovery: "annotated"` stamps `_meta.requiresApproval` there too.
+- **Function policy.** Receives every kind, including `list`, `prompt` and `skill`; return `"deny"` for
+  `skill` to refuse skills outright. An `"approve"` verdict on a `list` is treated as allow (a catalog
+  view is not an action and must not wait for a human); on `prompt`/`skill` it goes through approval.
+- **Redaction.** `redact` rules scrub `prompts/get` results and a skill file's `text`/`body` (the file is
+  then marked `verified: false`, as its bytes no longer match the manifest digest). Catalog views are
+  not redacted: a pattern must not rewrite a tool name the router resolves.
+- **Rate-limit / circuit-breaker.** Apply to `prompt` and `skill` (they reach the upstream); skip `list`
+  (a local view).
 
 ## Human-in-the-loop approval
 

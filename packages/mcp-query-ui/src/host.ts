@@ -156,7 +156,9 @@ export function createAppHost(options: AppHostOptions): AppHost {
     // tools); everything else -- allow/deny/approve, rate limits, redaction, audit -- is the
     // client's interceptor stack.
     bridge.oncalltool = async (params) => {
-      const def = client.listTools(server).find((t) => t.name === params.name);
+      // The client's tool list may be policy-filtered (#90); look the definition up unfiltered so a tool the
+      // policy denies is refused by the policy ("denied", audited) rather than reported as unknown.
+      const def = client.listTools(server).find((t) => t.name === params.name) ?? client.connection(server)?.tools.get(params.name);
       if (!def) throw new Error(`unknown tool ${JSON.stringify(params.name)} on ${server}`);
       if (isToolVisibilityModelOnly(def as never)) throw new Error(`tool ${JSON.stringify(params.name)} is not callable by apps (visibility excludes "app")`);
       const args = (params.arguments ?? {}) as Record<string, unknown>;
@@ -197,14 +199,22 @@ export function createAppHost(options: AppHostOptions): AppHost {
         });
       };
 
+    // The app's list goes through the client's interceptor chain (`kind: "list"`, principal `mcp-app:<uri>`),
+    // so mcp-gate policy/audit and any user interceptor apply. A client without `discover` (an older
+    // @johnhenry/mcp-query) falls back to its synchronous list; the broker gate above stays either way.
+    const listVia = async (catalog: "resources" | "prompts"): Promise<unknown[]> => {
+      if (typeof client.discover === "function") return client.discover(catalog, server, { context: ctxFor() });
+      return catalog === "resources" ? client.listResources(server) : client.listPrompts(server);
+    };
+
     bridge.onlistresources = guarded("resourcesList", "resources-list", "resources/list", async () => {
       await capGate("resources/list", {});
-      return { resources: client.listResources(server) } as never;
+      return { resources: await listVia("resources") } as never;
     }) as never;
 
     bridge.onlistprompts = guarded("promptsList", "prompts-list", "prompts/list", async () => {
       await capGate("prompts/list", {});
-      return { prompts: client.listPrompts(server) } as never;
+      return { prompts: await listVia("prompts") } as never;
     }) as never;
 
     // Sampling goes through the broker's own handleSampling (policy -> human -> model -> optional response review -> audit).

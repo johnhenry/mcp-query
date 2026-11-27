@@ -49,6 +49,7 @@ export function circuitBreaker(opts: CircuitOptions = {}): CircuitBreaker {
 
   return {
     interceptor: async (op, next) => {
+      if (op.kind === "list") return next(op); // a catalog view is computed locally: it neither trips nor resets the breaker
       const k = keyFn(op);
       keyServer.set(k, op.peer);
       const s = state.get(k) ?? { failures: 0 };
