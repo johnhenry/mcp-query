@@ -609,9 +609,9 @@ export default async (request: Request) => {
 };
 ```
 
-The verified principal (`extra.sub`, else `clientId`) lands in the call's `_meta.principal`, with `authScopes` and
+The verified principal (`extra.sub`, else `clientId`) lands in the call's `_meta.principal`, with `partition` (defaults to the principal), `authScopes` and
 `authClientId`, so `policy`, `partitionFrom`, `rateLimit`/`circuitBreaker` keys and audit entries all see it. Those
-three keys belong to the verifier: whatever a caller puts under them in its own `_meta` is dropped, so a client
+four keys belong to the verifier, on every handler the gateway registers (tools, prompts, resources, tasks, skills, extension pass-through): whatever a caller puts under them in its own `_meta` is dropped, so a client
 cannot claim someone else's identity. Without `inboundAuth` nothing is mapped. The access token itself is never copied
 into the context.
 
