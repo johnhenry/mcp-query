@@ -25,6 +25,7 @@ export { MemoryCacheStore } from "./core/cacheStore.js";
 export type { CacheStore, StoredEntry } from "./core/cacheStore.js";
 export { persistCache } from "./core/persist.js";
 export type { SyncStorage, PersistOptions } from "./core/persist.js";
+export { silenceDeprecationWarnings } from "./core/deprecations.js";
 export { instrumentTransport } from "./core/instrument.js";
 export type { TrafficEvent, TrafficDirection } from "./core/instrument.js";
 export { instrumentAuthProvider } from "./core/authDebug.js";

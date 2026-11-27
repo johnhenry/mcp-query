@@ -179,7 +179,7 @@ export class ServerConnection {
       ...(resolved.supportedProtocolVersions ? { supportedProtocolVersions: resolved.supportedProtocolVersions } : {}),
       inputRequired: this.cfg.inputRequired ?? this.deps.defaultInputRequired,
     });
-    installHandlers(client, this.deps.handlers);
+    installHandlers(client, this.deps.handlers, { server: this.name, era: () => this.era });
     // Mid-session disconnect (transport dropped) -> attempt reconnect, unless we
     // closed on purpose or are already cycling. Mirrors an editor relaunching a
     // crashed language server.

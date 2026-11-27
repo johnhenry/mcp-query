@@ -10,6 +10,11 @@ is intercepted by one broker, surfaced in a single approval queue, and a human
 **audit trail**, and a **trust policy** can auto-allow / auto-deny / ask per
 interaction type and server.
 
+> **Deprecation clock:** Sampling is deprecated as of MCP 2026-07-28 (SEP-2577). It stays in the
+> specification for at least twelve months (SEP-2596), so this keeps working, but plan for its removal. Sampling
+> *with tools* (SEP-1577) sits on the same deprecated feature, so it is on the same clock. For your own
+> AI features, call the model directly and leave MCP out of it.
+
 ## What it demonstrates
 
 - **Manual sampling** (`manualSampling: true`) — the human *authors* the model

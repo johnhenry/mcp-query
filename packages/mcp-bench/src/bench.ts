@@ -4,6 +4,7 @@
 // recording per-call latency and errors.
 
 import { summarize, type Summary } from "./stats.js";
+import { isPhased } from "./ops.js";
 
 export interface BenchOp {
   label: string;
@@ -29,6 +30,11 @@ export interface OpResult {
   ok: number;
   failed: number;
   errorRate: number;
+  /**
+   * Extra timings an op reported by returning `{ phases: { name: ms } }` from `invoke` (e.g. a task op's
+   * time to the task handle, next to the time to terminal that `summary` holds). Absent for plain ops.
+   */
+  phases?: Record<string, Summary>;
   /** Successful calls per second over the measured wall time. */
   rps: number;
   wallMs: number;
@@ -42,6 +48,7 @@ export async function runOp(op: BenchOp, opts: BenchOptions = {}): Promise<OpRes
   for (let i = 0; i < warmup; i++) await op.invoke().catch(() => {});
 
   const samples: number[] = [];
+  const phaseSamples = new Map<string, number[]>();
   let ok = 0;
   let failed = 0;
   const deadline = opts.durationMs ? now() + opts.durationMs : Infinity;
@@ -54,8 +61,9 @@ export async function runOp(op: BenchOp, opts: BenchOptions = {}): Promise<OpRes
       if (remaining !== Infinity) remaining--;
       const t0 = now();
       try {
-        await op.invoke();
+        const out = await op.invoke();
         samples.push(now() - t0);
+        if (isPhased(out)) for (const [k, v] of Object.entries(out.phases)) (phaseSamples.get(k) ?? phaseSamples.set(k, []).get(k)!).push(v);
         ok++;
       } catch {
         failed++;
@@ -69,6 +77,7 @@ export async function runOp(op: BenchOp, opts: BenchOptions = {}): Promise<OpRes
   return {
     label: op.label,
     summary: summarize(samples),
+    ...(phaseSamples.size ? { phases: Object.fromEntries([...phaseSamples].map(([k, v]) => [k, summarize(v)])) } : {}),
     ok,
     failed,
     errorRate: total ? failed / total : 0,

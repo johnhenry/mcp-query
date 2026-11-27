@@ -5,7 +5,8 @@
 //   mcp-record record  --command npx --args "-y server-everything" --out tape.json \
 //                      --call 'echo(message: "hi")' --call get-sum:'{"a":1,"b":2}'
 //   mcp-record record  --url https://host/mcp --out tape.json   # hosted (Streamable HTTP)
-//   mcp-record replay  --cassette tape.json          # serve the cassette over stdio
+//   mcp-record record  --url https://host/mcp --era auto --out tape.json   # 2026-07-28 server (server/discover, no initialize)
+//   mcp-record replay  --cassette tape.json          # serve the cassette over stdio (classic handshake)
 //   mcp-record inspect tape.json                     # summarize a cassette
 //
 // `record` reaches a live server over stdio (--command), Streamable HTTP (--url, with
@@ -29,7 +30,7 @@ import { createCassette, loadCassette, sealCassette, type Cassette } from "./cas
 import { recordTransport, redactPaths } from "./record.js";
 import { replayServer } from "./replay.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette", "redact"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "call", "out", "cassette", "redact", "era"] as const;
 
 function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[]; calls: string[]; redact: string[] } {
   const _: string[] = [];
@@ -59,13 +60,13 @@ function required(flags: Record<string, string>, name: string): string {
  * `redactPathList` is an opt-in list of dot-paths (e.g. "params.apiKey") masked in the
  * cassette before each interaction is recorded — see `redactPaths` in record.ts.
  */
-export async function recordSession(opts: ConnectOptions, calls: string[], redactPathList: string[] = []): Promise<Cassette> {
+export async function recordSession(opts: ConnectOptions, calls: string[], redactPathList: string[] = [], era: "legacy" | "auto" = "legacy"): Promise<Cassette> {
   const parsedCalls = calls.map((spec) => parseCallSpec(spec)); // fail fast, before connecting
   const cassette = createCassette();
   const inner = buildTransport(opts);
-  const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: {} });
+  const client = new Client({ name: opts.clientName ?? "mcp-record", version: "0.0.1" }, { capabilities: {}, ...(era === "auto" ? { versionNegotiation: { mode: "auto" as const } } : {}) });
   const recordOpts = redactPathList.length ? { redact: redactPaths(redactPathList) } : {};
-  await client.connect(recordTransport(inner, cassette, recordOpts)); // initialize captured here
+  await client.connect(recordTransport(inner, cassette, recordOpts)); // initialize (or server/discover with --era auto) captured here
 
   const caps = client.getServerCapabilities() ?? {};
   if (caps.tools) await client.listTools().catch(() => {});
@@ -87,8 +88,12 @@ function summarize(c: Cassette): string {
   const byMethod = new Map<string, number>();
   for (const it of c.interactions) byMethod.set(it.method, (byMethod.get(it.method) ?? 0) + 1);
   const lines = [...byMethod.entries()].sort().map(([m, n]) => `  ${m}: ${n}`);
+  const byKind = new Map<string, number>();
+  for (const it of c.interactions) if (it.kind) byKind.set(it.kind, (byKind.get(it.kind) ?? 0) + 1);
+  if (byKind.size) lines.push(`  (${[...byKind.entries()].sort().map(([k, n]) => `${k}: ${n}`).join(", ")})`);
   return [
     `recorded from: ${c.recordedFrom?.name ?? "?"}@${c.recordedFrom?.version ?? "?"}`,
+    `format: ${c.version}${c.protocol ? `, ${c.protocol.era} era${c.protocol.version ? ` (${c.protocol.version})` : ""}` : ""}`,
     `capabilities: ${Object.keys(c.capabilities ?? {}).join(", ") || "(none)"}`,
     `interactions: ${c.interactions.length}`,
     ...lines,
@@ -102,7 +107,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     case "record": {
       const opts: ConnectOptions = { ...resolveConnect(flags, headers), clientName: "mcp-record" };
       if (opts.url) console.error("⚠  recording a hosted server sends real traffic — mind rate limits & ToS.\n");
-      const cassette = sealCassette(await recordSession(opts, calls, redact));
+      const era = flags.era ?? "legacy";
+      if (era !== "legacy" && era !== "auto") throw new Error('--era must be "legacy" (default, initialize handshake) or "auto" (try server/discover first)');
+      const cassette = sealCassette(await recordSession(opts, calls, redact, era));
       const json = JSON.stringify(cassette, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");

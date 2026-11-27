@@ -69,13 +69,30 @@ the captured contract alone, so they stay silent on a contract that did not capt
 
 `cache-hints` only judges the first page of each list and does not see `resources/read` (a capture
 does not read resources). `tool-title-icons` flags every tool without a `title`, which is optional in the
-spec, so expect it to be the noisiest of the new rules; turn it off with `--off tool-title-icons`.
+spec, so expect it to be the noisiest of the new rules; it stays on by default; turn it off with `--off tool-title-icons` if you do not want it.
 
-Not implemented here, because they need more than one captured surface or a live client (the lint CLI
-captures once and disconnects): `stateless-ready`, `deterministic-list-order`, `resource-not-found-code`,
-`reserved-error-range` (error codes are not part of a contract), `destructive-needs-confirmation`, and
-an HTTP+SSE check (the capture transport is always stdio or Streamable HTTP). `x-mcp-file` has no
-published specification yet (SEP-2356 was closed), so there is no rule to write against.
+### Live-probe rules (`--probe`)
+
+Some checks need a live connection: a second request, or a request that is meant to fail. They are a
+separate list (`LIVE_RULES`), only run with `--probe`, never by `lintContract`, and `--probe` together
+with `--contract` is an error (a pinned file cannot answer them). In probe mode the connection stays open
+after the capture, and the client negotiates with `server/discover` first (falling back to `initialize`).
+Findings are tagged `probe` in the output. All `warn`; `--off` / `--error` apply as usual.
+
+| Rule | Checks |
+|---|---|
+| `stateless-ready` | the server answers `server/discover` (the connection negotiated the 2026-07-28 era, no `initialize`), lists `supportedVersions`, and serves `tools/list` (SEP-2575) |
+| `deterministic-list-order` | two consecutive `tools/list` calls (all pages, client cache bypassed) return the same tools in the same order (2026-07-28 changelog: servers SHOULD) |
+| `resource-not-found-code` | reading a made-up URI fails with `-32602`, not the legacy `-32002` (SEP-2164); needs the `resources` capability |
+
+```bash
+npx tsx packages/mcp-lint/src/cli.ts --url https://host/mcp --probe
+```
+
+Not implemented here: `reserved-error-range` (error codes are not part of a contract),
+`destructive-needs-confirmation` (needs an elicitation round), and an HTTP+SSE check (the transport is
+always stdio or Streamable HTTP). `x-mcp-file` has no published specification yet (SEP-2356 was closed),
+so there is no rule to write against. `tool-title-icons` stays on at `warn` by default.
 
 The annotation rules are heuristic (they match verb segments in names), so they're warnings
 you can silence per-rule when a name is a false positive.
