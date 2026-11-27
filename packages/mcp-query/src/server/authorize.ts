@@ -21,8 +21,10 @@ export interface AuthzRequest {
    */
   kind: OperationKind | "answer";
   server: string;
-  /** Resource URI (read), tool/prompt name (call/query/prompt), catalog name (list: `tools`, `resources`, ...) or skill/file URI (skill). */
+  /** Resource URI (read), tool/prompt name (call/query/prompt), catalog name (list: `tools`, `resources`, ...), skill/file URI (skill), or `events` / the event name (event: `events/list` / `events/poll`). */
   target: string;
+  /** The MCP method or client operation where `kind` alone is ambiguous (`tasks/get`, `skills/read`, ...); see `Operation.method`. */
+  method?: string;
   args?: Record<string, unknown>;
   context?: CallContext;
   destructive: boolean;
@@ -33,8 +35,8 @@ export interface AuthzRequest {
 
 /** One consumer answer to one upstream input request, as a policy sees it (no values). */
 export interface AnswerInfo {
-  /** Whether the round belongs to a `tools/call` or a `prompts/get`. */
-  surface: "tool" | "prompt";
+  /** Whether the round belongs to a `tools/call`, a `prompts/get` or a task (`tasks/update`; `target` is then the tool that started it). */
+  surface: "tool" | "prompt" | "task";
   /** The input request's key in the round (`q0`, ...). */
   key: string;
   /** The elicitation action the consumer chose. Only `accept` carries data, so only `accept` is judged. */
@@ -70,6 +72,7 @@ export function authorize(
       kind: op.kind,
       server: op.peer,
       target: op.target,
+      ...(op.method !== undefined ? { method: op.method } : {}),
       args: op.args,
       context: op.context,
       destructive: op.def?.annotations?.destructiveHint === true,

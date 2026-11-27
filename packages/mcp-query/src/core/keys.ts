@@ -20,7 +20,10 @@ export type CacheKey =
   | ({ kind: "prompt"; server: string; name: string; argsHash: string } & Partitioned)
   | ({ kind: "task"; server: string; taskId: string } & Partitioned)
   | ({ kind: "skillList"; server: string } & Partitioned)
+  | ({ kind: "eventList"; server: string } & Partitioned)
   | ({ kind: "skill"; server: string; uri: string } & Partitioned)
+  // resources/directory/read of one skill directory (needs the `directoryRead` capability).
+  | ({ kind: "skillDir"; server: string; uri: string } & Partitioned)
   // Keyed by the manifest digest: a changed manifest can never hit stale bytes.
   | ({ kind: "skillFile"; server: string; uri: string; digest: string } & Partitioned);
 
@@ -41,6 +44,8 @@ export function serializeKey(k: CacheKey): string {
       return `${p}task ${k.server} ${k.taskId}`;
     case "skill":
       return `${p}skill ${k.server} ${k.uri}`;
+    case "skillDir":
+      return `${p}skillDir ${k.server} ${k.uri}`;
     case "skillFile":
       return `${p}skillFile ${k.server} ${k.uri} ${k.digest}`;
     default:

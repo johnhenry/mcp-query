@@ -5,11 +5,11 @@
 // `createGate` on the same `buildGateClient`, adding the gateway Server and stdio upstreams.
 
 import { MCPClient, type InteractionBroker, type Operation, type RequestInterceptor, type CallAuditEntry, type ConnectionConfig } from "@johnhenry/mcp-query";
-import { authorize, listFilter, rateLimit, circuitBreaker, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
+import { authorize, listFilter, rateLimit, circuitBreaker, extensionAllowed, UI_EXT, type AuthzRequest, type RateLimit, type CircuitBreaker } from "@johnhenry/mcp-query/server";
 import { redact } from "./redact.js";
 import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
-import { forwardsAnything, urlElicitationPolicy } from "./interaction.js";
+import { urlElicitationPolicy } from "./interaction.js";
 import { resolveHttpUpstream } from "./upstream-http.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
 
@@ -61,7 +61,8 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   }
   // A forwarded URL-mode elicitation sends a person to an upstream-chosen URL: judge the host
   // here (outside redact, so the URL checked is the URL shown) and fail closed.
-  if (forwardsAnything(config.interactions)) interceptors.push(urlElicitationPolicy(config.urlElicitation));
+  // (Always on: a task waiting for input carries its requests the same way, whatever `interactions` says.)
+  interceptors.push(urlElicitationPolicy(config.urlElicitation));
   const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
   const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: tenantKey }) : undefined;
@@ -91,6 +92,9 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
     interceptors,
     onCall,
     clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.4.0", title: "MCP Gate" },
+    // MCP Apps: declare the UI extension to upstreams so they send their `_meta.ui` / `ui://` resources; the gateway
+    // hands them on only to consumers that declared it themselves. (Opt out with `extensions: { deny: [UI extension id] }`.)
+    ...(extensionAllowed(config.extensions, UI_EXT) ? { extensions: { [UI_EXT]: { mimeTypes: ["text/html;profile=mcp-app"] } } } : {}),
   });
   await client.connect();
   return {

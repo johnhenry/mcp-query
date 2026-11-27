@@ -99,15 +99,16 @@ describe("mcp-gate sees prompts/get, skills and catalogs", () => {
     expect(audit.filter((e) => e.kind === "skill").map((e) => e.outcome)).toEqual(["denied", "denied"]);
   });
 
-  it("redacts prompt results and skill file text, and leaves catalog names alone", async () => {
+  it("redacts prompt results, never skill files, and leaves catalog names alone", async () => {
     const { g } = await gate({ redact: [{ pattern: /[\w.]+@[\w.]+/, replacement: "[EMAIL]" }, { pattern: "read_x", replacement: "X" }] });
     const p = (await g.client.getPrompt("greet", { who: "ann" }, "up")) as { messages: Array<{ content: { text: string } }> };
     expect(p.messages[0]!.content.text).toBe("hi ann [EMAIL]");
     const skill = await g.client.getSkill(ENTRY.uri, "up");
     const f = await g.client.readSkillFile(skill);
-    expect(f.text).toBe("mail [EMAIL]");
-    expect(new TextDecoder().decode(f.bytes)).toBe("mail [EMAIL]");
-    expect(f.verified).toBe(false); // the bytes no longer match the manifest digest
+    // Owner decision (#82): a skill file's digest covers its bytes, so the gate never rewrites them.
+    expect(f.text).toBe("mail a@b.com");
+    expect(new TextDecoder().decode(f.bytes)).toBe("mail a@b.com");
+    expect(f.verified).toBe(true);
     expect(g.client.listTools("up").map((t) => t.name)).toEqual(["read_x", "secret_op"]);
   });
 

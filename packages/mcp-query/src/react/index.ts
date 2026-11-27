@@ -10,6 +10,8 @@ export { useTask, useToolTask } from "./useTask.js";
 export type { UseTaskResult, UseToolTaskState } from "./useTask.js";
 export { useSkills, useSkill } from "./useSkills.js";
 export type { UseSkillsOptions, UseSkillsResult, UseSkillOptions, UseSkillResult } from "./useSkills.js";
+export { useEventTypes, useEvents } from "./useEvents.js";
+export type { UseEventTypesOptions, UseEventTypesResult, UseEventsOptions, UseEventsResult } from "./useEvents.js";
 export { useServerState } from "./useServerState.js";
 export type { UseServerStateResult } from "./useServerState.js";
 export { useInteractions, useAuditLog } from "./interactions.js";

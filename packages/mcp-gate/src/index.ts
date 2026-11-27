@@ -4,8 +4,8 @@
 
 import type { InteractionBroker } from "@johnhenry/mcp-query";
 import { createGateway, createGatewayHandler, type GatewayHandlerOptions } from "@johnhenry/mcp-query/server";
-import { forwardsAnything, createAnswerGuard } from "./interaction.js";
-import { policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
+import { createAnswerGuard } from "./interaction.js";
+import { policyListAnnotator, policyListFilter, policySkillFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { buildGateClient } from "./client.js";
 import { resolveUpstream } from "./upstream.js";
 import { validateGateUpstream } from "./validate.js";
@@ -14,7 +14,7 @@ import type { MCPClient } from "@johnhenry/mcp-query";
 export type { ApprovalConfig, ApprovalRequest, GateConfig, GatePolicy, GatePolicyRules, AnswerPolicy, AnswerPolicyRules, PolicyOptions, PolicyScope, PolicyRule, PolicyDecision, GateUpstream, StdioUpstreamSpec, HttpUpstreamSpec, SecretRef, UpstreamAuth, ClientCredentialsAuth, EnterpriseAuth } from "./config.js";
 export type { RedactRule, RedactOptions } from "./redact.js";
 export { redact, redactValue, redactTracked } from "./redact.js";
-export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter } from "./config.js";
+export { compilePolicy, explainPolicy, policyListAnnotator, policyListFilter, policySkillFilter } from "./config.js";
 export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
@@ -56,18 +56,22 @@ export async function createGate(config: GateConfig): Promise<Gate> {
     interactions: config.interactions,
     inboundAuth: config.inboundAuth,
     // The consumer's answers to forwarded input requests: answerPolicy, then `redact` (#100).
-    guardAnswers: forwardsAnything(config.interactions)
-      ? createAnswerGuard({
-          redact: config.redact,
-          policy: config.answerPolicy,
-          onApprove: parts.onApprove,
-          audit: parts.audit,
-          toolHints: (s, t) => {
-            const def = client.listTools(s).find((x) => x.name === t);
-            return { destructive: def?.annotations?.destructiveHint === true, readOnly: def?.annotations?.readOnlyHint === true };
-          },
-        })
-      : undefined,
+    // Also covers `tasks/update` answers (the tasks extension), which are not gated by `interactions`.
+    guardAnswers: createAnswerGuard({
+      redact: config.redact,
+      policy: config.answerPolicy,
+      onApprove: parts.onApprove,
+      audit: parts.audit,
+      toolHints: (s, t) => {
+        const def = client.listTools(s).find((x) => x.name === t);
+        return { destructive: def?.annotations?.destructiveHint === true, readOnly: def?.annotations?.readOnlyHint === true };
+      },
+    }),
+    extensions: config.extensions,
+    // Task ids are bound to the same tenant partition the gate isolates rate limits by.
+    partitionFrom: config.partitionFrom ?? ((meta) => (typeof meta?.partition === "string" ? meta.partition : undefined)),
+    skillFilter: config.policy ? policySkillFilter(config.policy) : undefined,
+    audit: parts.audit,
     // Hide name-denied tools/prompts from discovery (call-time policy still enforces all rules).
     filter: config.policy ? policyListFilter(config.policy, config.approval?.discovery) : undefined,
     // approval.discovery "annotated": flag approve-gated items with _meta.requiresApproval.

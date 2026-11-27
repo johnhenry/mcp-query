@@ -6,6 +6,8 @@ export type { AuthzVerdict, AuthzRequest, AnswerInfo, AuthorizeOptions } from ".
 export { listFilter } from "./listFilter.js";
 export type { ListFilterOptions, ListItemKind } from "./listFilter.js";
 export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError, interactionModeFor } from "./gateway.js";
+export { UI_EXT, KNOWN_EXTENSIONS, SERVER_META_KEY, TaskIds, TaskNotFoundError, toGatewaySkill, extensionAllowed, advertisedExtensions } from "./gatewayExtensions.js";
+export type { GatewayExtensions, TaskRef } from "./gatewayExtensions.js";
 export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions, AnswerGuard, AnswerGuardRequest, AnswerGuardResult } from "./gateway.js";
 export { applyInboundAuth, INBOUND_AUTH_META_KEYS } from "./inboundAuth.js";
 export type { InboundAuthInfo, InboundAuthOptions } from "./inboundAuth.js";
@@ -17,3 +19,5 @@ export { x402Interceptor, X402ChallengeError } from "./x402Interceptor.js";
 export type { X402InterceptorOptions, X402GateVerdict } from "./x402Interceptor.js";
 export { parseX402Challenge } from "./x402.js";
 export type { X402Challenge, X402PaymentRequirement } from "./x402.js";
+export { verifyEventWebhook, generateWebhookSecret, WebhookVerificationError } from "./eventsWebhook.js";
+export type { VerifyEventWebhookOptions, VerifiedWebhook, WebhookFailure } from "./eventsWebhook.js";

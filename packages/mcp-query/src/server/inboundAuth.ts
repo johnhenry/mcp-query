@@ -2,7 +2,7 @@
 // `requireBearerAuth` / `verifyBearerToken` (@modelcontextprotocol/server >= 2.0.0) hands the
 // verified `AuthInfo` to the handler (`handler.fetch(req, { authInfo })`, surfaced to request
 // handlers as `ctx.http.authInfo`). With `inboundAuth` enabled the gateway maps that verified
-// principal into the `_meta` it hands the client (`principal`, `authScopes`, `authClientId`), so
+// principal into the `_meta` it hands the client (`principal`, `partition`, `authScopes`, `authClientId`), so
 // policies, `partitionFrom` and audit can use it.
 //
 // Trust boundary: those three keys are OWNED by the verifier. Whatever the caller put under
@@ -24,10 +24,12 @@ export interface InboundAuthOptions {
   required?: boolean;
   /** Derive the principal. Default: `extra.sub` when a string, else `clientId`. */
   principal?: (auth: InboundAuthInfo) => string | undefined;
+  /** Derive the partition (tenant isolation key for caches, task ids, rate limits). Default: the principal. */
+  partition?: (auth: InboundAuthInfo) => string | undefined;
 }
 
 /** `_meta` keys the verifier owns. */
-export const INBOUND_AUTH_META_KEYS = ["principal", "authScopes", "authClientId"] as const;
+export const INBOUND_AUTH_META_KEYS = ["principal", "partition", "authScopes", "authClientId"] as const;
 
 const defaultPrincipal = (a: InboundAuthInfo): string | undefined => (typeof a.extra?.sub === "string" ? a.extra.sub : a.clientId);
 
@@ -48,9 +50,11 @@ export function applyInboundAuth(
   for (const k of INBOUND_AUTH_META_KEYS) delete rest[k];
   if (!auth) return Object.keys(rest).length || callerMeta ? rest : undefined;
   const principal = (o.principal ?? defaultPrincipal)(auth);
+  const partition = (o.partition ?? ((a: InboundAuthInfo) => (o.principal ?? defaultPrincipal)(a)))(auth);
   return {
     ...rest,
     ...(principal !== undefined ? { principal } : {}),
+    ...(partition !== undefined ? { partition } : {}),
     authScopes: [...(auth.scopes ?? [])],
     ...(auth.clientId !== undefined ? { authClientId: auth.clientId } : {}),
   };

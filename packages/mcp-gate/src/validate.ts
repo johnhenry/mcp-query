@@ -141,11 +141,33 @@ export function validateGateUpstream(name: string, up: unknown): void {
 function validatePolicy(policy: unknown): void {
   if (typeof policy === "function") return;
   if (!isRecord(policy)) fail(`"policy" must be a function or a rules object (got ${typeOf(policy)})`);
-  checkKeys(policy, ["allow", "deny", "approve", "denyDestructive"], "policy");
+  checkKeys(policy, ["allow", "deny", "approve", "denyDestructive", "skills"], "policy");
   checkType(policy, "allow", "an array of glob strings", isStringArray, "policy");
   checkType(policy, "deny", "an array of glob strings", isStringArray, "policy");
   checkType(policy, "approve", "an array of glob strings", isStringArray, "policy");
   checkType(policy, "denyDestructive", "a boolean", aBoolean, "policy");
+  if (policy.skills !== undefined) {
+    if (!isRecord(policy.skills)) fail(`"policy.skills" must be an object { allow?, deny?, approve? } (got ${typeOf(policy.skills)})`);
+    checkKeys(policy.skills, ["allow", "deny", "approve"], "policy.skills");
+    for (const key of ["allow", "deny", "approve"]) checkType(policy.skills, key, "an array of glob strings", isStringArray, "policy.skills");
+  }
+}
+
+function validateExtensions(v: unknown): void {
+  if (!isRecord(v)) fail(`"extensions" must be an object { allow?, deny?, passthrough?, tasksSecret?, taskResolveMs? } (got ${typeOf(v)})`);
+  checkKeys(v, ["allow", "deny", "passthrough", "tasksSecret", "taskResolveMs"], "extensions");
+  checkType(v, "allow", "an array of extension ids", isStringArray, "extensions");
+  checkType(v, "deny", "an array of extension ids", isStringArray, "extensions");
+  checkType(v, "taskResolveMs", "a number", aNumber, "extensions");
+  checkType(v, "tasksSecret", "a string or Uint8Array of at least 16 bytes", (x) => (typeof x === "string" ? x.length >= 16 : x instanceof Uint8Array && x.length >= 16), "extensions");
+  if (v.passthrough !== undefined) {
+    if (!isRecord(v.passthrough)) fail(`"passthrough" in extensions must be an object of extension id → { methods: string[] } (got ${typeOf(v.passthrough)})`);
+    for (const [id, cfg] of Object.entries(v.passthrough)) {
+      if (!isRecord(cfg)) fail(`extensions.passthrough["${id}"] must be an object { methods: string[] } (got ${typeOf(cfg)})`);
+      checkKeys(cfg, ["methods"], `extensions.passthrough["${id}"]`);
+      if (!isStringArray(cfg.methods) || (cfg.methods as string[]).length === 0) fail(`extensions.passthrough["${id}"].methods must be a non-empty array of method names`);
+    }
+  }
 }
 
 function validateApproval(approval: unknown): void {
@@ -220,7 +242,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "inboundAuth", "interactions", "urlElicitation", "answerPolicy", "extensions"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -232,6 +254,7 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
     fail(`"policy.approve" rules need an "approval" config (a broker and/or handler) to decide them — without one, approvals could never resolve`);
   }
   if (config.redact !== undefined) validateRedact(config.redact);
+  if (config.extensions !== undefined) validateExtensions(config.extensions);
   if (config.interactions !== undefined) validateInteractions(config.interactions);
   if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
   if (config.answerPolicy !== undefined) {

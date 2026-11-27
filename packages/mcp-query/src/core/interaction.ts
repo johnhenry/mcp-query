@@ -67,6 +67,13 @@ export function describeInteraction(result: unknown, sent: ToolInteraction | und
       .map((r) => urlHost(r.params?.url) ?? "(unparseable)");
     return { phase: "request", methods: reqs.map((r) => r.method), ...(hosts.length ? { urlHosts: hosts } : {}), ...scrub };
   }
+  // A task in `input_required` carries its requests the same way (tasks extension): same audit shape.
+  const task = result as { status?: unknown; inputRequests?: Record<string, { method: string; params?: Record<string, unknown> }> } | null;
+  if (task && typeof task === "object" && task.status === "input_required" && task.inputRequests) {
+    const reqs = Object.values(task.inputRequests);
+    const hosts = reqs.filter((r) => r.method === "elicitation/create" && r.params?.mode === "url").map((r) => urlHost(r.params?.url) ?? "(unparseable)");
+    return { phase: "request", methods: reqs.map((r) => r.method), ...(hosts.length ? { urlHosts: hosts } : {}), ...scrub };
+  }
   if (sent && (sent.inputResponses !== undefined || sent.requestState !== undefined)) return { phase: "response", ...scrub };
   return undefined;
 }

@@ -92,7 +92,7 @@ describe("applyInboundAuth", () => {
 
   it("maps the verified principal and drops caller-claimed verifier-owned keys", () => {
     const out = applyInboundAuth({ principal: "mallory", authScopes: ["admin"], trace: "t1" }, auth, true);
-    expect(out).toEqual({ trace: "t1", principal: "alice", authScopes: ["mcp", "tools"], authClientId: "svc-1" });
+    expect(out).toEqual({ trace: "t1", principal: "alice", partition: "alice", authScopes: ["mcp", "tools"], authClientId: "svc-1" });
   });
 
   it("falls back to clientId, and a custom principal mapper wins", () => {

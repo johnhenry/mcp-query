@@ -196,7 +196,7 @@ instantiate one `MCPClient` per principal; `context` covers cache isolation + `_
 ## Interceptors (what runs through the chain)
 
 `new MCPClient({ interceptors })` wraps these operations in an onion of `(op, next) => ...` functions.
-`op.kind` is one of `read | call | query | list | prompt | skill`; `op.peer` is the server, `op.target`
+`op.kind` is one of `read | call | query | list | prompt | skill | event`; `op.peer` is the server, `op.target`
 what it acts on, `op.method` the MCP method where needed.
 
 | Operation | Kind (`op.method`) | `op.target` |
@@ -205,7 +205,8 @@ what it acts on, `op.method` the MCP method where needed.
 | `callTool`, `callToolTask` (initiation) | `call` | tool name |
 | `queryTool` | `query` | tool name |
 | `getPrompt` | `prompt` (`prompts/get`) | prompt name; `op.args` = its arguments |
-| `listSkills` / `getSkill` / `readSkillFile` | `skill` (`skills/list`, `skills/get`, `skills/read`) | `skills` / skill URI / file ref or URI |
+| `listSkills` / `getSkill` / `readSkillFile` / `readSkillDirectory` | `skill` (`skills/list`, `skills/get`, `skills/read`, `resources/directory/read`) | `skills` / skill URI / file ref or URI / directory URI |
+| `listEvents`, and every `events/poll` of a `client.events(...)` subscription | `event` (`events/list`, `events/poll`) | `events` / the event name; for a poll `op.args` = the subscription arguments and the result is the poll result (redact `events[].data`) |
 | the catalogs behind `listTools` / `listResources` / `listResourceTemplates` / `listPrompts`, and `discover()` | `list` (`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`) | `tools` / `resources` / `resourceTemplates` / `prompts` |
 
 Not wrapped (they still bypass the chain): `complete`, `ping`, `setLogLevel`, resource
@@ -362,9 +363,9 @@ const ref = await client.readSkillFile(skill, "references/STYLE.md"); // relativ
   instructions to a model: treat it like a tool description and keep the origin attached.
 - **Caching.** `skills/list` and `skills/get` honor the server's `ttlMs` / `cacheScope` (SEP-2549)
   like every other cacheable result, keyed per server and per `client.scope({ partition })`
-  (`scope()` has `listSkills` / `getSkill` / `readSkillFile`). Verified file bytes are cached under
-  their manifest **digest**, so a changed manifest can never serve old bytes. `{ force: true }`
-  bypasses the cache; `{ staleTime }` overrides the freshness window.
+  (`scope()` has `listSkills` / `getSkill` / `readSkillFile` / `readSkillDirectory`). Verified file
+  bytes are cached under their manifest **digest**, so a changed manifest can never serve old bytes.
+  `{ force: true }` bypasses the cache; `{ staleTime }` overrides the freshness window.
 - **Invalidation.** `notifications/resources/list_changed` (legacy push or the modern
   `subscriptions/listen` stream) marks the catalog stale (tag `skillsTag(server)`); the next
   `listSkills` re-fetches and the hooks below do it for you.
@@ -373,8 +374,39 @@ const ref = await client.readSkillFile(skill, "references/STYLE.md"); // relativ
 - **Bundlers.** The default loader imports the SDK subpath at runtime so older SDKs and bundlers never
   need it. A bundled browser app passes `skillsSdk: () => import("@modelcontextprotocol/client/ext/skills")`
   in the `MCPClient` config.
-- **Not yet here:** routing "load this skill" through the `InteractionBroker` for approval (bound to the
-  manifest digests), `skillsQueryOptions` in `@johnhenry/mcp-query-tanstack`, mcp-gate pass-through.
+- **Directory reads.** `client.readSkillDirectory(uri, server)` lists the direct children of a skill
+  directory (`resources/directory/read`, `{ server, uri, resources }`; sub-directories have
+  `mimeType: "inode/directory"`). It only works when the server advertises `directoryRead: true` in its
+  skills capability; otherwise it rejects with an `MCPError` (`data.requires: "directoryRead"`) before
+  any request. Results are cached per server, directory and partition under the server's `ttlMs`, go
+  stale with the catalog, and run through the interceptor chain as a `skill` operation
+  (`method: "resources/directory/read"`). The entries are **not verified**: they are for discovery.
+  Read a file with `readSkillFile`, which checks it against the manifest.
+- **Context across a gateway hop.** `CallContext.meta` (tenant, principal, trace, ...) is sent as
+  `_meta` on `skills/list`, `skills/get`, `resources/directory/read` and the `resources/read` behind
+  `readSkillFile`, the same as `callTool` / `readResource` (on a modern connection the per-request
+  log-level key is added the same way). The SDK's `SkillsClient` has no `_meta` parameter, so
+  mcp-query hands it a view of the SDK `Client` that injects the caller's `_meta` into those requests;
+  a call with no meta uses the shared client untouched. `partition` still namespaces the cache, and
+  results are shared per partition, not per `meta`.
+- **Approval (opt-in, default OFF).** `new MCPClient({ interactions: broker, skillApproval: true })`
+  (or `{ timeoutMs }`) routes "load this skill" through the `InteractionBroker`: the first
+  `readSkillFile` of a skill asks `broker.gate("confirm", server, { action: "skill-load", skill,
+  file, manifest: { digest, files, bytes, entries }, verified, partition })`, so existing policies
+  and approval UIs that match `confirm` see it. Approve and the read proceeds; the approval is
+  remembered per (partition, server, skill, **manifest digest set**), so a manifest that changes asks
+  again and any later file of the same manifest does not. A `"dynamic"` skill has no digests to bind
+  to and asks on every read. Deny, a policy `deny` or a timeout reject with an `MCPError`
+  (`code: -32001`, `data.skillApproval`), nothing is fetched (not even from L2) and nothing is cached;
+  the next attempt asks again. `skillApproval` without `interactions` throws at construction.
+  Listing and getting skills (metadata) is not gated, only reading their files.
+- **Shared `cacheStore`.** With `MCPClientConfig.cacheStore`, verified files are also written to the L2
+  store, keyed by server, URI and digest, and read back before going to the server. Bytes from the
+  store are re-hashed against the manifest digest (and size) this client holds, so a poisoned or
+  stale shared entry is simply ignored. SEP-2549 applies: an unpartitioned file goes to L2 only when
+  the catalog said `cacheScope: "public"`; with a partition it always may. Dynamic skills never do.
+  Catalog entries (`skills/list`, `skills/get`) and directory listings stay L1-only.
+- **Not yet here:** mcp-gate pass-through (#82) and the CLI verbs (#87).
 
 ```tsx
 import { useSkills, useSkill } from "@johnhenry/mcp-query/react";
@@ -387,7 +419,119 @@ const file = await readFile("references/STYLE.md");                // verified, 
 Testing: `MockMCPServer({ skills: [{ name, description, body?, files?, dynamic?, tamper? }] })` serves
 spec-shaped skills (sha256 manifest, `skills/list`, `skills/get`, files over `resources/read`);
 `tamper: "digest" | "size" | "frontmatter"` makes the entry lie so verification has something to
-reject. `skillsCache: { ttlMs, cacheScope }` stamps the cache fields; `server.skillLog` records traffic.
+reject. `skillsCache: { ttlMs, cacheScope }` stamps the cache fields; `skillsDirectoryRead: true` advertises
+`directoryRead` and serves `resources/directory/read`; `server.skillLog` records traffic and
+`server.skillMetaLog` the `_meta` each skills request carried.
+
+With TanStack Query, `@johnhenry/mcp-query-tanstack` has `mcpqSkillsQueryOptions`,
+`mcpqSkillQueryOptions` and `mcpqSkillFileQueryOptions` over the same cache.
+
+## Events (`io.modelcontextprotocol/events`, SEP-3415)
+
+Servers publish typed events (an incident was created, an email arrived) that a client subscribes to
+with arguments and consumes at its own pace, resuming from a cursor. The extension is **Beta** and
+needs protocol **2026-07-28 or later**. The official TypeScript SDK (through 2.4.0) has no Events
+runtime, so mcp-query drives mcp-query-defined schemas (`core/eventsExt.ts`) over the SDK client's
+raw `request()`, the way it drives tasks. It works on the lockfile's SDK 2.0.0: `events/*` is outside
+the SDK's spec registry, so the SDK carries it on the 2026 wire (`eventsProbe.ts` checks this at
+runtime instead of comparing versions, and fails with an `MCPError` naming the reason if a future SDK
+era-gates it).
+
+**Poll delivery only.** `events/list` and `events/poll` are implemented. `events/stream` (push) and
+`events/subscribe` (webhook) are specified but not driven here; see *Not yet here*.
+
+```ts
+client.connection("ops")!.supports("events");      // server advertised io.modelcontextprotocol/events
+
+const types = await client.listEvents("ops");      // [{ server, name, delivery, inputSchema, payloadSchema }]
+const all = await client.listEvents();             // union across events-capable servers
+
+const sub = client.events("ops", "incident.created", { severity: "P1" }, {
+  cursor: loadSavedCursor(),                        // resume point you persisted (null/absent = from now)
+  onEvent: (e) => triage(e),                        // each new event, in order, deduped on eventId
+  onGap: (g) => refetchAuthoritativeState(),        // the server reported truncated: true
+  onCursor: (c) => saveCursor(c),                   // persist durably to resume after a restart
+});
+sub.subscribe(() => render(sub.getSnapshot()));     // useSyncExternalStore-shaped
+sub.getSnapshot();  // { status, events, delivered, cursor, gaps, truncated, nextPollMs, lastPollAt, error }
+sub.close();
+```
+
+- **Capability.** A request declares the extension in its per-request client capabilities (the
+  connection's own declarations ride along); events go only to a server that advertised it, over a
+  2026-07-28 connection. A server without the extension, a 2025-era connection, or an SDK that
+  blocks `events/*` each reject with an `MCPError` that says which.
+- **Listing.** `listEvents` follows `events/list` pagination and is cached per server and per
+  `client.scope({ partition })` under the SEP-2549 `ttlMs` / `cacheScope` helpers (whether `events/list`
+  carries those fields is not in the Events spec; absent, the cache default applies).
+  `notifications/events/list_changed` marks the listing stale (tag `eventsTag(server)`); the next read
+  re-fetches. The client asks for it with the `eventsListChanged` field on `subscriptions/listen` when the
+  server advertises `listChanged: true`.
+- **Polling.** The subscription polls with the server's `nextPollMs`, never faster than `pollFloorMs`
+  (default 1000, the spec's), and immediately again while the server says `hasMore`. A server
+  that sends no `nextPollMs` gets `fallbackPollMs` (client-chosen, default 5000).
+- **Cursor and resume.** The cursor is opaque. It advances on every poll, empty ones included. After a
+  failed poll or a reconnect the subscription resumes from the last cursor, so nothing emitted during
+  the outage is lost on a durable upstream. `maxAgeMs` bounds replay on resume. A type with no replay
+  returns `cursor: null`: the snapshot's cursor stays `null` and events in a gap cannot be recovered
+  (the spec says so too).
+- **Gaps.** `truncated: true` means the server started later than the cursor you supplied, so events were
+  skipped. It is never swallowed: it appends to `snapshot.gaps` (`{ at, previousCursor, cursor }`), sets
+  `snapshot.truncated`, and calls `onGap`. The subscription keeps going from the fresh cursor; re-read
+  authoritative state with tools if it matters.
+- **Dedupe.** On `eventId`, within one subscription (a window of `dedupeWindow`, default 2000). A new
+  subscription started from a saved cursor starts with an empty window, so the replay can repeat the last
+  event (at-least-once).
+- **Errors.** Transient failures (transport, `ResourceExhausted`) set `status: "reconnecting"` and retry
+  with backoff. `NotFound`, `Forbidden`, `InvalidParams`, `Unsupported`, method-not-found and a denying
+  interceptor are terminal: `status: "error"`, `error` is an `MCPError` carrying the JSON-RPC `code`.
+- **Interceptors.** `listEvents` and each `events/poll` run through the chain as `kind: "event"`
+  (`op.method` is `events/list` or `events/poll`; `op.target` is `events` or the event name; for a poll
+  `op.args` are the subscription arguments, and the chain's result is the poll result). `onCall` audits
+  each. `authorize()` sees `req.kind === "event"`: a policy that denies kinds it does not know denies
+  events. `rateLimit` and `circuitBreaker` count every poll, so size them for the poll cadence.
+- **Payloads are untrusted.** Event `data` comes from an external system and can carry prompt
+  injection. Treat it like a tool result before it reaches a model.
+
+```tsx
+import { useEventTypes, useEvents } from "@johnhenry/mcp-query/react";
+
+const { types } = useEventTypes("ops");                          // omit the server for the union
+const { events, status, gaps, truncated, cursor, error, refresh } =
+  useEvents("ops", "incident.created", { severity: "P1" }, { onCursor: saveCursor });
+```
+
+`useEvents` owns one subscription for the life of the component: it closes on unmount and when the
+server, name, arguments (compared structurally) or `skip` change; `cursor` is only the initial position.
+
+**Webhook receiver helper.** Webhook delivery is server-to-server, so it does not belong in the browser
+client. `@johnhenry/mcp-query/server` has the receiver-side check for the spec's Standard Webhooks
+profile (HMAC-SHA256 over `webhook-id.webhook-timestamp.rawBody`, `whsec_` secret, 5-minute window, several
+signatures during rotation), plus a `whsec_` secret generator:
+
+```ts
+import { verifyEventWebhook, generateWebhookSecret } from "@johnhenry/mcp-query/server";
+
+const secret = generateWebhookSecret();                           // register it, then call events/subscribe yourself
+const hook = await verifyEventWebhook({ secret, headers: req.headers, body: rawBody });
+// throws WebhookVerificationError on any failure; hook.kind: "event" | "gap" | "terminated" | "verification"
+```
+
+It verifies and classifies; routing by `X-MCP-Subscription-Id`, `webhook-id` dedupe, answering a
+`verification` challenge, and the `events/subscribe` refresh loop are the receiver's job.
+
+**Not yet here:** `events/stream` (push; `mode: "stream"` rejects with an `MCPError`: the SDK's `request()`
+does not expose the in-flight request id that routes the stream's notifications) and `events/subscribe`
+/ `events/unsubscribe` (webhook); `Mcp-Name` / `Mcp-Param-*` routing headers on Streamable HTTP; client-side
+validation of arguments against the event's `inputSchema` (the server answers `InvalidParams`);
+mcp-gate policy for the `event` kind; the CLI verb; codegen of typed payloads; app tiles.
+
+Testing: `MockMCPServer({ events: { types: [{ name, delivery?, match?, replay? }], nextPollMs?, listChanged?, listPageSize? } })`
+serves `events/list` and `events/poll` from a controllable source, `server.events`: `emit(name, data, { eventId? })`,
+`truncate(keep?)` (older cursors then answer `truncated: true`), `fail(error, times?)`, `polls` (what each
+poll carried, including the client's declared extensions) and `listCalls`. `server.notifyEventsListChanged()`
+sends the list-change notification on 2025-era sessions only (the SDK's modern listen router carries a fixed
+set of change kinds), so modern-era tests deliver it through the client transport's `onmessage`.
 
 ## Cache
 

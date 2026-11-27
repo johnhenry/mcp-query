@@ -10,13 +10,30 @@
 
 import { createMcpHandler, inputRequired, Server, SdkError, SdkErrorCode, CLIENT_CAPABILITIES_META_KEY, type CreateMcpHandlerOptions, type McpHttpHandler } from "@modelcontextprotocol/server";
 import { MissingRequiredClientCapabilityError } from "@modelcontextprotocol/client";
-import type { MCPClient } from "../core/client.js";
+import type { MCPClient, CallAuditEntry, CallContext } from "../core/client.js";
 import { MCPError } from "../core/types.js";
 import { listKeyFor } from "../core/keys.js";
 import type { CacheKey } from "../core/keys.js";
 import { isInputRequiredResult, type ToolInteraction } from "../core/interaction.js";
 import { AuthorizationError } from "./authorize.js";
 import { applyInboundAuth, type InboundAuthOptions } from "./inboundAuth.js";
+import { TASKS_EXT } from "../core/tasksExt.js";
+import { SKILLS_EXT } from "../core/skillsExt.js";
+import {
+  UI_EXT,
+  TaskIds,
+  advertisedExtensions,
+  declaredExtensions,
+  finishToolCall,
+  installExtensionHandlers,
+  readSkillFileFor,
+  skillCallContext,
+  stripUiMeta,
+  upstreamMeta,
+  type GatewayExtensions,
+} from "./gatewayExtensions.js";
+
+export type { GatewayExtensions } from "./gatewayExtensions.js";
 
 /**
  * What the gateway does when an upstream `tools/call` or `prompts/get` returns a
@@ -76,12 +93,29 @@ export interface GatewayOptions {
    * `answerPolicy`.
    */
   guardAnswers?: AnswerGuard;
+  /**
+   * Which MCP extensions the gateway offers and passes through: tasks, skills, MCP Apps (UI) and an
+   * opt-in allowlist for unknown extension methods; see {@link GatewayExtensions}. An extension is
+   * offered to a consumer only when an upstream advertises it, this policy allows it and the consumer
+   * declared it. Default: the three known extensions allowed, no generic pass-through.
+   */
+  extensions?: GatewayExtensions;
+  /**
+   * Derive the tenant partition from request `_meta`. A task id is bound to the partition (and
+   * `_meta.principal`) that created it, so another tenant cannot poll, answer or cancel it.
+   * Default `(meta) => meta?.partition`; mcp-gate passes its own `partitionFrom`.
+   */
+  partitionFrom?: (meta: Record<string, unknown> | undefined) => string | undefined;
+  /** Hide a skill from `skills/list` and refuse it on `skills/get` / file reads, by upstream server and `SKILL.md` URI. List-only filtering; call-time policy is the interceptor chain's. */
+  skillFilter?: (server: string, uri: string) => boolean;
+  /** Audit sink for refusals that never reach the interceptor chain (e.g. another tenant's task id). */
+  audit?: (entry: CallAuditEntry) => void;
 }
 
 /** What an {@link AnswerGuard} sees: one forwarded round's answers, before they go upstream. */
 export interface AnswerGuardRequest {
-  /** `tools/call` or `prompts/get`. */
-  kind: "tool" | "prompt";
+  /** `tools/call`, `prompts/get`, or `tasks/update` (`"task"`: `target` is the tool that started the task). */
+  kind: "tool" | "prompt" | "task";
   server: string;
   /** Un-namespaced tool or prompt name. */
   target: string;
@@ -176,7 +210,7 @@ async function viaUpstream<T>(server: string, run: () => Promise<T>, passthrough
  * subscriptions or other cross-request state (that's each entry's own job, since a
  * per-request modern Server and a long-lived legacy Server manage it very differently).
  */
-function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Server {
+function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}, ids: TaskIds = new TaskIds(opts.extensions?.tasksSecret)): Server {
   const namespace = opts.namespace ?? true;
   const keep = (server: string, kind: "tool" | "resource" | "prompt", name: string) =>
     opts.filter?.(server, kind, name) ?? true;
@@ -192,15 +226,80 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
     { name: opts.name ?? "mcp-query-gateway", version: opts.version ?? "0.1.0" },
     { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } },
   );
+  // ── inbound auth: ONE choke point ──
+  // With `inboundAuth`, every request handler (tools/prompts/resources, task, skill and extension
+  // handlers installed below) sees `params._meta` rebuilt from the host-verified token: the
+  // verifier-owned keys (principal, partition, authScopes, authClientId) are replaced, never
+  // trusted from the consumer. Installed before any handler is registered, so none can bypass it.
+  if (opts.inboundAuth) {
+    type Ctx = MrtrCtx;
+    const register = server.setRequestHandler.bind(server) as (...a: unknown[]) => void;
+    const remap = (params: Record<string, unknown> | undefined, ctx: Ctx): Record<string, unknown> | undefined => {
+      const meta = applyInboundAuth(params?._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
+      if (meta === undefined && params === undefined) return params;
+      const out = { ...(params ?? {}) };
+      if (meta !== undefined) out._meta = meta;
+      else delete out._meta;
+      return out;
+    };
+    // Handlers also read the raw per-request meta off `ctx.mcpReq._meta` (the extension handlers
+    // prefer it over params), so that is replaced too, on a proxy: the SDK's own context is untouched.
+    const ctxFor = (ctx: Ctx): Ctx => {
+      const mcpReq = ctx.mcpReq as unknown as Record<string, unknown>;
+      const raw = mcpReq._meta as Record<string, unknown> | undefined;
+      if (raw === undefined) return ctx;
+      const mapped = applyInboundAuth(raw, ctx.http?.authInfo, opts.inboundAuth);
+      const reqProxy = new Proxy(mcpReq, {
+        get: (t, k) => (k === "_meta" ? mapped : typeof t[k as string] === "function" ? (t[k as string] as (...a: unknown[]) => unknown).bind(t) : Reflect.get(t, k, t)),
+      });
+      return new Proxy(ctx as object, { get: (t, k) => (k === "mcpReq" ? reqProxy : Reflect.get(t, k, t)) }) as Ctx;
+    };
+    // Two registration shapes exist: (method, handler(request, ctx)) and
+    // (method, { params: schema }, handler(params, ctx)) (the extension methods).
+    (server as unknown as { setRequestHandler: (...a: unknown[]) => void }).setRequestHandler = (...a: unknown[]) => {
+      const handler = a[a.length - 1] as (x: never, ctx: Ctx) => unknown;
+      const wrapped =
+        a.length >= 3
+          ? (params: Record<string, unknown> | undefined, ctx: Ctx) => handler(remap(params, ctx) as never, ctxFor(ctx))
+          : (req: { params?: Record<string, unknown> }, ctx: Ctx) => handler({ ...req, params: remap(req.params, ctx) } as never, ctxFor(ctx));
+      register(...a.slice(0, -1), wrapped);
+    };
+  }
+  const partitionOf = opts.partitionFrom ?? ((meta: Record<string, unknown> | undefined) => (typeof meta?.partition === "string" ? meta.partition : undefined));
+
+  // ── extension negotiation (#82) ──
+  // `capabilities.extensions` is computed per consumer: what upstreams advertise AND policy allows,
+  // narrowed to what this consumer declared once its declaration is known (`initialize` on the
+  // 2025 era; the per-request envelope on 2026-07-28). Before it is known (nothing declared yet)
+  // the full computed set is shown, so a modern `server/discover` still tells a client what exists.
+  const staticCaps = server.getCapabilities.bind(server);
+  type Caps = ReturnType<Server["getCapabilities"]>;
+  (server as { getCapabilities: () => Caps }).getCapabilities = () => {
+    const known = server.getClientCapabilities();
+    const consumer = known === undefined ? undefined : declaredExtensions(opts.extensions, server, undefined, undefined);
+    const extensions = advertisedExtensions(client, opts.extensions, consumer);
+    return Object.keys(extensions).length ? ({ ...staticCaps(), extensions } as Caps) : staticCaps();
+  };
+  installExtensionHandlers({
+    client,
+    server,
+    ext: opts.extensions,
+    ids,
+    namespace,
+    partitionOf,
+    guardAnswers: opts.guardAnswers,
+    skillFilter: opts.skillFilter,
+    audit: opts.audit,
+  });
 
   // ── MRTR pass-through (#82) ──
   // Returns the per-call `_meta` and retry params for an upstream whose mode isn't "answer",
   // plus a `settle` that turns an upstream `input_required` into this gateway's own result.
   // "answer" returns undefined: the call is made exactly as before.
-  const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt", target: string) => {
+  const mrtr = async (s: string, req: { params: { _meta?: unknown; arguments?: unknown } }, ctx: MrtrCtx, kind: "tool" | "prompt", target: string, declared: Record<string, object> = {}) => {
     const mode = interactionModeFor(opts.interactions, s);
     if (mode === "answer") return undefined;
-    const callerMeta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
+    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
     const consumerCaps = (ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? callerMeta?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
       | { elicitation?: object }
       | undefined;
@@ -227,7 +326,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
         interaction.answers = { ...(guarded.redactedFields?.length ? { redactedFields: guarded.redactedFields } : {}), ...(guarded.declined?.length ? { declined: guarded.declined } : {}) };
       }
     }
-    const meta = { ...(callerMeta ?? {}), [CLIENT_CAPABILITIES_META_KEY]: caps };
+    const meta = upstreamMeta(callerMeta, client.connection(s), declared, caps) as Record<string, unknown>;
     const settle = (res: unknown): unknown => {
       if (!isInputRequiredResult(res)) return res;
       if (mode === "deny") throw new AuthorizationError(`denied: ${s} asked for input, and this gateway does not relay interactions`);
@@ -267,46 +366,64 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
     servers().find((s) => client.listResources(s).some((r) => r.uri === uri));
 
   // ── tools ──
-  server.setRequestHandler("tools/list", () => {
+  server.setRequestHandler("tools/list", (req, ctx) => {
     const ss = servers();
+    // MCP Apps metadata is offered only to a consumer that declared the UI extension.
+    const ui = Object.hasOwn(declaredExtensions(opts.extensions, server, ctx as never, req.params?._meta as Record<string, unknown> | undefined), UI_EXT);
     return {
-      tools: ss.flatMap((s) => client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...withMeta(t, s, "tool", t.name), name: qualify(s, t.name) }))),
+      tools: ss.flatMap((s) => client.listTools(s).filter((t) => keep(s, "tool", t.name)).map((t) => ({ ...withMeta(ui ? t : stripUiMeta(t), s, "tool", t.name), name: qualify(s, t.name) }))),
       ...listHint(ss, "tools"),
     };
   });
   server.setRequestHandler("tools/call", async (req, ctx) => {
     const [s, tool] = split(req.params.name, servers(), namespace);
     // Forward the caller's _meta (tenant/principal/progressToken) so context traverses
-    // the gateway — without this, multi-tenant _meta dies at the gate.
-    const meta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
-    const m = await mrtr(s, req, ctx, "tool", tool);
-    if (m) {
-      const res = await viaUpstream(s, () =>
-        client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {}, { context: { meta: m.meta }, interaction: m.interaction }),
-        interactionModeFor(opts.interactions, s) === "forward",
-      );
-      return m.settle(res) as never;
-    }
-    return (await viaUpstream(s, () =>
-      client.callTool(`${s}.${tool}`, (req.params.arguments as Record<string, unknown>) ?? {}, meta ? { context: { meta } } : {}),
-    )) as never;
+    // the gate — without this, multi-tenant _meta dies at the gate.
+    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
+    // What the consumer declared (tasks, MCP Apps, ...) is what the upstream is told, and no more.
+    const declared = declaredExtensions(opts.extensions, server, ctx as never, callerMeta);
+    const m = await mrtr(s, req, ctx, "tool", tool, declared);
+    const meta = m ? m.meta : upstreamMeta(callerMeta, client.connection(s), declared);
+    const args = (req.params.arguments as Record<string, unknown>) ?? {};
+    const res = m
+      ? await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, { context: { meta: m.meta }, interaction: m.interaction }), interactionModeFor(opts.interactions, s) === "forward")
+      : await viaUpstream(s, () => client.callTool(`${s}.${tool}`, args, meta ? { context: { meta } } : {}));
+    // An upstream task handle: namespaced and handed on to a consumer that declared the tasks
+    // extension; resolved here (old behaviour: the final result) for one that did not.
+    const partition = partitionOf(callerMeta);
+    const task = await finishToolCall({ client, ids, ext: opts.extensions }, res, {
+      server: s, tool, meta: callerMeta, partition, declared, consumerTasks: Object.hasOwn(declared, TASKS_EXT),
+      context: { ...(partition !== undefined ? { partition } : {}), ...(meta ? { meta } : {}) },
+    });
+    if (task !== undefined) return task as never;
+    return (m ? m.settle(res) : res) as never;
   });
 
   // ── resources (URIs are global; route reads back through the client's resolver) ──
-  server.setRequestHandler("resources/list", () => {
+  server.setRequestHandler("resources/list", (req, ctx) => {
     const ss = servers();
+    const ui = Object.hasOwn(declaredExtensions(opts.extensions, server, ctx as never, req.params?._meta as Record<string, unknown> | undefined), UI_EXT);
     return {
-      resources: ss.flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri)).map((r) => withMeta(r, s, "resource", r.uri))),
+      resources: ss.flatMap((s) => client.listResources(s).filter((r) => keep(s, "resource", r.uri) && (ui || !r.uri.startsWith("ui://"))).map((r) => withMeta(ui ? r : stripUiMeta(r), s, "resource", r.uri))),
       ...listHint(ss, "resources"),
     };
   });
   server.setRequestHandler("resources/templates/list", () => ({
     resourceTemplates: servers().flatMap((s) => client.listResourceTemplates(s)),
   }));
-  server.setRequestHandler("resources/read", async (req) => {
+  server.setRequestHandler("resources/read", async (req, ctx) => {
+    const callerMeta = req.params._meta as Record<string, unknown> | undefined;
+    const declared = declaredExtensions(opts.extensions, server, ctx as never, callerMeta);
+    // Skill files: the upstream's verified bytes, untouched, from the upstream the (namespaced) URI names.
+    if (req.params.uri.startsWith("skill://") && Object.hasOwn(declared, SKILLS_EXT)) {
+      const file = await readSkillFileFor(client, namespace, req.params.uri, skillCallContext(callerMeta, partitionOf(callerMeta)), opts.skillFilter);
+      if (file) return file as never;
+    }
     const s = findResourceServer(req.params.uri);
+    // The consumer's declaration (MCP Apps mime types, ...) reaches the upstream that serves the read.
+    const meta = s ? upstreamMeta(callerMeta, client.connection(s), declared) : undefined;
     const result = (await (s
-      ? viaUpstream(s, () => client.readResource(req.params.uri))
+      ? viaUpstream(s, () => client.readResource(req.params.uri, meta ? { context: { meta } } : {}))
       : client.readResource(req.params.uri))) as Record<string, unknown>;
     return { ...result, ...(s ? hint({ kind: "resource", server: s, uri: req.params.uri }) : {}) } as never;
   });
@@ -321,7 +438,7 @@ function buildGatewayServer(client: MCPClient, opts: GatewayOptions = {}): Serve
   });
   server.setRequestHandler("prompts/get", async (req, ctx) => {
     const [s, name] = split(req.params.name, servers(), namespace);
-    const meta = applyInboundAuth(req.params._meta as Record<string, unknown> | undefined, ctx.http?.authInfo, opts.inboundAuth);
+    const meta = req.params._meta as Record<string, unknown> | undefined;
     const m = await mrtr(s, req, ctx, "prompt", name);
     if (m) {
       const res = await viaUpstream(s, () =>
@@ -377,7 +494,9 @@ export function createGateway(client: MCPClient, opts: GatewayOptions = {}): Ser
  * NotConnected fix above addresses for `createGateway`, just for a different lifecycle.
  */
 export function createGatewayHandler(client: MCPClient, opts: GatewayHandlerOptions = {}): McpHttpHandler {
-  const handler = createMcpHandler(() => buildGatewayServer(client, opts), {
+  // One id-signing key for the handler's lifetime (a Server is built per exchange).
+  const ids = new TaskIds(opts.extensions?.tasksSecret);
+  const handler = createMcpHandler(() => buildGatewayServer(client, opts, ids), {
     legacy: opts.legacy,
     onerror: opts.onerror,
     responseMode: opts.responseMode,
