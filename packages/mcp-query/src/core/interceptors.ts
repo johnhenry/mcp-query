@@ -15,6 +15,7 @@
 
 import type { CallContext } from "./client.js";
 import type { Tool } from "./types.js";
+import type { ToolInteraction } from "./interaction.js";
 
 export type OperationKind = "read" | "call" | "query";
 
@@ -29,6 +30,8 @@ export interface Operation {
   def?: Tool;
   /** Per-call context (partition + meta/principal). Mutable. */
   context?: CallContext;
+  /** MRTR retry params the caller carried (gateway `interactions: "forward"`); undefined otherwise. */
+  interaction?: ToolInteraction;
   /** Scratch bag for interceptors to thread data down the chain (e.g. a span, start time). */
   readonly state: Record<string, unknown>;
 }

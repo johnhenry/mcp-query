@@ -26,3 +26,4 @@ export type { GateClient } from "./client.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export type { ApprovalConfig, ApprovalRequest } from "./config.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
+export { urlElicitationPolicy, compileUrlPolicy, type UrlElicitationPolicy } from "./interaction.js";

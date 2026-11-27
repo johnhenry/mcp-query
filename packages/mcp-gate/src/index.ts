@@ -18,6 +18,7 @@ export { resolveUpstream } from "./upstream.js";
 export { resolveHttpUpstream } from "./upstream-http.js";
 export { createGateClient, type GateClient } from "./client.js";
 export { validateGateConfig } from "./validate.js";
+export { urlElicitationPolicy, compileUrlPolicy, type UrlElicitationPolicy } from "./interaction.js";
 export { CircuitOpenError } from "@johnhenry/mcp-query/server";
 
 export interface Gate {
@@ -43,6 +44,7 @@ export async function createGate(config: GateConfig): Promise<Gate> {
 
   const server = createGateway(client, {
     namespace: config.namespace ?? true,
+    interactions: config.interactions,
     // Hide name-denied tools/prompts from discovery (call-time policy still enforces all rules).
     filter: config.policy ? policyListFilter(config.policy, config.approval?.discovery) : undefined,
     // approval.discovery "annotated": flag approve-gated items with _meta.requiresApproval.
