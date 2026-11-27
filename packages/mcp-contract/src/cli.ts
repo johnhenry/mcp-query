@@ -25,7 +25,7 @@ import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
 import { rejectUnknownFlags } from "./flags.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port", "dpop", "client-metadata-url", "expected-issuer"] as const;
 
 function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[] } {
   const _: string[] = [];
@@ -34,6 +34,7 @@ function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--header") headers.push(argv[++i] ?? "");
+    else if (a === "--dpop") flags.dpop = "true"; // boolean flag
     else if (a.startsWith("--")) flags[a.slice(2)] = argv[++i] ?? "";
     else _.push(a);
   }
@@ -101,7 +102,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
     case "auth": {
       const url = required(flags, "url");
-      const tokens = await authenticate(url, { scope: flags.scope, out: flags.out, open: flags.open !== "false", port: flags.port ? Number(flags.port) : undefined });
+      const tokens = await authenticate(url, { scope: flags.scope, out: flags.out, open: flags.open !== "false", port: flags.port ? Number(flags.port) : undefined, dpop: flags.dpop === "true", expectedIssuer: flags["expected-issuer"], clientMetadataUrl: flags["client-metadata-url"] });
       console.error(`\n✓ authorized ${url}`);
       console.error(`  token cached: ${tokenCachePath(url)}${flags.out ? ` (also → ${flags.out})` : ""}`);
       console.error(`  scopes: ${tokens.scope ?? "(server default)"}${tokens.refresh_token ? " · refresh token obtained" : ""}`);

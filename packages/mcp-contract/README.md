@@ -95,6 +95,28 @@ mcp-contract verify --url https://host/mcp --contract api.contract.json   # just
 server's own page). The token is cached per-host and **auto-refreshed** by the capture commands on later runs; if
 nothing is cached they tell you to run `auth` first.
 
+**Client registration: CIMD first, DCR as fallback.** If the authorization server advertises
+`client_id_metadata_document_supported`, the CLI uses a [Client ID Metadata
+Document](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration)
+as its `client_id` and registers nothing. Otherwise it falls back to Dynamic Client Registration
+(deprecated by the 2026-07-28 revision, kept for older servers). The document is checked in at
+[`oauth/client-metadata.json`](../../oauth/client-metadata.json) and its `client_id` is its own URL,
+`https://johnhenry.github.io/mcp-query/oauth/client-metadata.json` (GitHub Pages; `raw.githubusercontent.com`
+is not used because it serves `text/plain`, and the draft requires a JSON response). Its `redirect_uris`
+are the fixed loopback callbacks on port 8976, so CIMD login binds that port (and falls back to DCR with
+an ephemeral port if it is busy). Override the URL with `MCPQ_CLIENT_METADATA_URL` or
+`--client-metadata-url <https-url>`; `off` disables CIMD.
+
+| Flag | Effect |
+| --- | --- |
+| `--client-metadata-url <url\|off>` | use another CIMD, or disable CIMD (DCR only) |
+| `--expected-issuer <iss>` | pin the authorization server; any other discovered issuer is refused before registration |
+| `--dpop` | opt-in DPoP (RFC 9449): sender-constrained tokens; key stored `0600`, never logged. Needs SDK >= 2.1.0 |
+
+The `iss` authorization-response parameter is validated (RFC 9207) before the code is redeemed.
+Credentials are stored per authorization-server issuer (SEP-2352); a cache file written before that
+change is never reused for an explicit issuer, and the cache is written owner-only (`0600`).
+
 **Browser on a different machine (e.g. the tool runs on a remote box you SSH into).** The
 callback is `http://localhost:PORT/callback` on the *box*, but your logged-in browser is on
 your laptop. Two ways to bridge it:
@@ -218,6 +240,20 @@ platform and fails if any `node:` module sneaks in.
 | **mcp-gate** | govern MCP at runtime (policy, DLP, audit) |
 | **mcp-contract** | guard the MCP interface in CI (drift detection) |
 | **mcp-record** | freeze real traffic as fixtures (offline replay) |
+
+## MCP SDK versions
+
+| Feature | Minimum `@modelcontextprotocol/client` |
+| --- | --- |
+| Client ID Metadata Documents (preferred) with DCR fallback, `iss` validation (RFC 9207), issuer-keyed credentials, `discoveryState` binding | 2.0.0 |
+| `--dpop` (DPoP, RFC 9449: `OAuthClientProvider.dpop()`, `DpopSession`) | 2.1.0 |
+
+The peer range stays `^2.0.0`. `--dpop` on an older SDK stops with an error naming the 2.1.0 requirement
+instead of silently sending bearer tokens. `--expected-issuer` is enforced by `FileOAuthProvider` itself
+(it checks the discovered issuer before registering or redirecting), so it works on every 2.x. The SDK's own
+`expectedIssuer` option belongs to its static-credential providers (`ClientCredentialsProvider` and friends; present
+in the 2.0.0 typings, and required by their newer overloads), not to this interactive flow, whose `iss` check
+(RFC 9207) the SDK performs from 2.0.0.
 
 ## Tests
 

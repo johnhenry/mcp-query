@@ -547,6 +547,74 @@ const gate = await createGateClient({
 await gate.client.callTool("search", { q: "hello" });
 ```
 
+## Upstream OAuth (client credentials, enterprise-managed)
+
+Instead of pasting a bearer token, an HTTP upstream can carry its own identity. Secrets are **references**
+(an env var name or a callback), never inline: `validateGateConfig` rejects a plain string.
+
+```ts
+upstreams: {
+  billing: {
+    url: "https://mcp.billing.example/mcp",
+    auth: {
+      type: "client_credentials",            // io.modelcontextprotocol/oauth-client-credentials
+      issuer: "https://auth.billing.example", // required: credentials go only to this authorization server
+      clientId: "gate-svc",
+      clientSecret: { env: "BILLING_CLIENT_SECRET" },   // or { get: async () => vault.read(...) }
+      scope: "mcp:read",
+    },
+  },
+  hr: {
+    url: "https://mcp.hr.example/mcp",
+    auth: {
+      type: "enterprise",                    // io.modelcontextprotocol/enterprise-managed-authorization
+      issuer: "https://auth.hr.example",
+      idToken: { get: () => sso.currentIdToken() },      // the user's identity assertion
+      idp: { tokenEndpoint: "https://idp.corp.example/oauth2/token", clientId: "gate-at-idp", clientSecret: { env: "IDP_SECRET" } },
+      clientId: "gate-at-hr", clientSecret: { env: "HR_CLIENT_SECRET" },
+    },
+  },
+}
+```
+
+The token endpoint is discovered from the upstream (RFC 9728, then RFC 8414) and its `issuer` must equal the
+configured one, otherwise nothing is sent; set `tokenEndpoint` to skip discovery. Tokens are cached in memory
+until 30 seconds before `expires_in` (60 s assumed when absent), concurrent calls share one fetch, and a 401 from
+the upstream drops the cached token. Neither secrets nor tokens appear in audit entries or in this module's
+error messages. `auth` excludes `getToken` and an `Authorization` header.
+
+> **Enterprise-managed authorization is untested against a real identity provider.** It is built on the SDK's
+> RFC 8693 token-exchange and RFC 7523 jwt-bearer helpers and verified only against a mock IdP and a mock
+> authorization server in this repo's tests. Treat it as experimental.
+
+## Inbound authentication
+
+To require OAuth from the gate's own consumers, front its HTTP handler with the SDK's `requireBearerAuth`
+(or call `verifyBearerToken` yourself), pass the verified `AuthInfo` through, and turn on `inboundAuth`:
+
+```ts
+import { requireBearerAuth } from "@modelcontextprotocol/server";
+
+const gate = await createGate({
+  upstreams,
+  inboundAuth: true,                        // or { required: true, principal: (a) => ... }
+  policy: (req) => (req.context?.meta?.principal === "alice" ? "allow" : "deny"),
+  partitionFrom: (meta) => meta?.principal as string | undefined,   // per-principal cache + rate limits
+});
+const handler = gate.handler();
+const guard = requireBearerAuth({ verifier, requiredScopes: ["mcp"], resourceMetadataUrl });
+export default async (request: Request) => {
+  const auth = await guard(request);
+  return auth instanceof Response ? auth : handler.fetch(request, { authInfo: auth });
+};
+```
+
+The verified principal (`extra.sub`, else `clientId`) lands in the call's `_meta.principal`, with `partition` (defaults to the principal), `authScopes` and
+`authClientId`, so `policy`, `partitionFrom`, `rateLimit`/`circuitBreaker` keys and audit entries all see it. Those
+four keys belong to the verifier, on every handler the gateway registers (tools, prompts, resources, tasks, skills, extension pass-through): whatever a caller puts under them in its own `_meta` is dropped, so a client
+cannot claim someone else's identity. Without `inboundAuth` nothing is mapped. The access token itself is never copied
+into the context.
+
 ## MCP SDK versions
 
 `mcp-gate` depends only on `@modelcontextprotocol/client@2.0.0` and
@@ -557,6 +625,15 @@ version conflict with gate — these are separate npm package names, so npm/pnpm
 side by side with no peer-dependency collision. Wire compatibility across the two generations
 is real and already exercised in CI: `test/gate.test.ts` connects a v1-SDK `Client` to a gate
 `server` built on v2 `@modelcontextprotocol/server`, and every test passes.
+
+Minimum SDK per auth feature (the peer range stays `^2.0.0`):
+
+| Feature | Minimum |
+| --- | --- |
+| Upstream `auth: client_credentials` and `auth: enterprise` (uses `requestJwtAuthorizationGrant`, `exchangeJwtAuthGrant`, `discoverOAuthServerInfo`) | client 2.0.0 |
+| Inbound `requireBearerAuth` / `verifyBearerToken` and `inboundAuth` | server 2.0.0 |
+| DPoP-bound tokens (`OAuthClientProvider.dpop()`, `withDpop`): not used by the gate's upstream auth yet; used by the CLI `login --dpop` | client 2.1.0 |
+| SDK `expectedIssuer` on its own credential providers | client 2.0.0 for `ClientCredentialsProvider`; the gate pins issuers itself via the required `issuer` field |
 
 ## Tests
 
