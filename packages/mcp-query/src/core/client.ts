@@ -36,6 +36,7 @@ import {
   type DetailedTask,
   type Task,
 } from "./tasksExt.js";
+import { sdkSupportsModernTasks } from "./tasksProbe.js";
 import {
   MCPError,
   type ClientInfo,
@@ -205,8 +206,8 @@ export interface TaskCallOpts {
 
 /**
  * A live handle on a task-augmented tool call. Status snapshots are cache-backed —
- * `subscribe` fires on both the handle's own `tasks/get` polling and server
- * `notifications/tasks` pushes, and `useTask` observes the same entries.
+ * `subscribe` fires on the handle's own `tasks/get` polling and, on legacy
+ * connections, server `notifications/tasks` pushes (modern-era status is poll-only), and `useTask` observes the same entries.
  */
 export interface TaskHandle<R = unknown> {
   taskId: string;
@@ -735,19 +736,23 @@ export class MCPClient {
 
   // ── tasks (io.modelcontextprotocol/tasks extension, SEP-2663) ─────────────
   //
-  // Implemented over raw request() with mcp-query-defined schemas: the v2 SDK
-  // ships no tasks runtime and era-gates the tasks RPCs off the 2026-07-28
-  // wire, so the extension is currently drivable on LEGACY-era connections
-  // only. One choke point (assertTasksCallable) holds the gate — see
+  // Implemented over raw request() with mcp-query-defined schemas (the SDK ships
+  // no tasks runtime of its own). On legacy-era connections this always works.
+  // On modern (2026-07-28) connections it needs an SDK that lets tasks/get and
+  // tasks/cancel onto the 2026 wire (>= 2.3.0); SDK 2.0.0 era-gates them off, so
+  // assertTasksCallable probes the installed SDK (see tasksProbe.ts) and fails
+  // fast with an accurate message where it cannot. Status is poll-only on the
+  // modern era: notifications/tasks needs a subscriptions/listen `taskIds`
+  // filter the SDK client does not expose.
   // https://github.com/johnhenry/mcp-query/issues/12
 
-  private assertTasksCallable(conn: ServerConnection): void {
-    if (conn.era === "modern") {
+  private async assertTasksCallable(conn: ServerConnection): Promise<void> {
+    if (conn.era === "modern" && !(await sdkSupportsModernTasks(conn.sdk))) {
       throw new MCPError(
         "protocol",
-        `tasks are not yet callable on a 2026-07-28 connection: @modelcontextprotocol/client has no ${TASKS_EXT} runtime ` +
-          `(tracking: https://github.com/johnhenry/mcp-query/issues/12). ` +
-          `Pin this server's versionNegotiation to { mode: "legacy" } to use tasks today.`,
+        `tasks are not callable on a 2026-07-28 connection with the installed @modelcontextprotocol/client: ` +
+          `it blocks ${TASKS_EXT} requests on that protocol version (supported from 2.3.0). ` +
+          `Upgrade the SDK to >= 2.3.0, or pin this server's versionNegotiation to { mode: "legacy" }.`,
         conn.name,
       );
     }
@@ -808,7 +813,7 @@ export class MCPClient {
     opts: TaskCallOpts,
   ): Promise<TaskHandle<R>> {
     const conn = this.req(server);
-    this.assertTasksCallable(conn);
+    await this.assertTasksCallable(conn);
 
     const res = await conn.sdk.request(
       {
@@ -963,7 +968,7 @@ export class MCPClient {
   async getTask(taskId: string, server: string, context?: CallContext): Promise<Task> {
     await this.wake(server);
     const conn = this.req(server);
-    this.assertTasksCallable(conn);
+    await this.assertTasksCallable(conn);
     const task = await conn.sdk.request({ method: "tasks/get", params: { taskId } }, GetTaskResultSchema);
     this.writeTaskSnapshot(server, task, context);
     return task;
@@ -992,7 +997,7 @@ export class MCPClient {
   async getTaskResult<R = unknown>(taskId: string, server: string): Promise<R> {
     await this.wake(server);
     const conn = this.req(server);
-    this.assertTasksCallable(conn);
+    await this.assertTasksCallable(conn);
     for (;;) {
       const task = await conn.sdk.request({ method: "tasks/get", params: { taskId } }, GetTaskResultSchema);
       this.writeTaskSnapshot(server, task);
@@ -1010,7 +1015,7 @@ export class MCPClient {
   async cancelTask(taskId: string, server: string, context?: CallContext): Promise<void> {
     await this.wake(server);
     const conn = this.req(server);
-    this.assertTasksCallable(conn);
+    await this.assertTasksCallable(conn);
     await conn.sdk.request({ method: "tasks/cancel", params: { taskId } }, CancelTaskResultSchema);
     await this.getTask(taskId, server, context).catch(() => {});
   }

@@ -20,6 +20,7 @@ export interface SchemaChange {
 }
 
 export interface JSONSchema {
+  $schema?: string;
   type?: string | string[];
   properties?: Record<string, JSONSchema>;
   required?: string[];
@@ -27,7 +28,11 @@ export interface JSONSchema {
   enum?: unknown[];
   description?: string;
   additionalProperties?: boolean | JSONSchema;
+  /** Other keywords (`x-mcp-*`, `$defs`, `oneOf`, …) pass through untouched. */
+  [keyword: string]: unknown;
 }
+
+const isPlainObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
 function typeOf(s: JSONSchema): string | undefined {
   return Array.isArray(s.type) ? s.type[0] : s.type;
@@ -43,15 +48,32 @@ export function diffSchema(
   path = "",
 ): SchemaChange[] {
   const changes: SchemaChange[] = [];
-  if (!prev || !next) return changes; // can't say anything useful about a missing side here
+  if (prev == null || next == null) return changes; // can't say anything useful about a missing side here (`false` is a real schema)
+
+  // SEP-2106: schemas (notably outputSchema) are not guaranteed to be object-shaped — boolean
+  // schemas (`true` / `false`) are valid 2020-12 and malformed values must not crash the diff.
+  if (!isPlainObject(prev) || !isPlainObject(next)) return diffNonObject(prev, next, variance, path);
 
   diffType(prev, next, variance, path, changes);
   diffEnum(prev, next, variance, path, changes);
   diffObject(prev, next, variance, path, changes);
   if (typeOf(prev) === "array" && typeOf(next) === "array") {
-    changes.push(...diffSchema(prev.items, next.items, variance, join(path, "items")));
+    // `items` may be a boolean schema (2020-12) or a legacy tuple array; only recurse into schemas.
+    if (!Array.isArray(prev.items) && !Array.isArray(next.items)) changes.push(...diffSchema(prev.items, next.items, variance, join(path, "items")));
   }
   return changes;
+}
+
+/** Boolean-schema handling: `false` accepts/produces nothing ⊂ any object schema ⊂ `true`. */
+function diffNonObject(prev: unknown, next: unknown, variance: Variance, path: string): SchemaChange[] {
+  const rank = (s: unknown): number | undefined => (s === false ? 0 : s === true ? 2 : isPlainObject(s) ? 1 : undefined);
+  const a = rank(prev);
+  const b = rank(next);
+  if (a === undefined || b === undefined || a === b) return []; // malformed or unchanged: say nothing
+  const narrowed = b < a; // the accepted/produced set shrank
+  const level = (variance === "in" ? narrowed : !narrowed) ? "breaking" : "compatible";
+  const show = (s: unknown) => (isPlainObject(s) ? "object schema" : String(s));
+  return [{ path, level, detail: `schema ${show(prev)} → ${show(next)}` }];
 }
 
 function diffType(prev: JSONSchema, next: JSONSchema, variance: Variance, path: string, out: SchemaChange[]): void {
@@ -71,8 +93,8 @@ function diffType(prev: JSONSchema, next: JSONSchema, variance: Variance, path: 
 }
 
 function diffEnum(prev: JSONSchema, next: JSONSchema, variance: Variance, path: string, out: SchemaChange[]): void {
-  const pe = prev.enum;
-  const ne = next.enum;
+  const pe = Array.isArray(prev.enum) ? prev.enum : undefined;
+  const ne = Array.isArray(next.enum) ? next.enum : undefined;
   if (!pe && !ne) return;
 
   // enum removed → widened to base type; enum added → narrowed from base type.
@@ -96,13 +118,13 @@ function diffEnum(prev: JSONSchema, next: JSONSchema, variance: Variance, path: 
 }
 
 function diffObject(prev: JSONSchema, next: JSONSchema, variance: Variance, path: string, out: SchemaChange[]): void {
-  const pp = prev.properties;
-  const np = next.properties;
+  const pp = isPlainObject(prev.properties) ? (prev.properties as Record<string, JSONSchema>) : undefined;
+  const np = isPlainObject(next.properties) ? (next.properties as Record<string, JSONSchema>) : undefined;
   if (!pp && !np) return;
   const prevProps = pp ?? {};
   const nextProps = np ?? {};
-  const prevReq = new Set(prev.required ?? []);
-  const nextReq = new Set(next.required ?? []);
+  const prevReq = new Set(Array.isArray(prev.required) ? prev.required : []);
+  const nextReq = new Set(Array.isArray(next.required) ? next.required : []);
   const keys = new Set([...Object.keys(prevProps), ...Object.keys(nextProps)]);
 
   for (const key of keys) {

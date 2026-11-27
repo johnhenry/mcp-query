@@ -86,7 +86,7 @@ over `versions` when both are set.
 After connect, `client.connection(name).era` reports what was actually
 negotiated (`"legacy" | "modern"`) — the request was a preference; the
 connection is the truth. Era-dependent surfaces (the deprecated
-`ping`/`setLogLevel`/roots-notify, the tasks extension gate, `subscriptions/listen`
+`ping`/`setLogLevel`/roots-notify, the tasks extension (modern-era tasks need SDK >= 2.3.0; poll-only there), `subscriptions/listen`
 vs `resources/subscribe`, SEP-2549 cache hints, per-request `CallContext.logLevel`)
 switch on it automatically; app code using the hooks/broker/cache never branches.
 

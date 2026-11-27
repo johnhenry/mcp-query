@@ -14,7 +14,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { MCPClient } from "../../mcp-query/src/index.js";
 import { createGateway } from "../../mcp-query/src/server/index.js";
-import { diffContract, type Contract } from "./contract.js";
+import { diffContract, upgradeContract, type Contract } from "./contract.js";
 import { captureFrom } from "./connect.js";
 import { resolveConnect } from "./registry.js";
 import { authenticate, tokenCachePath } from "./oauth.js";
@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>
 }
 
 async function readContract(path: string): Promise<Contract> {
-  return JSON.parse(await readFile(path, "utf8")) as Contract;
+  return upgradeContract(JSON.parse(await readFile(path, "utf8"))); // reads v1 and v2
 }
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
