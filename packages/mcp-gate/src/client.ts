@@ -10,6 +10,7 @@ import { redact } from "./redact.js";
 import { compilePolicy, policyListAnnotator, policyListFilter, type GateConfig, type GateUpstream } from "./config.js";
 import { createApproval } from "./approval.js";
 import { urlElicitationPolicy } from "./interaction.js";
+import { filesGuard } from "./files.js";
 import { resolveHttpUpstream } from "./upstream-http.js";
 import { validateGateConfig, validateGateUpstream } from "./validate.js";
 
@@ -63,6 +64,9 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
   // here (outside redact, so the URL checked is the URL shown) and fail closed.
   // (Always on: a task waiting for input carries its requests the same way, whatever `interactions` says.)
   interceptors.push(urlElicitationPolicy(config.urlElicitation));
+  // EXPERIMENTAL files extension: deny upload rounds not on the host allowlist, police download URLs and file
+  // arguments (the latter two only when `experimental.files` is set). Outside redact so the hosts judged are the hosts used.
+  interceptors.push(filesGuard(config.experimental?.files));
   const cb: CircuitBreaker | undefined = config.circuitBreaker ? circuitBreaker({ ...config.circuitBreaker, keyFn: tenantKey }) : undefined;
   if (cb) interceptors.push(cb.interceptor);
   const rl: RateLimit | undefined = config.rateLimit ? rateLimit({ ...config.rateLimit, keyFn: config.rateLimit.keyFn ?? tenantKey }) : undefined;
@@ -94,6 +98,10 @@ export async function buildGateClient(config: GateConfig, resolve: (u: GateUpstr
     clientInfo: config.clientInfo ?? { name: "mcp-gate", version: "0.4.0", title: "MCP Gate" },
     // MCP Apps: declare the UI extension to upstreams so they send their `_meta.ui` / `ui://` resources; the gateway
     // hands them on only to consumers that declared it themselves. (Opt out with `extensions: { deny: [UI extension id] }`.)
+    // EXPERIMENTAL: the gate's own client declares the files extension only if the policy asks for it (default: not at all).
+    ...(config.experimental?.files && (config.experimental.files.upload || config.experimental.files.download)
+      ? { experimental: { files: { upload: config.experimental.files.upload === true, download: config.experimental.files.download === true, digest: true } } }
+      : {}),
     ...(extensionAllowed(config.extensions, UI_EXT) ? { extensions: { [UI_EXT]: { mimeTypes: ["text/html;profile=mcp-app"] } } } : {}),
   });
   await client.connect();

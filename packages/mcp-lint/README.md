@@ -3,7 +3,7 @@
 **ESLint for MCP servers.** Quality-lint a server's capability surface against a set of
 design rules — descriptions, annotations, typed inputs, naming — and gate CI on the result.
 
-It's the complement to [`@mcp-query/contract`](../mcp-contract): contract checks *drift*
+It's the complement to [`@johnhenry/mcp-contract`](../mcp-contract): contract checks *drift*
 between two versions (*"did it change incompatibly?"*); lint checks *quality* of one
 version (*"is this surface well-designed?"*). Both run on the same captured surface.
 
@@ -66,6 +66,7 @@ the captured contract alone, so they stay silent on a contract that did not capt
 | `schema-dialect` | warn | `inputSchema` / `outputSchema` are 2020-12 object schemas: `inputSchema` root is `type: object`, no foreign `$schema`, no array-form `items` / `additionalItems` / `dependencies` (SEP-2106). A boolean or array `outputSchema` is fine |
 | `x-mcp-header` | warn | values are valid header tokens (RFC 9110 `1*tchar`), not spelling a reserved `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*` header, case-insensitively unique, on primitive (`string` / `integer` / `boolean`) properties reachable through `properties` keys only (SEP-2243) |
 | `skills-manifest` | warn | skills have `name` / `description` frontmatter matching their directory, a manifest that lists `SKILL.md` with digests, at most 512 files / 16 MiB, and `skill://` URIs (SEP-2640) |
+| `x-mcp-file` | warn | EXPERIMENTAL (the `io.modelcontextprotocol/files` draft, no SEP): an `x-mcp-file` argument declares `accept` (media types) and `maxSize` (bytes) |
 
 `cache-hints` only judges the first page of each list and does not see `resources/read` (a capture
 does not read resources). `tool-title-icons` flags every tool without a `title`, which is optional in the
@@ -84,6 +85,7 @@ Findings are tagged `probe` in the output. All `warn`; `--off` / `--error` apply
 | `stateless-ready` | the server answers `server/discover` (the connection negotiated the 2026-07-28 era, no `initialize`), lists `supportedVersions`, and serves `tools/list` (SEP-2575) |
 | `deterministic-list-order` | two consecutive `tools/list` calls (all pages, client cache bypassed) return the same tools in the same order (2026-07-28 changelog: servers SHOULD) |
 | `resource-not-found-code` | reading a made-up URI fails with `-32602`, not the legacy `-32002` (SEP-2164); needs the `resources` capability |
+| `server-card` | an HTTP server (`--url`) publishes a Server Card at `<url>/server-card` (warns on 404 or an unusable card) and the card agrees with the live connection: connected URL, server name/version, negotiated and supported protocol versions (SEP-2127; the live values win). Silent for stdio servers |
 
 ```bash
 npx tsx packages/mcp-lint/src/cli.ts --url https://host/mcp --probe
@@ -101,7 +103,7 @@ you can silence per-rule when a name is a false positive.
 
 ```ts
 import { lintContract, formatLint, RULES } from "@mcp-query/lint";
-import { captureContract } from "@mcp-query/contract";
+import { captureContract } from "@johnhenry/mcp-contract";
 
 const contract = await captureContract(connectedSdkClient);
 const result = lintContract(contract, { rules: { "naming-consistency": "off" } });

@@ -116,6 +116,7 @@ export default config;
 | `urlElicitation` | `{ allowHosts?, denyHosts? }` | none (URL mode denied) | Host globs for a forwarded URL-mode elicitation. |
 | `answerPolicy` | `AnswerPolicy` (rules or function) | none (answers allowed) | allow / deny / approve for the consumer's answers to forwarded input requests (and to task input requests) — see [Answers going upstream](#answers-going-upstream). |
 | `extensions` | `{ allow?, deny?, passthrough?, tasksSecret?, taskResolveMs? }` | tasks, skills, MCP Apps allowed; no pass-through | Which MCP extensions the gate offers and forwards — see [Extensions](#extensions). |
+| `card` | `{ url, name, version, description?, title?, websiteUrl?, supportedProtocolVersions?, listUpstreams? }` | none | Server Card for the gate's own endpoint — see [Server Card](#server-card-sep-2127). |
 | `policy.skills` | `{ allow?, deny?, approve? }` | none (skills allowed) | Whole-skill globs on `server.<skill-path>` — see [Skills](#skills). |
 
 `HttpUpstreamSpec.getToken?: () => string | undefined | Promise<string | undefined>` resolves
@@ -513,6 +514,34 @@ Also exported: `redact(rules)`, `compilePolicy(policy)`, `explainPolicy(policy)`
 `resolveUpstream(spec)` (declarative spec → `ConnectionConfig`), `validateGateConfig(config)`,
 `CircuitOpenError`, and the `GateConfig` / `GatePolicy` / `ApprovalConfig` / `ApprovalRequest` / `GateUpstream` / `StdioUpstreamSpec` /
 `HttpUpstreamSpec` / `RedactRule` types.
+
+### Server Card (SEP-2127)
+
+The gate can publish a [Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) for its own
+endpoint, so clients (and `mcp-query add --from-card`) can find where to connect and which protocol versions it
+speaks. The gate has no HTTP server of its own (you mount `gate.server` on a transport), so the card is a
+web-standard request handler you put in front of your MCP handler:
+
+```ts
+import { createGate, createGateCardHandler } from "@johnhenry/mcp-gate";
+
+const config = {
+  upstreams: { github: { url: "https://example.com/mcp" } },
+  card: { url: "https://gate.example.com/mcp", name: "com.example/gate", version: "1.0.0" },
+};
+const card = createGateCardHandler(config); // (req: Request) => Response | undefined
+// in your fetch-style server: serve GET https://gate.example.com/mcp/server-card
+const respond = (req: Request) => card(req) ?? mcpHandler(req);
+```
+
+`gateServerCard(config)` returns the card object itself (for a static file or an AI Catalog entry), and
+`gateCardUrl(url)` the location the SEP reserves, `<streamable-http-url>/server-card`. The card describes **only the
+gate**: identity, its transport endpoint, supported protocol versions. It does not mention upstream names, URLs or
+how many there are. Set `card.listUpstreams: true` to publish the upstream *names* (never URLs, commands or headers)
+under `_meta["me.johnhenry/mcp-gate"].upstreams`. Supported versions default to what the installed
+`@modelcontextprotocol/server` supports; set `card.supportedProtocolVersions` to be exact. A card is advisory: clients
+prefer a live `server/discover` when the two disagree. The response carries `Access-Control-Allow-Origin: *` (the
+SEP allows it for public metadata) so browser clients can read it.
 
 ### Browser usage
 

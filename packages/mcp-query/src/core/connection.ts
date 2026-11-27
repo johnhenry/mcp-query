@@ -12,6 +12,7 @@
 
 import { Client, type ClientCapabilities, type InputRequiredOptions, type Transport, type VersionNegotiationOptions } from "@modelcontextprotocol/client";
 
+import { cardProtocolVersions, type CardPreflightOptions } from "../discovery/preflight.js";
 import type { MCPCache } from "./cache.js";
 import { clientCapabilities, installHandlers } from "./handlers.js";
 import { instrumentTransport, type TrafficEvent } from "./instrument.js";
@@ -71,6 +72,18 @@ export interface ConnectionConfig {
    * default is `{ mode: "legacy" }` — v1 only, no probe.
    */
   versionNegotiation?: VersionNegotiationOptions;
+  /**
+   * Opt-in preflight (SEP-2127 Server Cards): before a fresh connect, fetch the server's card and
+   * use the protocol versions it lists as this connection's `versions`, so a modern-only or
+   * legacy-only server is reached without a failed probe. Advisory only: a card that cannot be
+   * fetched or parsed is ignored; if a connect with the card's versions fails, the connection
+   * retries once with its normal configuration; and once connected, everything (capabilities,
+   * negotiated version, `server/discover`) comes from the live server, never the card.
+   * Ignored when `versions` or `versionNegotiation` is set (explicit configuration wins).
+   * The card fetch uses the hardened discovery fetch (https; loopback http needs
+   * `allowInsecureLocalhost`; in a browser the card host must allow CORS).
+   */
+  cardPreflight?: CardPreflightOptions;
   /** Multi-round-trip auto-fulfilment knobs (maxRounds etc.); default SDK behavior. */
   inputRequired?: InputRequiredOptions;
   /**
@@ -141,6 +154,9 @@ export class ServerConnection {
   readonly listen: ListenManager;
 
   private client: Client;
+  /** `versions` seeded from the server's card (`cardPreflight`); cleared if a connect with them fails. */
+  private cardVersions?: readonly string[];
+  private cardPreflightDone = false;
   private retries = 0;
   private closing = false;
   private reconnectPending = false;
@@ -172,7 +188,7 @@ export class ServerConnection {
 
   /** Build an SDK client that advertises exactly the capabilities our handlers back. */
   private makeClient(): Client {
-    const resolved = resolveNegotiation(this.cfg, this.deps);
+    const resolved = resolveNegotiation(this.negotiationConfig(), this.deps);
     const client = new Client(this.deps.clientInfo ?? { name: "mcp-query", version: "0.1.0" }, {
       capabilities: clientCapabilities(this.deps.handlers, this.deps.extensions),
       versionNegotiation: resolved.versionNegotiation,
@@ -188,6 +204,22 @@ export class ServerConnection {
       if (this.state === "ready" || this.state === "degraded") this.scheduleReconnect();
     };
     return client;
+  }
+
+  /** The config negotiation is derived from: `cfg`, with the card's versions seeded in when `cardPreflight` found some. */
+  private negotiationConfig(): ConnectionConfig {
+    return this.cardVersions ? { ...this.cfg, versions: this.cardVersions } : this.cfg;
+  }
+
+  /** `cardPreflight`: fetch the card once (non-fatal) and seed `versions` from it. Returns true if the client must be rebuilt. */
+  private async seedFromCard(): Promise<boolean> {
+    const opts = this.cfg.cardPreflight;
+    if (!opts || this.cardPreflightDone || this.cfg.versions || this.cfg.versionNegotiation) return false;
+    const versions = await cardProtocolVersions(opts);
+    if (!versions) return false; // not done: a later (re)connect may try again
+    this.cardPreflightDone = true;
+    this.cardVersions = versions;
+    return true;
   }
 
   /** The client capabilities this connection declares (what its handlers and `extensions` back). */
@@ -276,7 +308,7 @@ export class ServerConnection {
    */
   private emitSyntheticProbeMarker(): void {
     if (!this.deps.onMessage) return;
-    if (resolveNegotiation(this.cfg, this.deps).versionNegotiation.mode !== "auto") return;
+    if (resolveNegotiation(this.negotiationConfig(), this.deps).versionNegotiation.mode !== "auto") return;
     const t = this.rawTransport as unknown as Record<string, unknown> | undefined;
     if (!t || !("stderr" in t) || !("pid" in t)) return; // structural stdio check, mirrors the SDK's own detectProbeTransportKind
     this.deps.onMessage(this.name, { dir: "out", message: { method: "server/discover" }, synthetic: true });
@@ -339,6 +371,7 @@ export class ServerConnection {
         this.client = this.makeClient();
       }
     }
+    if (await this.seedFromCard()) this.client = this.makeClient();
     this.wireNotifications();
     // Every fresh connect re-negotiates (probe + capability fetch): reconnects
     // MUST see capability changes, so a cached era verdict (`prior`) is not
@@ -346,7 +379,22 @@ export class ServerConnection {
     // zero-probe reconnects can pin versionNegotiation instead.)
     const transport = this.makeTransport();
     this.emitSyntheticProbeMarker();
-    await this.client.connect(transport);
+    try {
+      await this.client.connect(transport);
+    } catch (err) {
+      if (!this.cardVersions) throw err;
+      // The card is advisory and may be stale: retry once with the connection's own configuration.
+      this.cardVersions = undefined;
+      await this.client.close().catch(() => {});
+      this.client = this.makeClient();
+      this.wireNotifications();
+      try {
+        await this.client.connect(this.makeTransport());
+      } catch (err2) {
+        this.cardPreflightDone = false; // not the card's fault after all: look again next time
+        throw err2;
+      }
+    }
     this.capabilities = this.client.getServerCapabilities() ?? {};
     this.protocolVersion = this.client.getServerVersion()?.version ?? "";
     const sessionId = this.rawTransport?.sessionId;

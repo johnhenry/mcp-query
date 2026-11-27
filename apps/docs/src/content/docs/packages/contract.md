@@ -142,7 +142,7 @@ literals in it (via `usedFromSource`) — so drift on tools you never call won't
 ## Programmatic API
 
 ```ts
-import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@mcp-query/contract";
+import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@johnhenry/mcp-contract";
 
 const pinned = JSON.parse(await readFile("mcp.contract.json", "utf8"));
 const live = await captureContract(connectedSdkClient);     // drain a live server

@@ -14,11 +14,11 @@
   },
   "dependencies": {
     "@johnhenry/mcp-query": "*",
-    "@mcp-query/contract": "*",
+    "@johnhenry/mcp-contract": "*",
     "@mcp-query/lint": "*",
     "@mcp-query/docs": "*",
     "@mcp-query/bench": "*",
-    "@mcp-query/record": "*",
+    "@johnhenry/mcp-record": "*",
     "@johnhenry/mcp-gate": "0.0.1",
     "@modelcontextprotocol/client": "^2.0.0"
   },

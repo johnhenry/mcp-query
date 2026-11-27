@@ -15,6 +15,7 @@ import {
   type ServerCard,
   type ServerCardRemote,
 } from "./schemas.js";
+import { sameEndpoint } from "./endpoint.js";
 import { DiscoveryError, assertFetchableUrl, isLoopbackHost, safeFetchJson, type SafeFetchOptions } from "./safeFetch.js";
 
 export type DiscoveryOptions = SafeFetchOptions;
@@ -357,14 +358,4 @@ export function compareCardToLive(card: ServerCard, live: LiveServerFacts): Card
     findings.push({ field: "supportedProtocolVersions", kind: "note", message: "live server reported no supportedVersions (legacy handshake); only the negotiated version could be compared" });
   }
   return findings;
-}
-
-function sameEndpoint(template: string, connected: string): boolean {
-  try {
-    const a = new URL(template);
-    const b = new URL(connected);
-    return a.origin === b.origin && a.pathname.replace(/\/+$/, "") === b.pathname.replace(/\/+$/, "");
-  } catch {
-    return false; // templated (`{var}…`) URLs can't be compared structurally
-  }
 }

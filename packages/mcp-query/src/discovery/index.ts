@@ -51,3 +51,4 @@ export {
   type LiveServerFacts,
   type ResolvedRemote,
 } from "./discovery.js";
+export { cardProtocolVersions, type CardPreflightOptions } from "./preflight.js";

@@ -5,6 +5,7 @@
 export {
   createCassette,
   interactionKey,
+  scrubFileBytes,
   cassetteHash,
   sealCassette,
   loadCassette,
