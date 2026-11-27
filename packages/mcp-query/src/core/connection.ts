@@ -190,6 +190,11 @@ export class ServerConnection {
     return client;
   }
 
+  /** The client capabilities this connection declares (what its handlers and `extensions` back). */
+  get clientCapabilities(): ClientCapabilities {
+    return clientCapabilities(this.deps.handlers, this.deps.extensions);
+  }
+
   get isLazy(): boolean {
     return this.cfg.lazy === true;
   }

@@ -6,6 +6,8 @@ export type { AuthzVerdict, AuthzRequest, AnswerInfo, AuthorizeOptions } from ".
 export { listFilter } from "./listFilter.js";
 export type { ListFilterOptions, ListItemKind } from "./listFilter.js";
 export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError, interactionModeFor } from "./gateway.js";
+export { UI_EXT, KNOWN_EXTENSIONS, SERVER_META_KEY, TaskIds, TaskNotFoundError, toGatewaySkill, extensionAllowed, advertisedExtensions } from "./gatewayExtensions.js";
+export type { GatewayExtensions, TaskRef } from "./gatewayExtensions.js";
 export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions, AnswerGuard, AnswerGuardRequest, AnswerGuardResult } from "./gateway.js";
 export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";
 export type { CircuitOptions, CircuitBreaker } from "./circuitBreaker.js";

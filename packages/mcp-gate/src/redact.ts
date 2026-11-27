@@ -2,7 +2,7 @@
 // (tool content, resource text, structured output) before it reaches the agent. This is
 // the one piece the gate adds beyond mcp-query's stock interceptors.
 
-import { isInputRequiredResult, type RequestInterceptor } from "@johnhenry/mcp-query";
+import { isInputRequiredResult, isTaskShaped, type RequestInterceptor } from "@johnhenry/mcp-query";
 
 export interface RedactRule {
   /** A RegExp (use the `g` flag) or a string compiled to a global RegExp. */
@@ -88,19 +88,30 @@ export function redactValue<T = unknown>(rules: RedactRule[], value: T, options?
   return redactDeep(value, compile(rules, options)) as T;
 }
 
+/** The parts of a task snapshot a consumer reads as content. */
+const TASK_CONTENT_FIELDS = ["result", "inputRequests", "error", "statusMessage"] as const;
+
+function redactTask(result: unknown, rules: Compiled[]): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const out: Record<string, unknown> = { ...(result as Record<string, unknown>) };
+  for (const k of TASK_CONTENT_FIELDS) if (out[k] !== undefined) out[k] = redactDeep(out[k], rules);
+  return out;
+}
+
 export function redact(rules: RedactRule[], options?: RedactOptions): RequestInterceptor {
   const compiled = compile(rules, options);
   return async (op, next) => {
     const result = await next(op);
     // Catalog views are not content (a pattern must not rewrite a tool name the router resolves).
     if (op.kind === "list") return result;
-    // A verified skill file: scrub its text, and drop the (now different) bytes' claim to be verified.
-    if (op.kind === "skill" && result && typeof result === "object" && (result as { bytes?: unknown }).bytes instanceof Uint8Array) {
-      const file = result as { bytes: Uint8Array; text?: string; body?: string };
-      const scrubbed = redactDeep({ ...file, bytes: undefined }, compiled) as Record<string, unknown>;
-      const changed = scrubbed.text !== file.text || scrubbed.body !== file.body;
-      return { ...scrubbed, bytes: changed && typeof scrubbed.text === "string" ? new TextEncoder().encode(scrubbed.text) : file.bytes, ...(changed ? { verified: false } : {}) };
-    }
+    // Skills are never redacted (owner decision, #82): a skill file's manifest digest covers its exact
+    // bytes, so a rewrite would break verification for everyone downstream. Policy may allow, deny or
+    // hold a whole skill for approval; it never edits one. (A skill file read as a plain resource is the same file.)
+    if (op.kind === "skill" || (op.kind === "read" && op.target.startsWith("skill://"))) return result;
+    // A tasks-extension result: scrub only what the consumer is shown (the inlined `result` of a completed
+    // task, `inputRequests` of one waiting for input, the error and status text); never the ids and counters
+    // that route it. The same goes for the handle a task-augmented `tools/call` returns.
+    if (op.kind === "task" || isTaskShaped(result)) return redactTask(result, compiled);
     // An MRTR `input_required` round: redact what the consumer will be shown (`inputRequests`)
     // but never `requestState` -- it is opaque upstream state echoed byte-for-byte on retry.
     if (isInputRequiredResult(result)) {

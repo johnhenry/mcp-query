@@ -52,8 +52,11 @@ export function urlElicitationPolicy(policy: UrlElicitationPolicy | undefined): 
   const check = compileUrlPolicy(policy);
   return async (op, next) => {
     const result = await next(op);
-    if (!isInputRequiredResult(result)) return result;
-    for (const [key, req] of Object.entries(result.inputRequests ?? {})) {
+    // An MRTR `input_required` round, or a task waiting for input (tasks extension): same requests, same rule.
+    const waiting = isInputRequiredResult(result) || (op.kind === "task" && (result as { status?: unknown } | null)?.status === "input_required");
+    if (!waiting) return result;
+    const requests = (result as { inputRequests?: Record<string, { method: string; params?: Record<string, unknown> }> }).inputRequests;
+    for (const [key, req] of Object.entries(requests ?? {})) {
       if (req.method !== "elicitation/create" || req.params?.mode !== "url") continue;
       const verdict = check(urlHost(req.params.url));
       if (!verdict.ok) throw new AuthorizationError(`denied: url elicitation "${key}" from ${op.peer}.${op.target}: ${verdict.reason}`);
@@ -122,7 +125,7 @@ const DECLINE = { action: "decline" } as const;
 export function createAnswerGuard(opts: AnswerGuardOptions): AnswerGuard {
   return async (req): Promise<AnswerGuardResult> => {
     const verdictOf = compileAnswerPolicy(opts.policy, req.server);
-    const hints = req.kind === "tool" ? opts.toolHints?.(req.server, req.target) : undefined;
+    const hints = req.kind !== "prompt" ? opts.toolHints?.(req.server, req.target) : undefined;
     const out: Record<string, unknown> = {};
     const declined: string[] = [];
     const redactedFields: string[] = [];

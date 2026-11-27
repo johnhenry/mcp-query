@@ -142,6 +142,15 @@ await gateway.connect(transport);   // expose over stdio / Streamable HTTP
 Aggregates + namespaces tools/resources/prompts, routes calls/reads/gets to upstreams, and
 propagates `*_list_changed`. The deployable "single endpoint fronting many."
 
+**Extensions** (`GatewayOptions.extensions`). The gateway also carries MCP extensions: tasks
+(`tasks/get|update|cancel`, with namespaced, HMAC-signed `taskId`s bound to the caller's partition and
+`_meta.principal`), skills (`skills/list|get` aggregated across upstreams, the origin in each `skill://` URI,
+file bytes forwarded untouched so digests still verify), MCP Apps (`_meta.ui`, `ui://`), and an opt-in
+`passthrough` allowlist for unknown extension methods. An extension is offered to a consumer only when an
+upstream advertises it, `extensions` allows it and the consumer declared it; the consumer's declaration is what
+a 2026-07-28 upstream sees. Everything goes through the interceptor chain (`client.forward()` for the raw
+methods). See the mcp-gate README, "Extensions", for the full rules.
+
 ## Per-principal sessions + graceful shutdown (`mcp-query/session`)
 
 ```ts

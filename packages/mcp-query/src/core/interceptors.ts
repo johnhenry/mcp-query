@@ -34,8 +34,11 @@ import type { ToolInteraction } from "./interaction.js";
  * - `event`  an events-extension call; `method` says which (`events/list`: `target` = `events`;
  *            `events/poll`: `target` = the event name, `args` = the subscription arguments, and the
  *            "result" is the poll result `{ events, cursor, truncated, ... }`: filter or redact `events[].data`)
+ * - `task`   a tasks-extension call a gateway re-serves (`tasks/get`, `tasks/update`, `tasks/cancel`); `target` is the
+ *            name of the tool that started the task, `args` carries the upstream `taskId` (#82)
+ * - `extension` any other extension method a gateway passes through on an explicit allowlist; `target` is the method
  */
-export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill" | "event";
+export type OperationKind = "read" | "call" | "query" | "list" | "prompt" | "skill" | "event" | "task" | "extension";
 
 /** The four catalogs a `list` operation can target. */
 export type CatalogName = "tools" | "resources" | "resourceTemplates" | "prompts";
