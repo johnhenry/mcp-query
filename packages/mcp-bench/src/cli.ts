@@ -17,6 +17,8 @@
 // ⚠  Benchmarking sends REAL traffic. Against a hosted server that means real load on
 //    someone else's infra — mind rate limits and terms of service.
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { connectEra, parseEra, DEFAULT_ERA, resolveConnect, captureContract, parseCallSpec, rejectUnknownFlags } from "../../mcp-contract/src/index.js";
 import { discoverOp, taskToTerminalOp, type DiscoverClient, type RequestClient } from "./ops.js";
 import { benchmark, type BenchOp } from "./bench.js";
@@ -125,7 +127,17 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// An installed bin is a symlink, so compare real paths (a plain string compare never matches there).
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-bench]", e instanceof Error ? e.message : e);
     process.exit(1);

@@ -12,6 +12,8 @@
 // --bearer / repeated --header "K: V"). Unknown flags are rejected. Exits non-zero on any
 // error, or warnings over --max-warnings.
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { captureContract, connectEra, resolveConnect, rejectUnknownFlags, upgradeContract, parseEra, withEra, ERA_FLAG_HELP, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type Finding, type LintOptions } from "./lint.js";
@@ -93,7 +95,17 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   process.exit(result.errors > 0 || result.warnings > maxWarnings ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// An installed bin is a symlink, so compare real paths (a plain string compare never matches there).
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   run().catch((e) => {
     console.error("[mcp-lint]", e instanceof Error ? e.message : e);
     process.exit(1);
