@@ -19,7 +19,7 @@ import {
   type DiscoveryOptions,
   type ServerCard,
 } from "../../mcp-query/src/discovery/index.js";
-import { addServer, getServer, resolveServer, connectClient, type RegistryEntry, type Scope } from "../../mcp-contract/src/index.js";
+import { addServer, getServer, resolveServer, connectClient, withEra, type RegistryEntry, type Scope } from "../../mcp-contract/src/index.js";
 import { formatResult } from "./format.js";
 
 export interface DiscoveryFlags {
@@ -164,6 +164,8 @@ export interface CardDeps {
 
 export interface CardFlags extends DiscoveryFlags {
   ref?: string;
+  /** `--era auto|legacy` for the live comparison (a flag beats the registry pin; default auto). */
+  era?: string;
   noLive?: boolean;
   strict?: boolean;
 }
@@ -189,7 +191,7 @@ export async function showCard(f: CardFlags, deps: CardDeps = {}): Promise<void>
   let live: Record<string, unknown> | undefined;
   if (f.ref && !f.noLive) {
     try {
-      const conn = await (deps.connectLive ?? ((r: string) => connectClient(resolveServer(r, { config: f.config }))))(f.ref);
+      const conn = await (deps.connectLive ?? ((r: string) => connectClient(withEra(resolveServer(r, { config: f.config }), f.era))))(f.ref);
       try {
         const info = conn.client.getServerVersion();
         const supported = (conn.client.getDiscoverResult?.() as { supportedVersions?: string[] } | undefined)?.supportedVersions;

@@ -65,7 +65,9 @@ mcp-query card weather --from-card <url> --strict  # explicit card URL; non-zero
 - HTTPS only; `--allow-insecure-localhost` permits `http://` for loopback hosts. Cross-origin
   redirects, oversized (> 256 KiB) and wrong-content-type responses are refused.
 - `card` needs a remote server; for a stdio server pass `--from-card <url>`. `--no-live` skips the
-  live comparison, `--json` prints the card and the findings.
+  live comparison, `--json` prints the card and the findings. The live comparison connects with `--era auto`
+  (default; also lets it compare the card's `supportedProtocolVersions` with the server's `server/discover` answer) or
+  `--era legacy`; a registry pin applies when the flag is absent.
 
 ## Client verbs
 
@@ -131,8 +133,10 @@ mcp-query servers          # the era column shows each entry's pin (auto when un
 
 Pins live in the entry (`"era": "legacy"` in `servers.json` / `.mcp.json`), and the daemon keeps a pinned
 connection separate from an `auto` one. `mcp-bench` and `mcp-record` take the same flag with the same default
-and honour the pin; `mcp-lint --probe` always negotiates with the same bounded probe. `mcp-contract`, `mcp-docs`
-and non-probe `mcp-lint` capture with the plain `initialize` handshake and have no `--era` flag.
+and honour the pin; so do `mcp-contract` (`snapshot` / `verify` / `diff`), `mcp-docs`, `mcp-lint` and `mcp-query card`'s
+live comparison, which capture with `--era auto` by default (`mcp-lint --probe` always negotiates with the bounded
+probe). Their contracts record the handshake in `protocol.era`, and a pin made with the other handshake still verifies
+without a breaking change (see the [mcp-contract README](../mcp-contract#--era-which-handshake-captures-the-surface)).
 `skill` refuses a file that is not in the skill's manifest or whose size/digest differs.
 `tasks` on a 2026-07-28 connection needs an SDK that allows `tasks/*` there (>= 2.3.0).
 

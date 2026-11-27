@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { MockMCPServer } from "../../mcp-query/src/testing/mockServer.js";
 import { run } from "../src/cli.js";
 import { showCard } from "../src/discovery-verbs.js";
+import { serveMock } from "../../mcp-contract/test/helpers/httpMock.js";
 
 const SCHEMA = "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json";
 let server: Server;
@@ -192,6 +193,25 @@ describe("mcp-query card", () => {
     expect(text).toContain("example-org/weather");
     expect(text).toContain("live server vs card");
     expect(text).toContain('DIFFERS  card name "example-org/weather" vs live serverInfo.name "mock"');
+  });
+
+  it("the live comparison connects with --era auto by default (supportedVersions known); --era legacy and a registry pin use initialize; the flag beats the pin", async () => {
+    const h = await serveMock(new MockMCPServer({ tools: [] }));
+    try {
+      const liveFacts = async (entry: Record<string, unknown>, era?: string) => {
+        freshConfig();
+        writeFileSync(cfg, JSON.stringify({ mcpServers: { wx: { type: "http", url: h.url, ...entry } } }));
+        const out = capture();
+        await showCard({ ref: "wx", fromCard: `${base}/card`, config: cfg, allowInsecureLocalhost: true, json: true, ...(era ? { era } : {}) });
+        return JSON.parse(out.at(-1)!).live as { negotiatedVersion?: string; supportedVersions?: string[] };
+      };
+      expect((await liveFacts({})).supportedVersions).toContain("2026-07-28");
+      expect((await liveFacts({}, "legacy")).supportedVersions).toBeUndefined();
+      expect((await liveFacts({ era: "legacy" })).supportedVersions).toBeUndefined();
+      expect((await liveFacts({ era: "legacy" }, "auto")).supportedVersions).toContain("2026-07-28");
+    } finally {
+      await h.close();
+    }
   });
 
   it("--strict fails on disagreement; --json reports findings; unreachable live server is reported not fatal", async () => {

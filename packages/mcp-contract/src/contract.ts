@@ -6,6 +6,11 @@
 //
 // Format v2 fields are optional: `undefined` means "not captured" (a v1 file, or the server
 // does not expose it), which the drift classifier treats as "nothing to compare".
+//
+// The capture records which handshake produced it (`protocol.era`: `legacy` = `initialize`, `modern` =
+// `server/discover`). A modern capture carries fields a legacy one cannot (supported protocol versions,
+// cache hints), so the differ treats an era difference like a v1 -> v2 difference: what the other capture
+// could not carry is "not captured", never "removed" (see {@link diffContract}).
 
 import type { Client } from "@modelcontextprotocol/client";
 import { diffSchema, type JSONSchema, type SchemaChange } from "./schema.js";
@@ -67,7 +72,10 @@ export interface ContractCacheHints {
 }
 
 export interface ContractProtocol {
-  /** `modern` = negotiated via `server/discover` (2026-07-28+), `legacy` = `initialize`. */
+  /**
+   * Which handshake produced this capture: `modern` = negotiated via `server/discover` (2026-07-28+),
+   * `legacy` = `initialize`. Absent in files written before it was recorded (all of which were legacy captures).
+   */
   era?: "modern" | "legacy";
   /** The version this capture negotiated. */
   negotiated?: string;
@@ -337,10 +345,13 @@ export async function captureContract(client: Client, opts: { card?: ContractCar
   const skills = extensions[SKILLS_EXTENSION] ? (await rawList(client, "skills/list", "skills"))?.map(toSkill).filter((x): x is ContractSkill => !!x) : undefined;
   const events = extensions[EVENTS_EXTENSION] ? (await rawList(client, "events/list", "events"))?.map(toEvent).filter((x): x is ContractEvent => !!x) : undefined;
 
-  const era = sdk.getProtocolEra?.();
+  // Record the handshake that produced this capture. Older SDK shapes lack `getProtocolEra`: a discover result
+  // means modern, a negotiated version without one means legacy.
+  const reported = sdk.getProtocolEra?.();
+  const era = reported === "modern" || reported === "legacy" ? reported : discover ? "modern" : sdk.getNegotiatedProtocolVersion?.() ? "legacy" : undefined;
   const supported = Array.isArray(discover?.supportedVersions) ? (discover.supportedVersions as unknown[]).filter((v): v is string => typeof v === "string") : undefined;
   const protocol: ContractProtocol = {
-    ...(era === "modern" || era === "legacy" ? { era } : {}),
+    ...(era ? { era } : {}),
     ...(sdk.getNegotiatedProtocolVersion?.() ? { negotiated: sdk.getNegotiatedProtocolVersion?.() } : {}),
     ...(supported ? { supported: [...supported].sort() } : {}),
   };
@@ -402,6 +413,11 @@ export interface ContractChange {
 
 export interface ContractDiff {
   changes: ContractChange[];
+  /**
+   * Context that is not a change: today, that the two captures were made with different handshakes
+   * (see {@link diffContract}). `verify` prints these; they never count towards `breaking`.
+   */
+  notes?: string[];
   breaking: number;
   compatible: number;
   /** Content drift (skill digests changed). Never fails `verify` on its own. */
@@ -426,7 +442,41 @@ function globToRe(glob: string): RegExp {
 const SCOPED: ReadonlySet<ChangeCategory> = new Set(["tool", "resource", "template", "prompt"]);
 type Push = (level: ChangeLevel, detail: string) => void;
 
-/** Classify every change between two contracts (prev = pinned, next = live/candidate). v1 inputs are upgraded. */
+const MODERN_FLOOR = "2026-07-28";
+
+/**
+ * Which handshake produced a contract. `protocol.era` when recorded; otherwise inferred from the versions
+ * (a `supported` list or a negotiated version >= 2026-07-28 means modern, any other negotiated version legacy);
+ * `undefined` when nothing says (a v1 file, a hand-written pin).
+ */
+export function captureEra(c: Contract | ContractV1): "modern" | "legacy" | undefined {
+  const p = (c as Contract).protocol;
+  if (p?.era === "modern" || p?.era === "legacy") return p.era;
+  if (p?.supported?.length) return "modern";
+  if (p?.negotiated) return p.negotiated >= MODERN_FLOOR ? "modern" : "legacy";
+  return undefined;
+}
+
+function eraNote(prev: "modern" | "legacy", next: "modern" | "legacy", prevRecorded: boolean): string {
+  const handshake = (e: "modern" | "legacy") => (e === "modern" ? "server/discover (2026-07-28)" : "initialize (legacy)");
+  const base = `capture era differs: ${prevRecorded ? "pinned with" : "pinned with (no era recorded, so a pre-era legacy capture)"} ${handshake(prev)}, this capture used ${handshake(next)}`;
+  return next === "modern"
+    ? `${base}. Fields only the modern handshake carries (supported protocol versions, cache hints) were not captured before and are not compared, and a capability or extension the modern handshake no longer reports is not treated as removed. Verify with --era legacy to compare like with like, or re-pin.`
+    : `${base}. Fields only the modern handshake carries (supported protocol versions, cache hints, modern-only extensions, skills and events) are not available in this capture and are not reported as removed. Verify with --era auto to compare like with like, or re-pin.`;
+}
+
+/**
+ * Classify every change between two contracts (prev = pinned, next = live/candidate). v1 inputs are upgraded.
+ *
+ * Capture era: the two captures may come from different handshakes (`protocol.era`; a pin that records none is a
+ * legacy capture). That is not server drift, so the era-dependent sections (capabilities, extensions, protocol
+ * versions, cache hints, skills, events) are compared leniently when the eras differ: a field the other handshake
+ * simply cannot carry is "not captured", not "removed", so a removal there is reported as `compatible` instead of
+ * `breaking`, and the difference is stated in {@link ContractDiff.notes}. Tools, resources, templates and prompts
+ * are compared strictly in every case (a server serves the same surface over either handshake). Between two
+ * captures of the same era nothing is relaxed: a dropped protocol version, a removed extension or capability and a
+ * narrowed schema are all breaking.
+ */
 export function diffContract(prevIn: Contract | ContractV1, nextIn: Contract | ContractV1, opts: DiffOptions = {}): ContractDiff {
   const prev = upgradeContract(prevIn);
   const next = upgradeContract(nextIn);
@@ -462,16 +512,27 @@ export function diffContract(prevIn: Contract | ContractV1, nextIn: Contract | C
   });
 
   // v2 sections: compared only when the pin captured them (undefined = not captured).
-  if (prev.capabilities) diffCapabilities(prev.capabilities, next.capabilities ?? {}, changes);
-  if (prev.extensions) diffExtensions(prev.extensions, next.extensions ?? {}, changes);
-  if (prev.protocol?.supported && next.protocol?.supported) diffProtocol(prev.protocol.supported, next.protocol.supported, changes);
+  const prevEra = captureEra(prev);
+  const nextEra = captureEra(next);
+  const crossEra = (prevEra ?? "legacy") !== (nextEra ?? "legacy");
+  const eraChanges: ContractChange[] = [];
+  if (prev.capabilities) diffCapabilities(prev.capabilities, next.capabilities ?? {}, eraChanges);
+  if (prev.extensions) diffExtensions(prev.extensions, next.extensions ?? {}, eraChanges);
+  if (prev.protocol?.supported && next.protocol?.supported) diffProtocol(prev.protocol.supported, next.protocol.supported, eraChanges);
+  // Across eras the other side may simply not have asked for skills/events (modern-only extensions): not captured.
+  if (prev.skills && !(crossEra && !next.skills)) diffCollection(prev.skills, next.skills ?? [], (k) => k.uri, "skill", eraChanges, diffSkill);
+  if (prev.events && !(crossEra && !next.events)) diffCollection(prev.events, next.events ?? [], (e) => e.name, "event", eraChanges, diffEvent);
+  for (const c of eraChanges) {
+    if (crossEra && c.level === "breaking") changes.push({ ...c, level: "compatible", detail: `${c.detail} (not comparable across capture eras)` });
+    else changes.push(c);
+  }
   if (prev.card && next.card) diffCard(prev.card, next.card, changes);
-  if (prev.skills) diffCollection(prev.skills, next.skills ?? [], (k) => k.uri, "skill", changes, diffSkill);
-  if (prev.events) diffCollection(prev.events, next.events ?? [], (e) => e.name, "event", changes, diffEvent);
+  const notes = crossEra ? [eraNote(prevEra ?? "legacy", nextEra ?? "legacy", prevEra !== undefined)] : [];
 
   const scoped = changes.filter(isUsed);
   return {
     changes: scoped,
+    ...(notes.length ? { notes } : {}),
     breaking: scoped.filter((c) => c.level === "breaking").length,
     compatible: scoped.filter((c) => c.level === "compatible").length,
     drift: scoped.filter((c) => c.level === "drift").length,

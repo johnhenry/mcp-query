@@ -29,6 +29,15 @@ with no token yet, run `mcp-contract auth --url …` once (browser-consent flow,
 [mcp-contract › OAuth-protected servers](../mcp-contract#oauth-protected-servers). The token is
 cached and auto-refreshed, so `mcp-lint --url …` then just works.
 
+**`--era auto|legacy`** (default `auto`): a live server is captured with a bounded `server/discover` probe first and
+`initialize` as the fallback (a stdio server is started one extra time for the probe); `--era legacy` skips the
+probe, and a registered server's pinned `era` applies when the flag is absent. A server that only speaks the 2025
+protocol is linted exactly as before. `--probe` always uses `auto` and refuses `--era legacy`, because its rules
+observe the `server/discover` handshake. Rules that need fields only a 2026-07-28 capture carries (`cache-hints`) are
+**not evaluated** on a legacy-era capture, a pinned legacy contract or one with no recorded era: the output ends with
+`cache-hints: not evaluated ...` instead of warning about fields the legacy handshake cannot carry (and `lintContract`
+returns them in `result.skipped`).
+
 Exits non-zero on any **error**-level finding, or when warnings exceed `--max-warnings`
 (default: unbounded). Disable or escalate rules with `--off a,b` / `--error a,b`.
 
@@ -67,7 +76,7 @@ const result = lintContract(contract, { rules: { "naming-consistency": "off" } }
 if (result.errors) throw new Error(formatLint(result));
 ```
 
-`lintContract(contract, opts)` returns `{ findings, errors, warnings }`. Findings carry
+`lintContract(contract, opts)` returns `{ findings, errors, warnings, skipped? }` (`skipped` lists rules that could not be evaluated on this capture). Findings carry
 `{ rule, severity, target, message }`. Pass `opts.rules` to override any rule's severity.
 
 ## Family

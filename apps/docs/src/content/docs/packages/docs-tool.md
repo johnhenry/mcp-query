@@ -23,6 +23,13 @@ npx tsx packages/mcp-docs/src/cli.ts --contract mcp.contract.json --title "My Se
 With no `--out`, the Markdown is written to stdout (pipe it anywhere). See
 [`examples/everything.md`](examples/everything.md) for real generated output.
 
+A live server is captured with `--era auto` by default (a bounded `server/discover` probe first, `initialize` as
+the fallback; a stdio server is started one extra time for the probe), or `--era legacy` for the plain `initialize`
+handshake. A registered server's pinned `era` applies when the flag is absent. The document states which handshake
+ran in its **Protocol** line (`legacy era · negotiated ...` or `modern era · negotiated ... · supports ...`); for a
+server that only speaks the 2025 protocol the output is the same as before, and a 2026-07-28 server additionally
+lists its supported protocol versions. (`--contract` renders a pinned file and connects to nothing.)
+
 A live server is reached over stdio (`--command`) **or Streamable HTTP** (`--url https://host/mcp`,
 with optional `--bearer "$TOKEN"` / repeated `--header "K: V"`). For an **OAuth-protected** host
 with no token yet, run `mcp-contract auth --url …` once (browser-consent flow, incl. an

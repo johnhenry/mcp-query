@@ -6,21 +6,8 @@
 // They are kept in their own list on purpose: `lintContract` never runs them, and the CLI
 // refuses `--probe` together with `--contract`.
 
-import { Client } from "@modelcontextprotocol/client";
-import { buildTransport, versionNegotiationFor, type ConnectOptions } from "../../mcp-contract/src/index.js";
 import { DiscoveryError, compareCardToLive, fetchServerCard, recommendedCardUrl, sanitizeForDisplay } from "../../mcp-query/src/discovery/index.js";
 import type { Severity } from "./rules.js";
-
-/**
- * Connect for probing. Unlike the contract tools' default (the classic initialize handshake), this
- * lets the SDK try `server/discover` first (`versionNegotiation: auto`) and fall back to
- * `initialize`, which is exactly what `stateless-ready` needs to observe.
- */
-export async function connectProbeClient(opts: ConnectOptions): Promise<{ client: Client; close: () => Promise<void> }> {
-  const client = new Client({ name: opts.clientName ?? "mcp-lint", version: "0.0.1" }, { capabilities: {}, ...versionNegotiationFor("auto") }); // the probe is bounded: a server that never answers it is treated as legacy, not waited on for a minute
-  await client.connect(buildTransport(opts));
-  return { client, close: () => client.close().catch(() => {}) };
-}
 
 /** The slice of the SDK client the probes use. Kept structural so tests can inject fakes. */
 export interface ProbeClient {

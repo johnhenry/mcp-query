@@ -91,6 +91,40 @@ HTTP** (a hosted endpoint). Everywhere a command above takes `--command`, it als
 --header "X-Tenant: acme"               # arbitrary header(s), repeatable
 ```
 
+### `--era`: which handshake captures the surface
+
+`snapshot`, `verify` and live `diff` take `--era auto|legacy`. The default is **`auto`**: probe `server/discover`
+first (a 2026-07-28 server answers it) and fall back to the `initialize` handshake for anything else.
+`--era legacy` skips the probe. The probe is bounded (5 s, `MCPQ_ERA_PROBE_TIMEOUT_MS` overrides), so a server that
+never answers it falls back to legacy instead of hanging; a stdio server is started one extra time for the probe
+(a short-lived sibling, never left running). A registered server's pinned `era` (`mcp-query add ... --era legacy`)
+applies when the flag is absent, and the flag beats the pin. The capture records which handshake produced it in
+`protocol.era`.
+
+> **Default changed since 0.1.0.** `snapshot`, `verify`, `diff` and the library's `connectClient` / `captureFrom`
+> used the plain `initialize` handshake before. Against a server that speaks 2026-07-28 they now capture over
+> `server/discover`, which adds `protocol.supported`, the `ttlMs` / `cacheScope` hints and a 2026-07-28
+> `protocol.negotiated`. A 2025-era server is captured exactly as before. Pass `--era legacy` (or `era: "legacy"`)
+> to keep the old capture.
+
+**Existing pins keep working.** A contract pinned from a legacy capture (format v1 or v2) verifies against a new
+`auto` capture of the same unchanged server with no breaking change and exit 0: what only the modern handshake
+carries is "not captured" in the pin, never "changed" (the same rule that made v1 to v2 safe). The report says so:
+
+```
+✓ no changes — live surface matches the contract
+  ℹ note: capture era differs: pinned with initialize (legacy), this capture used server/discover (2026-07-28). ...
+```
+
+The reverse (a modern pin verified with `--era legacy`, or a server only reachable over the legacy handshake)
+is not drift either: the legacy capture simply cannot carry those fields, so nothing is called removed and the
+same note is printed. When the eras differ, a capability or extension the other handshake does not report is
+downgraded from breaking to compatible (with "not comparable across capture eras" in the line) and skills / events
+that the legacy capture did not ask for are skipped. Tools, resources, templates and prompts are always compared
+strictly. To compare like with like, verify with the era the pin was made with (`--era legacy`), or re-run
+`snapshot`. Between two captures of the same era nothing is relaxed: a dropped protocol version, a removed
+extension or capability and a narrowed schema all fail `verify`.
+
 ### OAuth-protected servers
 
 Hosted MCP servers are commonly **OAuth-protected** — an unauthenticated capture returns
@@ -184,7 +218,7 @@ point (`src/schema.ts`):
 `snapshot` now writes `"version": 2`. On top of v1's tools / resources / templates / prompts it captures:
 
 - `capabilities` and `extensions` (`capabilities.extensions`, each with its `revision` when the server sends one);
-- `protocol`: `era` (`modern` / `legacy`), `negotiated` and, on a 2026-07-28 connection, `supported` (the
+- `protocol`: `era` (`modern` / `legacy`: the handshake that produced the capture, see [`--era`](#--era-which-handshake-captures-the-surface)), `negotiated` and, on a 2026-07-28 connection, `supported` (the
   `supportedVersions` that `server/discover` returned, sorted);
 - per tool: `title`, `icons`, `_meta`;
 - `cacheHints`: the `ttlMs` / `cacheScope` seen on `server/discover` and each list call (SEP-2549);
@@ -217,12 +251,15 @@ literals in it (via `usedFromSource`) — so drift on tools you never call won't
 ## Programmatic API
 
 ```ts
-import { captureContract, diffContract, mockFromContract, diffSchema, formatDiff } from "@johnhenry/mcp-contract";
+import { captureContract, captureFrom, diffContract, mockFromContract, diffSchema, formatDiff } from "@johnhenry/mcp-contract";
 
 const pinned = JSON.parse(await readFile("mcp.contract.json", "utf8"));
 const live = await captureContract(connectedSdkClient);     // drain a live server
+// or let the library connect (default era "auto", as the CLI; `era: "legacy"` for the plain initialize handshake):
+// const live = await captureFrom({ url: "https://host/mcp", era: "auto" });
 const diff = diffContract(pinned, live, { used: ["echo"] }); // classify drift
 if (diff.breaking) throw new Error(formatDiff(diff));
+// diff.notes says when the two captures used different handshakes (never counted as a change)
 
 // low-level: classify a single schema change under a variance
 diffSchema(prevInputSchema, nextInputSchema, "in");   // → SchemaChange[]

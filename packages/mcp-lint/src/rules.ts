@@ -11,6 +11,11 @@ export interface Rule {
   id: string;
   description: string;
   defaultSeverity: Severity;
+  /**
+   * The rule inspects fields only a 2026-07-28 (`server/discover`) capture carries. On a legacy-era capture
+   * (or one that recorded no era) it is not evaluated, and the linter says so instead of passing silently.
+   */
+  modernOnly?: boolean;
   /** Return one entry per violation; severity is applied by the linter. */
   check: (c: Contract) => Array<{ target: string; message: string }>;
 }
@@ -114,6 +119,7 @@ export const RULES: Rule[] = [
     id: "cache-hints",
     description: "On a 2026-07-28 connection, server/discover and the list calls carry ttlMs and cacheScope (SEP-2549).",
     defaultSeverity: "warn",
+    modernOnly: true,
     check: (c) => {
       if (!isModern(c)) return []; // 2025-era servers have no cache hints to carry
       const out: Array<{ target: string; message: string }> = [];
@@ -257,7 +263,8 @@ const CACHE_TARGETS: Record<string, string> = {
 /** First revision to define server/discover and cache hints. */
 const MODERN_FLOOR = "2026-07-28";
 
-function isModern(c: Contract): boolean {
+/** Whether the capture was made over the 2026-07-28 handshake (recorded era, else inferred from the versions). */
+export function isModern(c: Contract): boolean {
   if (c.protocol?.era) return c.protocol.era === "modern";
   const versions = [c.protocol?.negotiated, ...(c.protocol?.supported ?? [])].filter((v): v is string => !!v);
   return versions.some((v) => v >= MODERN_FLOOR);

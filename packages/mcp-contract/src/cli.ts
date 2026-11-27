@@ -18,7 +18,7 @@ import { MCPClient } from "@johnhenry/mcp-query";
 import { createGateway } from "@johnhenry/mcp-query/server";
 import { fetchServerCard, recommendedCardUrl } from "@johnhenry/mcp-query/discovery";
 import { cardForContract, diffContract, upgradeContract, type Contract, type ContractCard } from "./contract.js";
-import { captureFrom } from "./connect.js";
+import { captureFrom, withEra, ERA_FLAG_HELP } from "./connect.js";
 import { resolveConnect } from "./registry.js";
 import { authenticate, tokenCachePath } from "./oauth.js";
 import { mockFromContract } from "./mock.js";
@@ -26,7 +26,7 @@ import { usedFromSource } from "./used.js";
 import { formatDiff } from "./report.js";
 import { rejectUnknownFlags } from "./flags.js";
 
-const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port", "dpop", "client-metadata-url", "expected-issuer", "card"] as const;
+const KNOWN_FLAGS = ["server", "config", "command", "args", "url", "bearer", "header", "out", "contract", "used", "used-by", "scope", "open", "port", "dpop", "client-metadata-url", "expected-issuer", "card", "era"] as const;
 
 function parseArgs(argv: string[]): { _: string[]; flags: Record<string, string>; headers: string[] } {
   const _: string[] = [];
@@ -50,6 +50,7 @@ const HELP = `mcp-contract: pin, verify, diff and mock an MCP server's capabilit
 
 usage:
   mcp-contract snapshot (--command CMD [--args "A B"] | --url URL [--bearer T] [--header "K: V"] | --server NAME) [--out mcp.contract.json]
+                        [--era auto|legacy]  handshake used for the capture (default auto, also on verify/diff); recorded as protocol.era
                         [--card URL|auto]   also pin the server's Server Card (auto: <url>/server-card); on verify/diff too, to compare it
   mcp-contract verify   <same connection flags> --contract mcp.contract.json [--used "a,b"] [--used-by src/mcp.gen.ts]
   mcp-contract diff     old.contract.json new.contract.json
@@ -57,7 +58,10 @@ usage:
   mcp-contract auth     --url URL                         run the OAuth flow and cache tokens
   mcp-contract --help
 
-verify exits non-zero on any BREAKING change. Docs: https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-contract`;
+verify exits non-zero on any BREAKING change. ${ERA_FLAG_HELP}
+A contract pinned with one handshake verifies against a capture made with the other without a breaking change: what only the modern handshake
+carries (supported protocol versions, cache hints) is "not captured" on the legacy side, and the report says the capture era differs.
+Docs: https://github.com/johnhenry/mcp-query/tree/main/packages/mcp-contract`;
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -69,7 +73,8 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   const cmd = _[0];
   const isLive = !!(flags.url || flags.command || flags.server);
   const live = async () => {
-    const target = { ...resolveConnect(flags, headers), clientName: "mcp-contract" };
+    // --era beats a registry pin, which beats the default (auto: server/discover first, initialize as the fallback).
+    const target = { ...withEra(resolveConnect(flags, headers), flags.era), clientName: "mcp-contract" };
     return captureFrom(target, flags.card ? { card: await fetchCard(flags.card, target.url) } : {});
   };
   const liveOrFile = (fileArg?: string) => (isLive ? live() : fileArg ? readContract(fileArg) : Promise.reject(new Error("provide --url/--command/--server for a live server, or a contract file path")));
@@ -80,7 +85,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       const json = JSON.stringify(contract, null, 2);
       if (flags.out) {
         await writeFile(flags.out, json + "\n", "utf8");
-        console.error(`wrote ${flags.out} (${contract.tools.length} tools, ${contract.prompts.length} prompts, ${contract.resources.length} resources${contract.card ? `, card ${contract.card.name}` : ""})`);
+        console.error(`wrote ${flags.out} (${contract.tools.length} tools, ${contract.prompts.length} prompts, ${contract.resources.length} resources${contract.protocol?.era ? `, ${contract.protocol.era} era` : ""}${contract.card ? `, card ${contract.card.name}` : ""})`);
       } else {
         process.stdout.write(json + "\n");
       }

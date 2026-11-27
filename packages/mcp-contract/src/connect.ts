@@ -23,22 +23,27 @@ export interface ConnectOptions {
   /** clientInfo.name sent during initialize. */
   clientName?: string;
   /**
-   * Pin the protocol era for this server (a registry entry's `era`): `legacy` skips the
-   * `server/discover` probe (use for a server known to be 2025-era), `auto` probes first.
-   * Consumers that take `--era` let the flag win; absent means the tool's default (`auto`).
+   * Which handshake to connect with: `legacy` skips the `server/discover` probe (use for a server known to
+   * be 2025-era; a registry entry's `era` pin lands here), `auto` probes first. Absent means the default,
+   * `auto`, for every connecting function in this package (`connectEra`, `connectClient`, `captureFrom`).
+   * Consumers that take `--era` let the flag win over a registry pin.
    */
   era?: Era;
 }
 
 /** `legacy`: the plain `initialize` handshake. `auto`: probe `server/discover` first, fall back to `initialize`. */
 export type Era = "legacy" | "auto";
-/** What every `--era` flag defaults to. */
+/** What every `--era` flag, and the `era` option of every connecting function, defaults to. */
 export const DEFAULT_ERA: Era = "auto";
 /**
  * Upper bound for the `server/discover` probe, in ms (override with `MCPQ_ERA_PROBE_TIMEOUT_MS`).
  * Without it the SDK would wait its full request timeout (60 s) on a server that never answers the probe.
  */
 export const ERA_PROBE_TIMEOUT_MS = 5000;
+
+/** The `--era` help text shared by every CLI that connects (wording kept in one place). */
+export const ERA_FLAG_HELP =
+  "--era auto (default) probes server/discover first, bounded by a timeout, and falls back to initialize; a stdio server is started again for the probe. --era legacy skips the probe (a registry entry's `era` applies when unset).";
 
 /** Validate an era string (a `--era` value or a registry field). */
 export function parseEra(value: unknown, what = "--era"): Era | undefined {
@@ -111,14 +116,20 @@ export function buildTransport(opts: ConnectOptions): Transport {
   throw new Error("provide --url <https://…> or --command <cmd> [--args …], or a registered server name");
 }
 
-/** Connect a live SDK client from connect options; caller is responsible for `close()`. */
+/**
+ * Connect a live SDK client from connect options; caller is responsible for `close()`.
+ * The era is `opts.era`, default `auto` (a bounded `server/discover` probe, then `initialize`): this is
+ * {@link connectEra}, so a silent server cannot hang the caller and a stdio server is not left running twice.
+ * Pass `era: "legacy"` for the plain `initialize` handshake this function used before it defaulted to `auto`.
+ */
 export async function connectClient(opts: ConnectOptions): Promise<{ client: Client; close: () => Promise<void> }> {
-  const client = new Client({ name: opts.clientName ?? "mcp-query", version: "0.0.1" }, { capabilities: {} });
-  await client.connect(buildTransport(opts));
-  return { client, close: () => client.close().catch(() => {}) };
+  return connectEra(opts);
 }
 
-/** Connect, capture the capability surface, and close. */
+/**
+ * Connect, capture the capability surface, and close. The captured contract records the handshake that
+ * produced it in `protocol.era`; the handshake is `opts.era` (default `auto`, see {@link connectClient}).
+ */
 export async function captureFrom(opts: ConnectOptions, extra: { card?: ContractCard } = {}): Promise<Contract> {
   const { client, close } = await connectClient(opts);
   try {
@@ -126,6 +137,14 @@ export async function captureFrom(opts: ConnectOptions, extra: { card?: Contract
   } finally {
     await close();
   }
+}
+
+/**
+ * Resolve the era for a CLI: an explicit `--era` flag beats a registry pin (`target.era`), which beats the default.
+ * Returns the connect options with the winning era filled in.
+ */
+export function withEra(target: ConnectOptions, flagValue: string | undefined): ConnectOptions & { era: Era } {
+  return { ...target, era: parseEra(flagValue) ?? target.era ?? DEFAULT_ERA };
 }
 
 /** Derive ConnectOptions from CLI flags + repeated `--header "K: V"` values. */
