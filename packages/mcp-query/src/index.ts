@@ -43,12 +43,15 @@ export type {
 } from "@modelcontextprotocol/client";
 export { TASKS_EXT, TaskSchema, DetailedTaskSchema, isTaskShaped, TERMINAL_STATUSES } from "./core/tasksExt.js";
 export type { DetailedTask } from "./core/tasksExt.js";
-export { SKILLS_EXT, SKILLS_MIN_SDK, skillsTag, skillsSdkAvailable, skillVerificationReason } from "./core/skills.js";
+export { SKILLS_EXT, SKILLS_MIN_SDK, skillsTag, skillsSdkAvailable, skillVerificationReason, skillFileCacheKey } from "./core/skills.js";
 export type {
   Skill,
   SkillEntry,
   SkillFile,
   SkillFrontmatter,
+  SkillDirectory,
+  SkillDirectoryEntry,
+  SkillApprovalConfig,
   SkillManifestEntry,
   SkillOpts,
   ListSkillsOpts,

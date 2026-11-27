@@ -23,7 +23,16 @@ import { runInterceptors, type CatalogName, type Operation, type RequestIntercep
 import { Router } from "./router.js";
 import { argsHash, serializeKey, type CacheKey } from "./keys.js";
 import { capsTag, resourceTag, serverTag, type Tag } from "./tags.js";
-import { SkillsController, type ListSkillsOpts, type Skill, type SkillFile, type SkillOpts, type SkillsSdkLoader } from "./skills.js";
+import {
+  SkillsController,
+  type ListSkillsOpts,
+  type Skill,
+  type SkillApprovalConfig,
+  type SkillDirectory,
+  type SkillFile,
+  type SkillOpts,
+  type SkillsSdkLoader,
+} from "./skills.js";
 import type { DevtoolsSink } from "../devtools/protocol.js";
 import { describeInteraction, isInputRequiredResult, mrtrParams, type AuditInteraction, type ToolInteraction } from "./interaction.js";
 import {
@@ -128,6 +137,14 @@ export interface MCPClientConfig {
    * resolves it.
    */
   skillsSdk?: SkillsSdkLoader;
+  /**
+   * Opt-in (default OFF): route "load this skill" through `interactions`. The first
+   * `readSkillFile` of a skill asks the broker (`gate("confirm", ...)`, payload
+   * `{ action: "skill-load", ... }`); the approval is bound to the manifest's digest set, so a
+   * changed manifest asks again. Denied => `MCPError`, nothing read or cached. Requires
+   * `interactions`; `true` = default options.
+   */
+  skillApproval?: boolean | SkillApprovalConfig;
 }
 
 /** One audited operation (every read/call/query) for a durable governance log. */
@@ -345,6 +362,9 @@ export class MCPClient {
       this.conns.set(name, this.newConnection(name, conf));
     }
     this.router = new Router(this.conns, cfg.schemeMap);
+    if (cfg.skillApproval && !cfg.interactions) {
+      throw new MCPError("protocol", "skillApproval needs `interactions` (an InteractionBroker) to route the approval through");
+    }
     this.skills = new SkillsController({
       cache: this.cache,
       connection: (n) => this.conns.get(n),
@@ -352,6 +372,11 @@ export class MCPClient {
       wake: (n) => this.wake(n),
       toError: (e, n) => this.toError(e, n, "protocol"),
       loader: cfg.skillsSdk,
+      meta: (conn, context) => this.withMeta(conn, context),
+      cacheStore: cfg.cacheStore,
+      ...(cfg.skillApproval && cfg.interactions
+        ? { approval: { broker: cfg.interactions, config: cfg.skillApproval === true ? {} : cfg.skillApproval } }
+        : {}),
     });
     this.eventsCtl = new EventsController({
       cache: this.cache,
@@ -465,6 +490,7 @@ export class MCPClient {
       listEvents: (server?: string, opts: ListEventsOpts = {}) => this.listEvents(server, merge(opts)),
       events: (server: string, name: string, input: Record<string, unknown> = {}, opts: EventsOpts = {}) =>
         this.events(server, name, input, merge(opts)),
+      readSkillDirectory: (uri: string, server: string, opts: SkillOpts = {}) => this.readSkillDirectory(uri, server, merge(opts)),
     };
   }
 
@@ -857,6 +883,17 @@ export class MCPClient {
    */
   events(server: string, name: string, input: Record<string, unknown> = {}, opts: EventsOpts = {}): EventSubscription {
     return this.eventsCtl.open(server, name, input, opts);
+  }
+
+  /**
+   * The direct children of a skill directory (`resources/directory/read`). Only when the server
+   * advertises `directoryRead`; otherwise an `MCPError`. Cached per the server's `ttlMs`. Entries
+   * are unverified discovery data — read files with `readSkillFile`.
+   */
+  readSkillDirectory(uri: string, server: string, opts: SkillOpts = {}): Promise<SkillDirectory> {
+    return this.run({ kind: "skill", peer: server, target: uri, method: "resources/directory/read", context: opts.context, state: {} }, (o) =>
+      this.skills.readDirectory(uri, server, { ...opts, context: o.context }),
+    ) as Promise<SkillDirectory>;
   }
 
   // ── server-state reactive store (useServerState) ─────────────────────────

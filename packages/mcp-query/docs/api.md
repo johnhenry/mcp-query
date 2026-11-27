@@ -205,7 +205,7 @@ what it acts on, `op.method` the MCP method where needed.
 | `callTool`, `callToolTask` (initiation) | `call` | tool name |
 | `queryTool` | `query` | tool name |
 | `getPrompt` | `prompt` (`prompts/get`) | prompt name; `op.args` = its arguments |
-| `listSkills` / `getSkill` / `readSkillFile` | `skill` (`skills/list`, `skills/get`, `skills/read`) | `skills` / skill URI / file ref or URI |
+| `listSkills` / `getSkill` / `readSkillFile` / `readSkillDirectory` | `skill` (`skills/list`, `skills/get`, `skills/read`, `resources/directory/read`) | `skills` / skill URI / file ref or URI / directory URI |
 | `listEvents`, and every `events/poll` of a `client.events(...)` subscription | `event` (`events/list`, `events/poll`) | `events` / the event name; for a poll `op.args` = the subscription arguments and the result is the poll result (redact `events[].data`) |
 | the catalogs behind `listTools` / `listResources` / `listResourceTemplates` / `listPrompts`, and `discover()` | `list` (`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`) | `tools` / `resources` / `resourceTemplates` / `prompts` |
 
@@ -363,9 +363,9 @@ const ref = await client.readSkillFile(skill, "references/STYLE.md"); // relativ
   instructions to a model: treat it like a tool description and keep the origin attached.
 - **Caching.** `skills/list` and `skills/get` honor the server's `ttlMs` / `cacheScope` (SEP-2549)
   like every other cacheable result, keyed per server and per `client.scope({ partition })`
-  (`scope()` has `listSkills` / `getSkill` / `readSkillFile`). Verified file bytes are cached under
-  their manifest **digest**, so a changed manifest can never serve old bytes. `{ force: true }`
-  bypasses the cache; `{ staleTime }` overrides the freshness window.
+  (`scope()` has `listSkills` / `getSkill` / `readSkillFile` / `readSkillDirectory`). Verified file
+  bytes are cached under their manifest **digest**, so a changed manifest can never serve old bytes.
+  `{ force: true }` bypasses the cache; `{ staleTime }` overrides the freshness window.
 - **Invalidation.** `notifications/resources/list_changed` (legacy push or the modern
   `subscriptions/listen` stream) marks the catalog stale (tag `skillsTag(server)`); the next
   `listSkills` re-fetches and the hooks below do it for you.
@@ -374,8 +374,39 @@ const ref = await client.readSkillFile(skill, "references/STYLE.md"); // relativ
 - **Bundlers.** The default loader imports the SDK subpath at runtime so older SDKs and bundlers never
   need it. A bundled browser app passes `skillsSdk: () => import("@modelcontextprotocol/client/ext/skills")`
   in the `MCPClient` config.
-- **Not yet here:** routing "load this skill" through the `InteractionBroker` for approval (bound to the
-  manifest digests), `skillsQueryOptions` in `@johnhenry/mcp-query-tanstack`, mcp-gate pass-through.
+- **Directory reads.** `client.readSkillDirectory(uri, server)` lists the direct children of a skill
+  directory (`resources/directory/read`, `{ server, uri, resources }`; sub-directories have
+  `mimeType: "inode/directory"`). It only works when the server advertises `directoryRead: true` in its
+  skills capability; otherwise it rejects with an `MCPError` (`data.requires: "directoryRead"`) before
+  any request. Results are cached per server, directory and partition under the server's `ttlMs`, go
+  stale with the catalog, and run through the interceptor chain as a `skill` operation
+  (`method: "resources/directory/read"`). The entries are **not verified**: they are for discovery.
+  Read a file with `readSkillFile`, which checks it against the manifest.
+- **Context across a gateway hop.** `CallContext.meta` (tenant, principal, trace, ...) is sent as
+  `_meta` on `skills/list`, `skills/get`, `resources/directory/read` and the `resources/read` behind
+  `readSkillFile`, the same as `callTool` / `readResource` (on a modern connection the per-request
+  log-level key is added the same way). The SDK's `SkillsClient` has no `_meta` parameter, so
+  mcp-query hands it a view of the SDK `Client` that injects the caller's `_meta` into those requests;
+  a call with no meta uses the shared client untouched. `partition` still namespaces the cache, and
+  results are shared per partition, not per `meta`.
+- **Approval (opt-in, default OFF).** `new MCPClient({ interactions: broker, skillApproval: true })`
+  (or `{ timeoutMs }`) routes "load this skill" through the `InteractionBroker`: the first
+  `readSkillFile` of a skill asks `broker.gate("confirm", server, { action: "skill-load", skill,
+  file, manifest: { digest, files, bytes, entries }, verified, partition })`, so existing policies
+  and approval UIs that match `confirm` see it. Approve and the read proceeds; the approval is
+  remembered per (partition, server, skill, **manifest digest set**), so a manifest that changes asks
+  again and any later file of the same manifest does not. A `"dynamic"` skill has no digests to bind
+  to and asks on every read. Deny, a policy `deny` or a timeout reject with an `MCPError`
+  (`code: -32001`, `data.skillApproval`), nothing is fetched (not even from L2) and nothing is cached;
+  the next attempt asks again. `skillApproval` without `interactions` throws at construction.
+  Listing and getting skills (metadata) is not gated, only reading their files.
+- **Shared `cacheStore`.** With `MCPClientConfig.cacheStore`, verified files are also written to the L2
+  store, keyed by server, URI and digest, and read back before going to the server. Bytes from the
+  store are re-hashed against the manifest digest (and size) this client holds, so a poisoned or
+  stale shared entry is simply ignored. SEP-2549 applies: an unpartitioned file goes to L2 only when
+  the catalog said `cacheScope: "public"`; with a partition it always may. Dynamic skills never do.
+  Catalog entries (`skills/list`, `skills/get`) and directory listings stay L1-only.
+- **Not yet here:** mcp-gate pass-through (#82) and the CLI verbs (#87).
 
 ```tsx
 import { useSkills, useSkill } from "@johnhenry/mcp-query/react";
@@ -388,7 +419,12 @@ const file = await readFile("references/STYLE.md");                // verified, 
 Testing: `MockMCPServer({ skills: [{ name, description, body?, files?, dynamic?, tamper? }] })` serves
 spec-shaped skills (sha256 manifest, `skills/list`, `skills/get`, files over `resources/read`);
 `tamper: "digest" | "size" | "frontmatter"` makes the entry lie so verification has something to
-reject. `skillsCache: { ttlMs, cacheScope }` stamps the cache fields; `server.skillLog` records traffic.
+reject. `skillsCache: { ttlMs, cacheScope }` stamps the cache fields; `skillsDirectoryRead: true` advertises
+`directoryRead` and serves `resources/directory/read`; `server.skillLog` records traffic and
+`server.skillMetaLog` the `_meta` each skills request carried.
+
+With TanStack Query, `@johnhenry/mcp-query-tanstack` has `mcpqSkillsQueryOptions`,
+`mcpqSkillQueryOptions` and `mcpqSkillFileQueryOptions` over the same cache.
 
 ## Events (`io.modelcontextprotocol/events`, SEP-3415)
 
