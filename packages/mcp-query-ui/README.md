@@ -85,8 +85,44 @@ function App({ host }) {
 | app `ui/open-link` | **refused by default**; `onOpenLink` opts in, and only `http(s)` URLs are ever offered |
 | app `ui/request-teardown` / size changes | session closes / `state.size` updates |
 
-Not forwarded: `resources/list`, `prompts/*`, sampling, `update-model-context`, downloads. The host
-declares only `serverTools` + `serverResources` + `message` (+ `openLinks` when enabled).
+Not forwarded: downloads, `resources/templates/list` and `prompts/get` (`AppBridge` exposes no handler
+for the latter). `resources/list`, `prompts/list`, `sampling/createMessage` and `ui/update-model-context`
+are **off by default** and opt-in one by one (next section). The host declares `serverTools` +
+`serverResources` + `message` (+ `openLinks`, `sampling`, `updateModelContext` when enabled).
+
+### Opt-in app capabilities (all off by default)
+
+```ts
+createAppHost({
+  client, server: "dash",
+  appCapabilities: { resourcesList: true, promptsList: true, sampling: false, updateModelContext: true },
+  interactions,                                   // InteractionBroker; defaults to client.interactions
+  onUpdateModelContext: (ctx, session) => model.addContext(ctx),
+  approvalTimeoutMs: 60_000,                      // optional: deny if no human answers
+});
+```
+
+| Capability | Wire method | Executed by | Approval |
+|---|---|---|---|
+| `resourcesList` | `resources/list` | `client.listResources(server)` | broker `confirm` (if a broker is set) |
+| `promptsList` | `prompts/list` | `client.listPrompts(server)` | broker `confirm` (if a broker is set) |
+| `sampling` | `sampling/createMessage` | `broker.handleSampling` (policy, human, your model, optional response review) | **required**: `createAppHost` throws without a broker |
+| `updateModelContext` | `ui/update-model-context` | your `onUpdateModelContext` (required; throw to refuse) | broker `confirm` (if a broker is set) |
+
+- A request for a capability that is off is refused with `<method> is not enabled for apps on this host
+  (the host must opt in with appCapabilities.<name>)`, and appears in `state.calls` as `outcome: "denied"`.
+  Every enabled request is tracked in `state.calls` exactly like a tool call (`kind`:
+  `resources-list | prompts-list | sampling | model-context`, `target`: the wire method).
+- Interactions are filed under the peer `mcp-app:<ui uri>` (not the server's name), so a broker policy that
+  auto-allows the server's own sampling does not auto-allow an app's.
+- **Sampling is deprecated in the core protocol (SEP-2577).** It is off by default and discouraged; prefer
+  tools and `ui/message`. It is only offered so existing apps keep working under a human/policy gate.
+- **Gate limitation.** `mcp-query`'s interceptor chain only wraps `read` / `call` / `query` operations, and
+  `listResources` / `listPrompts` are served from the client's capability snapshot. So `mcp-gate`
+  policy/rate-limit/audit see `tools/call` and `resources/read`, but **not** these list requests; the
+  `InteractionBroker` is their gate (and the `state.calls` trail their audit). A gate-fronted client does not
+  carry a broker, so pass one via `interactions`. Routing lists through the interceptor chain needs a new
+  operation kind in `@johnhenry/mcp-query` (tracked separately).
 
 ## Security: running under the gate
 
@@ -135,6 +171,28 @@ const host = createAppHost({ client: gate.client, server: "dash" });
   restrictive default (`default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`, `object-src 'none'`).
   `session.resource.csp` is what the proxy must enforce; `session.resource.cspHeader` is the exact header
   value (`buildAppCsp()` is exported for writing a proxy) -- log it for audit.
+- **Host-configurable frame policy (`frame`, `sandbox`, `iframe`).** Defaults above are unchanged. A host
+  (e.g. one with its own CSP and network rules) can tighten them freely and must opt in, by a clearly named
+  `unsafeLoosen` flag, to anything wider:
+
+  | Option | Tighten (free) | Loosen (needs `unsafeLoosen: true`) |
+  |---|---|---|
+  | `createAppHost({ frame: { csp: { directives } } })` | narrow a directive to a subset of what the app declared (`connect-src 'none'`, drop `'unsafe-inline'`), add restrictive-only directives (`form-action`, `frame-ancestors`, `sandbox`, `report-uri`, ...) | widen a directive, add any directive |
+  | `frame.csp.addDomains` | | add sources the app did not declare (refused without the flag) |
+  | `frame.permissions.allow(name)` | drop declared `camera`/`microphone`/`geolocation`/`clipboardWrite` | `frame.permissions.add` grants undeclared ones |
+  | `mountIframe({ sandbox: { inner } })` | any subset of `allow-scripts` (`[]` = inert) | extra inner tokens (`allow-forms`, ...) |
+  | `mountIframe({ sandbox: { extraOuter } })` | (the proxy keeps the spec's `allow-scripts allow-same-origin`) | extra proxy-frame tokens |
+  | `mountIframe({ iframe })` (element or `(doc) => iframe`) | host owns the element (class, styles, ...) | -- |
+
+  Hard rules that no flag lifts: the app-declared CSP is a ceiling (without `unsafeLoosen`, `open()`
+  throws on a directive that would widen it); the sandbox-proxy URL must still be a different origin
+  from the host page; the inner app frame never gets `allow-same-origin` through `sandbox.inner`; a
+  supplied iframe with `srcdoc` is refused and `sandbox`/`allow`/`referrerpolicy`/`src` are always
+  re-stamped after your element is handed over (legacy `allowfullscreen`/`allowpaymentrequest` removed).
+  When directives are set, `session.resource.cspHeader` is the exact final header and `hostCsp` is true;
+  the sandbox page also receives it as an extra `cspHeader` field of `sandbox-resource-ready`
+  (the spec's schema only carries structured `csp`, so a stock proxy ignores it -- apply it in yours).
+  The older `innerSandbox` string still works unchanged; `sandbox.inner` takes precedence when both are set.
 - **Postmessage validation.** The transport only accepts messages whose `event.source` is the sandbox
   iframe's window.
 - **You own the proxy page.** It must apply the CSP *as an HTTP header or meta tag on the inner document*, forward
@@ -144,7 +202,7 @@ const host = createAppHost({ client: gate.client, server: "dash" });
 ## API
 
 ```ts
-createAppHost({ client, server, hostInfo?, hostContext?, context?, allowDomain?, onMessage?, onOpenLink?, maxHistory?, teardownTimeoutMs? }): AppHost
+createAppHost({ client, server, hostInfo?, hostContext?, context?, frame?, appCapabilities?, interactions?, onUpdateModelContext?, approvalTimeoutMs?, allowDomain?, onMessage?, onOpenLink?, maxHistory?, teardownTimeoutMs? }): AppHost
 host.open({ uri | tool, toolInput?, toolResult? }): Promise<AppSession>   // reads + validates the resource
 host.getSessions() / host.subscribe(cb) / host.closeAll()
 
@@ -154,9 +212,10 @@ session.subscribe(cb)
 session.connect(transport)   // any MCP Transport; mountIframe() does this for a sandbox iframe
 session.whenReady(timeoutMs?) / session.sendToolResult(r) / session.addCleanup(fn) / session.close()
 
-mountIframe(session, { container, sandboxUrl, innerSandbox?, title? })
+mountIframe(session, { container, sandboxUrl, innerSandbox?, title?, sandbox?, iframe? })
 mcpAppsExtensions()          // -> pass as MCPClientConfig.extensions
 buildAppCsp(csp) / sanitizeCsp(csp, allow?) / isSafeCspSource(s)
+applyHostCspDirectives(header, directives, { unsafeLoosen? }) / resolveSandbox(sandboxOptions, legacyInner?) / KNOWN_SANDBOX_TOKENS
 
 // "@johnhenry/mcp-query-ui/react"
 useMcpApp(host, { uri | tool, toolInput?, toolResult?, sandboxUrl?, mount?, enabled? }) -> { containerRef, session, state, error }
@@ -164,7 +223,7 @@ useAppSession(session) / useAppSessions(host)
 ```
 
 `AppSessionState.status`: `loading | loaded | connecting | ready | closing | closed | error`.
-`state.calls[i].outcome`: `pending | ok | denied | error`. The public surface is pinned by
+`state.calls[i].outcome`: `pending | ok | denied | error`; `kind`: `tool | resource | resources-list | prompts-list | sampling | model-context`. The public surface is pinned by
 `test/api.test.ts` (names + type-level shapes).
 
 ## Releasing
