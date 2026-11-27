@@ -32,6 +32,7 @@ import { formatResult, toolSignature, type OutputMode, type ToolLike } from "./f
 import * as client from "./invoke.js";
 import { resolveInvoke, parseCallArgs, type InvokeFlags } from "./invoke.js";
 import { session } from "./session.js";
+import { addFromCard, addFromDomain, showCard } from "./discovery-verbs.js";
 import { request, daemonStatus, daemonStop, daemonStart } from "./daemon/client.js";
 import type { DaemonRequest } from "./daemon/protocol.js";
 
@@ -44,6 +45,7 @@ const REGISTRY_VERBS: Record<string, string> = {
   import: "Import servers from claude | cursor | vscode | <path>",
   login: "OAuth-authenticate a registered server or url",
   logout: "Forget cached OAuth tokens for a server or url",
+  card: "Show a server's Server Card and compare it with the live server",
 };
 const CLIENT_DESCRIBE: Record<string, string> = {
   tools: "List a live server's tools (--resources / --prompts / --schema / --json)",
@@ -63,7 +65,7 @@ interface Parsed {
   headers: string[];
 }
 
-const BOOLEAN_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts"]);
+const BOOLEAN_FLAGS = new Set(["json", "raw", "schema", "yes", "resources", "prompts", "force", "allow-insecure-localhost", "no-live", "strict"]);
 
 function parse(argv: string[]): Parsed {
   const positionals: string[] = [];
@@ -127,6 +129,8 @@ export function helpText(): string {
     "",
     "Examples:",
     '  mcp-query add linear https://mcp.linear.app/sse',
+    "  mcp-query add --from-domain example.com                 # list advertised servers",
+    "  mcp-query add weather --from-domain example.com         # add one (never prompts)",
     "  mcp-query servers --json",
     "  mcp-query tools linear",
     '  mcp-query call linear \'create_issue(title: "Bug", team: "ENG")\'',
@@ -141,7 +145,7 @@ export function helpText(): string {
 // error message). Client verbs are exempt: `call`/`prompt` pass unknown flags through
 // as tool arguments by design.
 const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
-  add: ["scope", "config", "description", "url", "command", "args", "header"],
+  add: ["scope", "config", "description", "url", "command", "args", "header", "from-card", "from-domain", "pick", "var", "force", "allow-insecure-localhost", "json"],
   servers: ["json", "config"],
   ls: ["json", "config"],
   remove: ["scope", "config"],
@@ -150,6 +154,7 @@ const REGISTRY_VERB_FLAGS: Record<string, string[]> = {
   import: ["scope", "config"],
   login: ["scope", "config"],
   logout: ["config"],
+  card: ["from-card", "config", "json", "no-live", "strict", "allow-insecure-localhost"],
 };
 
 async function runRegistry(verb: string, p: Parsed): Promise<void> {
@@ -157,6 +162,26 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
   const scope = (str(p.flags.scope) as Scope | undefined) ?? "home";
   switch (verb) {
     case "add": {
+      if (p.flags["from-card"] || p.flags["from-domain"]) {
+        if ((p.flags["from-card"] && !str(p.flags["from-card"])) || (p.flags["from-domain"] && !str(p.flags["from-domain"]))) throw new Error("--from-card needs a URL and --from-domain needs a domain");
+        if (p.flags["from-card"] && p.flags["from-domain"]) throw new Error("use either --from-card or --from-domain, not both");
+        if (p.flags.url || p.flags.command || p.positionals[1]) throw new Error("--from-card/--from-domain take their connection from the card; drop the url/--command");
+        const flags = {
+          name: p.positionals[0],
+          fromCard: str(p.flags["from-card"]),
+          fromDomain: str(p.flags["from-domain"]),
+          pick: str(p.flags.pick),
+          vars: str(p.flags.var),
+          headers: headersToRecord(p.headers),
+          scope,
+          config: str(p.flags.config),
+          description: str(p.flags.description),
+          json: !!p.flags.json,
+          force: !!p.flags.force,
+          allowInsecureLocalhost: !!p.flags["allow-insecure-localhost"],
+        };
+        return flags.fromCard ? addFromCard(flags) : addFromDomain(flags);
+      }
       const [name, maybeUrl] = p.positionals;
       if (!name) throw new Error("usage: mcp-query add <name> (<url> | --command <c> [--args <a>] | --url <u>) [--header \"K: V\"]…");
       const headers = headersToRecord(p.headers);
@@ -257,6 +282,17 @@ async function runRegistry(verb: string, p: Parsed): Promise<void> {
         console.log(`no cached tokens for ${opts.url}`);
       }
       return;
+    }
+    case "card": {
+      return showCard({
+        ref: p.positionals[0],
+        fromCard: str(p.flags["from-card"]),
+        config: str(p.flags.config),
+        json: !!p.flags.json,
+        noLive: !!p.flags["no-live"],
+        strict: !!p.flags.strict,
+        allowInsecureLocalhost: !!p.flags["allow-insecure-localhost"],
+      });
     }
     default:
       throw new Error(`unknown registry verb "${verb}"`);

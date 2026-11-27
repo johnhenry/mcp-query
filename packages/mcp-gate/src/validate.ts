@@ -6,7 +6,7 @@
 import type { GateConfig } from "./config.js";
 
 const UPSTREAM_SHAPES =
-  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers?, getToken? }';
+  'a transport factory { transport: () => Transport, maxRetries?, retryDelay?, lazy?, idleMs?, versions?, versionNegotiation? }, a stdio spec { command, args?, env? }, or a Streamable HTTP spec { url, headers?, getToken? }';
 
 function fail(msg: string): never {
   throw new Error(`invalid gate config: ${msg}`);
@@ -50,7 +50,9 @@ export function validateGateUpstream(name: string, up: unknown): void {
   if (has("transport")) {
     // Factory-style ConnectionConfig.
     if (typeof up.transport !== "function") fail(`"transport" in ${where} must be a () => Transport function (got ${typeOf(up.transport)})`);
-    checkKeys(up, ["transport", "maxRetries", "retryDelay", "lazy", "idleMs"], where);
+    checkKeys(up, ["transport", "maxRetries", "retryDelay", "lazy", "idleMs", "versions", "versionNegotiation"], where);
+    checkType(up, "versions", "an array of protocol revision strings", isStringArray, where);
+    checkType(up, "versionNegotiation", "an object", isRecord, where);
     checkType(up, "maxRetries", "a number", aNumber, where);
     checkType(up, "retryDelay", "a function", aFunction, where);
     checkType(up, "lazy", "a boolean", aBoolean, where);
@@ -101,6 +103,32 @@ function validateApproval(approval: unknown): void {
   checkType(approval, "broker", "an InteractionBroker", (v) => isRecord(v) && typeof (v as { gate?: unknown }).gate === "function", "approval");
 }
 
+const MODES = ["answer", "forward", "deny"];
+const aMode = (v: unknown) => typeof v === "string" && MODES.includes(v);
+
+function validateInteractions(v: unknown): void {
+  const shape = '"answer" | "forward" | "deny", or { default?, upstreams?: Record<string, mode> }';
+  if (typeof v === "string") {
+    if (!aMode(v)) fail(`"interactions" must be ${shape} (got ${JSON.stringify(v)})`);
+    return;
+  }
+  if (!isRecord(v)) fail(`"interactions" must be ${shape} (got ${typeOf(v)})`);
+  checkKeys(v, ["default", "upstreams"], "interactions");
+  checkType(v, "default", '"answer" | "forward" | "deny"', aMode, "interactions");
+  if (v.upstreams !== undefined) {
+    if (!isRecord(v.upstreams)) fail(`"upstreams" in interactions must be an object of upstream name → mode (got ${typeOf(v.upstreams)})`);
+    for (const [name, mode] of Object.entries(v.upstreams)) {
+      if (!aMode(mode)) fail(`interactions.upstreams["${name}"] must be "answer" | "forward" | "deny" (got ${JSON.stringify(mode)})`);
+    }
+  }
+}
+
+function validateUrlElicitation(v: unknown): void {
+  if (!isRecord(v)) fail(`"urlElicitation" must be an object { allowHosts?, denyHosts? } (got ${typeOf(v)})`);
+  checkKeys(v, ["allowHosts", "denyHosts"], "urlElicitation");
+  for (const key of ["allowHosts", "denyHosts"]) checkType(v, key, "an array of host glob strings", isStringArray, "urlElicitation");
+}
+
 function validateRedact(redact: unknown): void {
   if (!Array.isArray(redact)) fail(`"redact" must be an array of rules (got ${typeOf(redact)})`);
   redact.forEach((rule, i) => {
@@ -128,7 +156,7 @@ function validateRedact(redact: unknown): void {
  */
 export function validateGateConfig(config: unknown): asserts config is GateConfig {
   if (!isRecord(config)) fail(`expected a GateConfig object (got ${typeOf(config)})`);
-  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom"], "GateConfig");
+  checkKeys(config, ["upstreams", "policy", "approval", "redact", "rateLimit", "circuitBreaker", "namespace", "audit", "clientInfo", "partitionFrom", "interactions", "urlElicitation"], "GateConfig");
 
   if (config.upstreams === undefined) fail(`missing required key "upstreams"`);
   if (!isRecord(config.upstreams)) fail(`"upstreams" must be an object of name → upstream (got ${typeOf(config.upstreams)})`);
@@ -140,6 +168,13 @@ export function validateGateConfig(config: unknown): asserts config is GateConfi
     fail(`"policy.approve" rules need an "approval" config (a broker and/or handler) to decide them — without one, approvals could never resolve`);
   }
   if (config.redact !== undefined) validateRedact(config.redact);
+  if (config.interactions !== undefined) validateInteractions(config.interactions);
+  if (config.urlElicitation !== undefined) validateUrlElicitation(config.urlElicitation);
+  if (isRecord(config.interactions)) {
+    for (const name of Object.keys((config.interactions.upstreams as Record<string, unknown>) ?? {})) {
+      if (!Object.hasOwn(config.upstreams, name)) fail(`interactions.upstreams names "${name}", which is not in "upstreams" (known: ${Object.keys(config.upstreams).join(", ") || "none"})`);
+    }
+  }
 
   if (config.rateLimit !== undefined) {
     if (!isRecord(config.rateLimit)) fail(`"rateLimit" must be an object (got ${typeOf(config.rateLimit)})`);

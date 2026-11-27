@@ -62,6 +62,10 @@
       "types": "./dist/redis/index.d.ts",
       "default": "./dist/redis/index.js"
     },
+    "./discovery": {
+      "types": "./dist/discovery/index.d.ts",
+      "default": "./dist/discovery/index.js"
+    },
     "./otel": {
       "types": "./dist/otel/index.d.ts",
       "default": "./dist/otel/index.js"

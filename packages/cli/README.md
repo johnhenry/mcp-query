@@ -43,6 +43,30 @@ mcp-query logout linear
 Once registered, **every** verb accepts the server's **name** wherever it accepts a URL — and
 the tool verbs gain it too via `--server <name>`.
 
+### Discovery (Server Cards)
+
+Add a server from its [Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) or
+from a domain's [AI Catalog](https://github.com/Agent-Card/ai-catalog) (`/.well-known/ai-catalog.json`):
+
+```bash
+mcp-query add weather --from-card https://example.com/mcp/server-card
+mcp-query add --from-domain example.com            # lists entries, adds nothing
+mcp-query add --from-domain example.com --pick urn:air:example.com:mcp:weather
+mcp-query add weather --from-domain example.com    # a name that matches one entry also selects it
+mcp-query card weather                             # fetch <url>/server-card, compare with the live server
+mcp-query card weather --from-card <url> --strict  # explicit card URL; non-zero exit on disagreement
+```
+
+- Never interactive: with several entries and no `--pick`/matching name it prints the list and exits 1.
+- Card contents are untrusted. Only the remote URL is written to the registry; headers the card
+  lists (for example a required API key header) are printed, never written. Supply them with
+  `--header "K: V"`. Templated URLs need `--var K=V[,K2=V2]`.
+- An existing name is not overwritten without `--force`.
+- HTTPS only; `--allow-insecure-localhost` permits `http://` for loopback hosts. Cross-origin
+  redirects, oversized (> 256 KiB) and wrong-content-type responses are refused.
+- `card` needs a remote server; for a stdio server pass `--from-card <url>`. `--no-live` skips the
+  live comparison, `--json` prints the card and the findings.
+
 ## Client verbs
 
 A server reference is a **registered name**, a **URL**, or **inline flags**

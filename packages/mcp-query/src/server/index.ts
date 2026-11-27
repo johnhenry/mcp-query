@@ -3,8 +3,8 @@
 
 export { authorize, denyDestructiveUnless, AuthorizationError } from "./authorize.js";
 export type { AuthzVerdict, AuthzRequest, AuthorizeOptions } from "./authorize.js";
-export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError } from "./gateway.js";
-export type { GatewayOptions, GatewayHandlerOptions } from "./gateway.js";
+export { createGateway, createGatewayHandler, GatewayUpstreamCapabilityError, interactionModeFor } from "./gateway.js";
+export type { GatewayOptions, GatewayHandlerOptions, InteractionMode, GatewayInteractions } from "./gateway.js";
 export { circuitBreaker, CircuitOpenError } from "./circuitBreaker.js";
 export type { CircuitOptions, CircuitBreaker } from "./circuitBreaker.js";
 export { rateLimit } from "./rateLimit.js";

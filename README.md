@@ -42,6 +42,7 @@ and they stack:
 - [How they relate](#how-they-relate)
 - [Cross-package examples](#cross-package-examples)
 - [The `mcp-query` CLI](#the-mcp-query-cli)
+- [Discovery](#discovery-server-cards-and-ai-catalog)
 - [Develop](#develop)
 - [Status](#status)
 - [Adding a new package](#adding-a-new-package)
@@ -187,6 +188,34 @@ mcp-query contract snapshot everything --out api.json   ·   mcp-query gate ./ga
 
 `.mcp.json`/`mcpServers` configs from Claude, Cursor, and VS Code are read natively (no secrets
 stored — OAuth lives in `~/.mcp-query/oauth/`). The individual `mcp-*` bins still work standalone.
+
+## Discovery: Server Cards and AI Catalog
+
+Add a server from a URL or a domain instead of copying endpoints by hand. A
+[Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (SEP-2127, beta) is a
+small JSON document with a server's identity, remote endpoints and supported protocol versions;
+an [AI Catalog](https://github.com/Agent-Card/ai-catalog) at `/.well-known/ai-catalog.json`
+lists the cards a domain publishes.
+
+```bash
+mcp-query add weather --from-card https://example.com/mcp/server-card   # one card
+mcp-query add --from-domain example.com                                 # list what the domain advertises
+mcp-query add weather --from-domain example.com                         # add one (or --pick <identifier>)
+mcp-query card weather                                                  # print the card, flag disagreement with the live server
+```
+
+```ts
+import { discoverFromDomain, fetchServerCard } from "@johnhenry/mcp-query/discovery";
+const { entries } = await discoverFromDomain("example.com"); // validated, untrusted display data
+```
+
+Cards are advisory, never authoritative: nothing is added unless you name one entry, `add` never
+prompts (CI-safe), and `card` compares the card with the live server's negotiated values, where
+the live values win. Fetches are HTTPS only (loopback http needs `--allow-insecure-localhost`),
+size-capped, time-limited, refuse cross-origin redirects, and check the content type. Card text is
+stripped of terminal escapes before it is printed. A card never contains tools or capabilities, so
+those still come from the live server. Browsers need the card host to send CORS headers
+(`Access-Control-Allow-Origin`), as the spec requires of hosted cards.
 
 ## Develop
 
