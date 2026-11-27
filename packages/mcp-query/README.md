@@ -281,7 +281,9 @@ entity tags · structured output + annotation helpers · human-in-the-loop broke
 elicitation, trust policy, audit) · Chrome built-in AI sampling · codegen + typed hooks ·
 ping · completion · dynamic add/remove server · read retry · devtools · raw JSON-RPC message
 log · manual (human-as-model) sampling · OAuth-debug recorder · `mcp-query-inspect` CLI +
-per-request timeouts. Full vitest suite green — run `npm test` for the current count.
+per-request timeouts · Skills over MCP (`listSkills` / `getSkill` / `readSkillFile`, SDK-verified,
+cached, `useSkills` / `useSkill`; needs SDK >= 2.4.0, see [docs/api.md](./docs/api.md#skills-over-mcp-iomodelcontextprotocolskills-sep-2640)).
+Full vitest suite green — run `npm test` for the current count.
 
 ## File map
 
