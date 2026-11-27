@@ -117,9 +117,35 @@ point (`src/schema.ts`):
 | Input type narrowed (`number`→`integer`, enum shrinks, base→enum) | **breaking** |
 | **Output** field removed, or a produced type widened (`integer`→`number`) | **breaking** |
 | Tool gains `destructiveHint`, or loses `readOnlyHint` | **breaking** (policy-relevant) |
+| Extension **removed**, or its `revision` changed | **breaking** |
+| Protocol version **dropped** from `server/discover`'s `supportedVersions` | **breaking** |
+| Server capability removed, or `listChanged` / `subscribe` no longer advertised | **breaking** |
+| Event type removed, `payloadSchema` narrowed (output variance), or a delivery mode removed | **breaking** |
+| Skill removed | **breaking** |
 | New tool / resource / prompt | compatible |
+| Extension / capability / protocol version added; tool `title` / `icons` / `_meta` changed | compatible |
+| A skill's file digest changed, or a file was added/removed (content under a stable URI) | **content drift** (own class; reported, never fails `verify`) |
 | New **optional** input arg; output gains a field | compatible |
 | Input widened (enum grows, `integer`→`number`); description changes | compatible |
+
+## Contract format v2
+
+`snapshot` now writes `"version": 2`. On top of v1's tools / resources / templates / prompts it captures:
+
+- `capabilities` and `extensions` (`capabilities.extensions`, each with its `revision` when the server sends one);
+- `protocol`: the era (`modern` / `legacy`), the negotiated version and, on a 2026-07-28 connection, the
+  `supportedVersions` from `server/discover`;
+- per tool: `title`, `icons`, `_meta`;
+- `cacheHints`: the `ttlMs` / `cacheScope` seen on `server/discover` and each list call (SEP-2549);
+- `skills` and `events` when the server advertises `io.modelcontextprotocol/skills` / `io.modelcontextprotocol/events`.
+  These are extension methods outside the SDK's typed API, so they are fetched with a raw `skills/list` /
+  `events/list` request, only when the extension is advertised, and any failure just leaves the field out. Nothing
+  here needs an SDK newer than 2.0.0, and the SDK getters used for `protocol` are read defensively.
+
+v1 contracts keep working: every reader (`verify`, `diff`, `mock`, lint, docs) goes through `upgradeContract`, which
+bumps `version` and leaves the v2-only fields absent. **Absent means "not captured"**, so diffing a v1 pin against a
+live v2 capture reports none of them as changes; re-run `snapshot` to start pinning them. A file with any other
+`version` is rejected with a clear error.
 
 ## Consumer-driven contracts
 

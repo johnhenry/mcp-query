@@ -10,7 +10,7 @@
 // error, or warnings over --max-warnings.
 
 import { readFile } from "node:fs/promises";
-import { captureFrom, resolveConnect, rejectUnknownFlags, type Contract } from "../../mcp-contract/src/index.js";
+import { captureFrom, resolveConnect, rejectUnknownFlags, upgradeContract, type Contract } from "../../mcp-contract/src/index.js";
 import { lintContract, type LintOptions } from "./lint.js";
 import { formatLint } from "./report.js";
 import { RULES, type Severity } from "./rules.js";
@@ -29,7 +29,7 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; headers: st
 }
 
 async function loadContract(flags: Record<string, string>, headers: string[]): Promise<Contract> {
-  if (flags.contract) return JSON.parse(await readFile(flags.contract, "utf8")) as Contract;
+  if (flags.contract) return upgradeContract(JSON.parse(await readFile(flags.contract, "utf8"))); // reads v1 and v2
   return captureFrom({ ...resolveConnect(flags, headers), clientName: "mcp-lint" });
 }
 
