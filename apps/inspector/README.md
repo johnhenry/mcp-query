@@ -35,6 +35,34 @@ npm run dev -w @mcp-query/inspector
 Open the printed URL (the `proxyToken` authorizes the browser↔proxy WebSocket). Then add a
 server — e.g. stdio `npx` `-y @modelcontextprotocol/server-everything`, or an HTTP/SSE URL.
 
+### The proxy and `PROXY_ALLOW_ANY` (read this)
+
+The proxy is [`apps/shared/src/proxy-cli.ts`](../shared/src/proxy-cli.ts), the same hardened bridge the
+other apps use. It binds `127.0.0.1` only, requires the per-run token, requires an `Origin` header,
+and accepts only loopback origins (`localhost`, `127.0.0.1`, `[::1]`). **It spawns nothing unless the
+target matches an allowlist.**
+
+The inspector is a debugger: you type an arbitrary server command (`npx -y …`, `node ./my-server.js`)
+and it is spawned on your machine. So `npm run dev` (script `dev:proxy`) sets **`PROXY_ALLOW_ANY=1`**,
+the named opt-in that lets any holder of the token run **any local command**, and the proxy prints a
+warning at startup. What that means in practice: anything that gets the token (it is in the printed URL,
+so do not paste that URL into shared terminals, CI logs or screenshots) can execute code as you. The
+opt-in is set in the inspector's dev script only; nothing else turns it on.
+
+To run restricted to an allowlist instead:
+
+```bash
+npm run dev:restricted -w @mcp-query/inspector   # same as dev, without PROXY_ALLOW_ANY
+```
+
+Only targets matching [`proxy-allow.json`](proxy-allow.json) can then be connected. It ships with one
+entry, the bundled demo server (`npx tsx fixtures/mcp-app-demo.ts`, used by **+ demo MCP App server**),
+so that button works with or without the opt-in. Add your own rules to that file (exact `command`, exact
+`args` with optional `{ "endsWith": … }` / `{ "any": true }` items, `allowEnv` to permit `env`; http/sse
+rules match `url` exactly), or point `PROXY_ALLOW_FILE` at another file. Rule format and protocol:
+[`ws-stdio-bridge.md`](../../packages/mcp-query/docs/ws-stdio-bridge.md). The MCP Apps sandbox proxy
+(`sandbox/`, below) is a separate, unchanged component.
+
 ### MCP Apps (the Apps tab)
 
 The client is built with `extensions: mcpAppsExtensions()`, so servers see `io.modelcontextprotocol/ui`.
@@ -64,8 +92,8 @@ and `?sandboxPort=` (inspector URL) if 5174 is taken.
 ## Architecture
 
 ```
-Browser (Vite SPA, Web Components)                 Node proxy (server/proxy.ts)
-  mcp-query MCPClient                                bearer token · localhost-only · Origin check
+Browser (Vite SPA, Web Components)                 Node proxy (apps/shared proxy-cli)
+  mcp-query MCPClient                                bearer token · loopback bind · Origin check · target allowlist
    └─ WebSocketProxyTransport  ── ws ──▶  relays JSON-RPC frames ──▶  stdio / Streamable HTTP / SSE
 ```
 
@@ -73,7 +101,7 @@ The **proxy** is the one piece mcp-query deliberately leaves out (a browser can'
 stdio processes). It bridges the browser to stdio/HTTP/SSE MCP servers and is the only
 trusted local component.
 
-- `server/proxy.ts` — the WebSocket↔transport bridge.
+- `../shared/src/proxy.ts` + `proxy-cli.ts` — the WebSocket↔transport bridge (shared with the other apps); `proxy-allow.json` — this app's allowlist.
 - `src/lib/transport.ts` — `WebSocketProxyTransport` (SDK `Transport` over the proxy).
 - `src/lib/reactive.ts` — the `Reactive` base element + store-tracking.
 - `src/lib/store.ts` — the single `MCPClient`, `InteractionBroker`, `DevtoolsHub`, active-server signal.
@@ -96,7 +124,7 @@ trusted local component.
   server + token endpoint to allow this origin via CORS.)
 - **Phase 4 (done):** PWA (web app manifest + app-shell service worker, registered in prod),
   a11y pass (semantic HTML, roles, `aria-live`, skip link, focus-visible, reduced-motion),
-  CSP-friendly markup, and app tests (`npm test` — schema-form + reactive base).
+  CSP-friendly markup, and app tests (`npm test` — schema-form, reactive base, proxy defaults).
 
 ### Production CSP
 
